@@ -1,5 +1,372 @@
-﻿<template>
-  <div class="sidebar"></div>
+<script setup lang="ts">
+import { ref, computed } from 'vue'
+import { RouterLink, useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/authStore'
+import { ROLES } from '@/constants/roles'
+import {
+  MessageCircle, FileText, MessagesSquare, Trophy,
+  Search, BookOpen, Library, HelpCircle,
+  LayoutDashboard, Building2, ShieldCheck, Settings,
+  Bell, LogOut, Star,
+} from '@lucide/vue'
+import NotificationPanel from './NotificationPanel.vue'
+import PointPanel from './PointPanel.vue'
+
+const auth = useAuthStore()
+const router = useRouter()
+
+const showNotification = ref(false)
+const showPoint = ref(false)
+
+function toggleNotification() {
+  showNotification.value = !showNotification.value
+  if (showNotification.value) showPoint.value = false
+}
+
+function togglePoint() {
+  showPoint.value = !showPoint.value
+  if (showPoint.value) showNotification.value = false
+}
+
+function goMyPage() {
+  router.push('/my')
+}
+
+function logout() {
+  auth.clearAuth()
+  router.push('/login')
+}
+
+const initials = computed(() =>
+  (auth.nickname ?? '?').slice(0, 1).toUpperCase()
+)
+</script>
+
+<template>
+  <aside class="sidebar">
+    <!-- 로고 + 알림 -->
+    <div class="sidebar-top">
+      <div class="sidebar-logo">
+        <svg width="30" height="34" viewBox="0 0 56 64" xmlns="http://www.w3.org/2000/svg" class="logo-svg">
+          <polygon points="28,2 54,17 28,31 2,17" fill="#bab4ab"/>
+          <polygon points="2,17 28,31 28,62 2,48" fill="#9e9890"/>
+          <polygon points="4,21 25,31 25,55 4,45" fill="white"/>
+          <polygon points="28,31 54,17 54,48 28,62" fill="#88817a"/>
+        </svg>
+        <span class="logo-text">Workipedia</span>
+      </div>
+      <button class="bell-btn" @click="toggleNotification">
+        <Bell :size="18" />
+      </button>
+    </div>
+
+    <!-- 메인 메뉴 -->
+    <nav class="sidebar-nav">
+      <RouterLink to="/knowit" class="nav-item">
+        <MessageCircle :size="16" /> 노잇 (Know-it)
+      </RouterLink>
+      <RouterLink to="/worki" class="nav-item">
+        <FileText :size="16" /> 워키 게시판
+      </RouterLink>
+      <RouterLink to="/chat" class="nav-item">
+        <MessagesSquare :size="16" /> 채팅
+      </RouterLink>
+      <RouterLink to="/leaderboard" class="nav-item">
+        <Trophy :size="16" /> 리더보드
+      </RouterLink>
+
+      <!-- 문서 섹션 -->
+      <div class="nav-section-label">문서</div>
+      <RouterLink to="/search" class="nav-item nav-item-secondary">
+        <Search :size="16" /> 통합 검색
+      </RouterLink>
+      <RouterLink to="/manuals" class="nav-item nav-item-secondary">
+        <BookOpen :size="16" /> 매뉴얼
+      </RouterLink>
+      <RouterLink to="/knowledge" class="nav-item nav-item-secondary">
+        <Library :size="16" /> 지식화 게시판
+      </RouterLink>
+      <RouterLink to="/faq" class="nav-item nav-item-secondary">
+        <HelpCircle :size="16" /> FAQ
+      </RouterLink>
+
+      <!-- 관리 섹션 -->
+      <template v-if="auth.role === ROLES.TEAM_ADMIN || auth.role === ROLES.SYSTEM_ADMIN">
+        <div class="nav-section-label">관리</div>
+        <RouterLink to="/dashboard/team" class="nav-item nav-item-secondary">
+          <LayoutDashboard :size="16" /> 부서 대시보드
+        </RouterLink>
+        <RouterLink to="/dashboard/department" class="nav-item nav-item-secondary">
+          <Building2 :size="16" /> 부서 관리자 대시보드
+        </RouterLink>
+        <template v-if="auth.role === ROLES.SYSTEM_ADMIN">
+          <RouterLink to="/dashboard/admin" class="nav-item nav-item-secondary">
+            <ShieldCheck :size="16" /> 관리자 대시보드
+          </RouterLink>
+          <RouterLink to="/admin/settings" class="nav-item nav-item-secondary">
+            <Settings :size="16" /> 관리자 설정
+          </RouterLink>
+        </template>
+      </template>
+    </nav>
+
+    <!-- 하단: 로그아웃 + 유저 카드 -->
+    <div class="sidebar-footer">
+      <button class="logout-btn" @click="logout">
+        <LogOut :size="15" /> 로그아웃
+      </button>
+      <hr class="footer-divider" />
+      <div class="user-card" @click="goMyPage">
+        <div class="user-avatar">{{ initials }}</div>
+        <div class="user-info">
+          <span class="user-name">{{ auth.nickname ?? '사용자' }}</span>
+          <span class="user-team">{{ auth.team ?? '' }}</span>
+        </div>
+        <Star :size="16" class="user-star" @click.stop="togglePoint" />
+      </div>
+    </div>
+  </aside>
+
+  <NotificationPanel v-if="showNotification" @close="showNotification = false" />
+  <PointPanel v-if="showPoint" @close="showPoint = false" />
 </template>
 
-<script setup lang="ts"></script>
+<style scoped>
+.sidebar {
+  width: var(--sidebar-width);
+  min-height: 100vh;
+  position: relative;
+  color: #cbd5e1;
+  display: flex;
+  flex-direction: column;
+  padding: 1.25rem 0.75rem;
+  flex-shrink: 0;
+  overflow: hidden;
+  background:
+    linear-gradient(160deg, #0d1b36 0%, #1a2744 40%, #111d33 70%, #0f1a2e 100%);
+}
+
+/* 마블 베인 레이어 1 */
+.sidebar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 15% 25%, rgba(99, 102, 241, 0.12) 0%, transparent 55%),
+    radial-gradient(ellipse at 85% 65%, rgba(59, 130, 246, 0.10) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 90%, rgba(139, 92, 246, 0.07) 0%, transparent 45%);
+  pointer-events: none;
+}
+
+/* 마블 베인 레이어 2 — 사선 결 */
+.sidebar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(125deg, transparent 25%, rgba(255,255,255,0.025) 30%, transparent 35%),
+    linear-gradient(55deg,  transparent 45%, rgba(99, 102, 241, 0.05) 50%, transparent 55%),
+    linear-gradient(170deg, transparent 60%, rgba(59, 130, 246, 0.04) 65%, transparent 70%);
+  pointer-events: none;
+}
+
+/* 상단 로고 */
+.sidebar-top {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+  padding: 0 0.25rem;
+  padding-left: 1.1rem
+}
+
+.sidebar-logo {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.logo-svg {
+  flex-shrink: 0;
+  filter: drop-shadow(0 0 6px rgba(99, 102, 241, 0.3));
+}
+
+.logo-text {
+  font-size: 1.25rem;
+  font-weight: 700;
+  background: linear-gradient(90deg, #e2e8f0, #a5b4fc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.bell-btn {
+  position: relative;
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  transition: color 0.15s, transform 0.15s;
+}
+
+.bell-btn:hover {
+  color: #c7d2fe;
+  transform: scale(1.2);
+}
+
+/* 네비게이션 */
+.sidebar-nav {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 1.1rem;
+  border-radius: 8px;
+  color: #94a3b8;
+  text-decoration: none;
+  font-size: 0.875rem;
+  transition: background 0.18s, color 0.18s;
+}
+
+.nav-item:hover {
+  background: rgba(99, 102, 241, 0.12);
+  color: #c7d2fe;
+}
+
+.nav-item.router-link-active {
+  background: rgba(255, 255, 255, 0.92);
+  color: #1e293b;
+  font-weight: 600;
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.12);
+}
+
+.nav-item-secondary {
+  color: #7a8fa8;
+}
+
+.nav-item-secondary.router-link-active {
+  color: #1e293b;
+}
+
+.nav-section-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: rgba(148, 163, 184, 0.45);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.85rem 1.1rem 0.3rem;
+}
+
+/* 하단 */
+.sidebar-footer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+}
+
+.footer-divider {
+  border: none;
+  border-top: 1px solid rgba(99, 102, 241, 0.15);
+  margin: 0.75rem 0;
+}
+
+.logout-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: none;
+  border: none;
+  color: #64748b;
+  font-size: 0.875rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 7px;
+  cursor: pointer;
+  width: 100%;
+  margin-bottom: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.logout-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+}
+
+.user-card {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.9rem 0.75rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(8px);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.user-card:hover {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.2);
+}
+
+.user-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.35);
+}
+
+.user-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.user-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #e2e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-team {
+  font-size: 0.7rem;
+  color: #64748b;
+}
+
+.user-star {
+  color: #fbbf24;
+  flex-shrink: 0;
+  transition: color 0.15s, transform 0.15s;
+}
+
+.user-star:hover {
+  color: #f59e0b;
+  transform: scale(1.2);
+}
+</style>
