@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { sendSignupCode, verifySignupCode, signup } from '@/api/authApi'
 import { getDepartments, type Department } from '@/api/adminApi'
+import type { AxiosError } from 'axios'
 
 const router = useRouter()
 
@@ -58,7 +59,8 @@ async function handleSendCode() {
   try {
     await sendSignupCode(email.value)
     codeSent.value = true
-  } catch (err: any) {
+  } catch (e) {
+    const err = e as AxiosError<{ message: string }>
     errors.value.email = err.response?.data?.message ?? '인증코드 발송에 실패했습니다.'
   } finally {
     isSendingCode.value = false
@@ -76,7 +78,8 @@ async function handleVerifyCode() {
   try {
     await verifySignupCode(email.value, verificationCode.value)
     codeVerified.value = true
-  } catch (err: any) {
+  } catch (e) {
+    const err = e as AxiosError<{ message: string }>
     codeError.value = err.response?.data?.message ?? '인증코드가 올바르지 않습니다.'
   } finally {
     isVerifyingCode.value = false
@@ -133,7 +136,8 @@ async function handleSignup() {
       password: password.value,
     })
     router.push('/login')
-  } catch (err: any) {
+  } catch (e) {
+    const err = e as AxiosError<{ message: string }>
     serverError.value = err.response?.data?.message ?? '회원가입에 실패했습니다.'
   } finally {
     isLoading.value = false
