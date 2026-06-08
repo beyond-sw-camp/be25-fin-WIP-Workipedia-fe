@@ -19,11 +19,13 @@ import Header from './Header.vue'
 <style scoped>
 .app-layout {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .app-main {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -31,8 +33,7 @@ import Header from './Header.vue'
 
 .app-content {
   flex: 1;
-  padding: 2rem;
   overflow-y: auto;
-  background: #f8fafc;
+  background: var(--bg-soft);
 }
 </style>
