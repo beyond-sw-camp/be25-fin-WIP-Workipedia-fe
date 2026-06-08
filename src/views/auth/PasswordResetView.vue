@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { CheckCircle } from '@lucide/vue'
 import { sendPasswordResetCode, verifyPasswordResetCode, resetPassword } from '@/api/authApi'
+import type { AxiosError } from 'axios'
 
 const router = useRouter()
 
@@ -41,8 +42,9 @@ async function handleSendCode() {
   try {
     await sendPasswordResetCode({ employeeId: employeeId.value, email: email.value })
     step.value = 'verify-email'
-  } catch (e: any) {
-    errors.value = { email: e.response?.data?.message ?? '등록되지 않은 정보이거나 오류가 발생했습니다.' }
+  } catch (e) {
+    const err = e as AxiosError<{ message: string }>
+    errors.value = { email: err.response?.data?.message ?? '등록되지 않은 정보이거나 오류가 발생했습니다.' }
   } finally {
     loading.value = false
   }
@@ -55,8 +57,9 @@ async function handleVerifyCode() {
   try {
     await verifyPasswordResetCode({ email: email.value, code: code.value })
     step.value = 'new-password'
-  } catch (e: any) {
-    errors.value = { code: e.response?.data?.message ?? '인증번호가 올바르지 않습니다.' }
+  } catch (e) {
+    const err = e as AxiosError<{ message: string }>
+    errors.value = { code: err.response?.data?.message ?? '인증번호가 올바르지 않습니다.' }
   } finally {
     loading.value = false
   }
@@ -73,8 +76,9 @@ async function handleResetPassword() {
   try {
     await resetPassword({ email: email.value, code: code.value, newPassword: newPassword.value })
     step.value = 'done'
-  } catch (e: any) {
-    errors.value = { newPassword: e.response?.data?.message ?? '비밀번호 재설정에 실패했습니다. 다시 시도해 주세요.' }
+  } catch (e) {
+    const err = e as AxiosError<{ message: string }>
+    errors.value = { newPassword: err.response?.data?.message ?? '비밀번호 재설정에 실패했습니다. 다시 시도해 주세요.' }
   } finally {
     loading.value = false
   }
@@ -86,8 +90,9 @@ async function resendCode() {
   loading.value = true
   try {
     await sendPasswordResetCode({ employeeId: employeeId.value, email: email.value })
-  } catch (e: any) {
-    errors.value = { code: e.response?.data?.message ?? '재발송에 실패했습니다.' }
+  } catch (e) {
+    const err = e as AxiosError<{ message: string }>
+    errors.value = { code: err.response?.data?.message ?? '재발송에 실패했습니다.' }
   } finally {
     loading.value = false
   }
