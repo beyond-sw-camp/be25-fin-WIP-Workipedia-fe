@@ -35,3 +35,7 @@ export function verifyPasswordResetCode(data: { email: string; code: string }) {
 export function resetPassword(data: { email: string; code: string; newPassword: string }) {
   return http.patch<ApiResponse<null>>('/auth/password-reset', data)
 }
+
+export function logout() {
+  return http.post<ApiResponse<null>>('/auth/logout')
+}
