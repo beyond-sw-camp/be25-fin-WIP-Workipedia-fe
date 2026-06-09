@@ -23,3 +23,19 @@ export function verifySignupCode(email: string, code: string) {
 export function signup(data: SignupRequest) {
   return http.post<ApiResponse<SignupData>>('/auth/signup', data)
 }
+
+export function sendPasswordResetCode(data: { employeeId: string; email: string }) {
+  return http.post<ApiResponse<null>>('/auth/password-reset/code', data)
+}
+
+export function verifyPasswordResetCode(data: { email: string; code: string }) {
+  return http.post<ApiResponse<null>>('/auth/password-reset/code/verify', data)
+}
+
+export function resetPassword(data: { email: string; code: string; newPassword: string }) {
+  return http.patch<ApiResponse<null>>('/auth/password-reset', data)
+}
+
+export function logout() {
+  return http.post<ApiResponse<null>>('/auth/logout')
+}
