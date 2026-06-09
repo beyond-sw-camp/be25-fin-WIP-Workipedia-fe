@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/authStore'
 const http = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL,
   timeout: 10000,
+  withCredentials: true,
 })
 
 http.interceptors.request.use((config) => {
@@ -27,3 +28,10 @@ http.interceptors.response.use(
 )
 
 export default http
+
+export interface ApiResponse<T> {
+  code: number
+  status: string
+  message: string
+  data: T
+}

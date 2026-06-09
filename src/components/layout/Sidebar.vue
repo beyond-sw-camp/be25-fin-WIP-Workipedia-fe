@@ -231,11 +231,11 @@ const initials = computed(() =>
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  padding: 0.5rem 1.1rem;
+  padding: 0.65rem 1.1rem;
   border-radius: 8px;
   color: #94a3b8;
   text-decoration: none;
-  font-size: 0.875rem;
+  font-size: 0.925rem;
   transition: background 0.18s, color 0.18s;
 }
 

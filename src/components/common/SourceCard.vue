@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { ArrowRight } from '@lucide/vue'
 
 export interface Source {
@@ -7,11 +8,17 @@ export interface Source {
   cls: 'blue' | 'green' | 'gray'
   meta: string
   date?: string
-  body: string
+  body?: string   // API에 content snippet 필드 추가 시 채워짐
   link: string
+  url?: string    // 내부 라우트 경로 (예: /manuals/10)
 }
 
 const props = defineProps<{ source: Source }>()
+const router = useRouter()
+
+function navigateToSource() {
+  if (props.source.url) router.push(props.source.url)
+}
 
 const borderColor = computed(() => ({
   blue: '#cfe0ff', green: '#bfe9cf', gray: '#e5e7eb',
@@ -35,8 +42,8 @@ const badgeStyle = computed(() => ({
       <span class="source-meta">{{ source.meta }}</span>
       <span v-if="source.date" class="source-date">{{ source.date }}</span>
     </div>
-    <p class="source-body">{{ source.body }}</p>
-    <button class="source-link">
+    <p v-if="source.body" class="source-body">{{ source.body }}</p>
+    <button class="source-link" @click="navigateToSource">
       {{ source.link }} <ArrowRight :size="15" />
     </button>
   </div>
