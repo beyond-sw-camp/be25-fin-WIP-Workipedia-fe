@@ -90,6 +90,7 @@ export interface QuestionDetailResponse {
   status: QuestionStatus
   acceptedAnswerId: number | null
   viewCount: number
+  likeCount: number
   createdAt: string
   updatedAt: string
   answers: AnswerResponse[]

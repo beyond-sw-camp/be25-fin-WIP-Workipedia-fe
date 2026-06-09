@@ -25,6 +25,7 @@ const accepting = ref(false)
 // localStorage에 저장해 뒤로가기/새로고침 후에도 상태를 복원한다.
 // TODO: BE QuestionDetailResponse에 liked(+likeCount) 추가되면 응답값으로 대체.
 const liked = ref(false)
+const likeCount = ref(0)
 const likePending = ref(false)
 const LIKED_KEY = `worki:liked:${auth.userId ?? 'anon'}`
 
@@ -49,23 +50,27 @@ async function toggleLike() {
   likePending.value = true
   const prev = liked.value
   liked.value = !prev // 낙관적 업데이트
+  likeCount.value += prev ? -1 : 1 // 개수도 즉시 반영
   try {
     if (prev) await unlikeQuestion(questionId)
     else await likeQuestion(questionId)
     persistLiked(liked.value)
   } catch (e) {
     // 로컬 상태와 서버가 어긋난 경우 자기치유:
-    //  - like 했는데 409(이미 좋아요) → 좋아요 상태로 맞춤
-    //  - unlike 했는데 404(기록 없음) → 안 누른 상태로 맞춤
+    //  - like 했는데 409(이미 좋아요) → 이미 눌린 상태이므로 방금 더한 +1만 취소
+    //  - unlike 했는데 404(기록 없음) → 안 눌린 상태이므로 방금 뺀 -1만 취소
     const status = (e as AxiosError)?.response?.status
     if (!prev && status === 409) {
       liked.value = true
+      likeCount.value -= 1
       persistLiked(true)
     } else if (prev && status === 404) {
       liked.value = false
+      likeCount.value += 1
       persistLiked(false)
     } else {
       liked.value = prev // 그 외 오류는 원복
+      likeCount.value += prev ? 1 : -1
       error.value = '좋아요 처리에 실패했습니다.'
     }
   } finally {
@@ -118,6 +123,7 @@ async function load() {
     const res = await getQuestionDetail(questionId)
     question.value = res.data
     answers.value = res.data.answers
+    likeCount.value = res.data.likeCount ?? 0 // 서버 집계 개수로 초기화
   } catch {
     error.value = '질문을 불러오지 못했습니다.'
   } finally {
@@ -170,7 +176,7 @@ async function submitAnswer() {
         <p class="q-body">{{ question.content }}</p>
         <div class="q-footer">
           <button class="like-btn" :class="{ liked }" :disabled="likePending" @click="toggleLike">
-            <ThumbsUp :size="15" /> 좋아요
+            <ThumbsUp :size="15" /> 좋아요 {{ likeCount }}
           </button>
         </div>
       </div>
