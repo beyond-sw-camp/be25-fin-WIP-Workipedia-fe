@@ -1,48 +1,80 @@
 <script setup lang="ts">
-import { CheckCircle, XCircle } from '@lucide/vue'
-defineProps<{ title: string; sub?: string }>()
-defineEmits<{ close: [] }>()
+import { watch, onUnmounted } from 'vue'
+import { CheckCircle, X } from '@lucide/vue'
+
+const props = defineProps<{
+  modelValue: boolean
+  title: string
+  sub?: string
+  duration?: number
+}>()
+
+const emit = defineEmits<{
+  'update:modelValue': [value: boolean]
+}>()
+
+let timer: ReturnType<typeof setTimeout> | null = null
+
+watch(() => props.modelValue, (val) => {
+  if (val) {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => emit('update:modelValue', false), props.duration ?? 4000)
+  }
+})
+
+onUnmounted(() => {
+  if (timer) clearTimeout(timer)
+})
 </script>
 
 <template>
-  <div class="toast">
-    <CheckCircle :size="20" color="#1aa055" class="toast-icon" />
-    <div class="toast-body">
-      <div class="toast-title">{{ title }}</div>
-      <div v-if="sub" class="toast-sub">{{ sub }}</div>
-    </div>
-    <button class="toast-close" @click="$emit('close')">
-      <XCircle :size="18" />
-    </button>
-  </div>
+  <Teleport to="body">
+    <Transition name="toast">
+      <div v-if="modelValue" class="toast">
+        <CheckCircle :size="22" color="#22c55e" class="toast-icon" />
+        <div class="toast-body">
+          <div class="toast-title">{{ title }}</div>
+          <div v-if="sub" class="toast-sub">{{ sub }}</div>
+        </div>
+        <button class="toast-close" @click="emit('update:modelValue', false)">
+          <X :size="16" />
+        </button>
+      </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <style scoped>
 .toast {
   position: fixed;
-  top: 24px;
-  right: 24px;
-  z-index: 9999;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 400;
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  background: #fff;
-  border: 1px solid #bfe9cf;
-  border-radius: 14px;
-  padding: 16px 18px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  min-width: 280px;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-radius: 12px;
+  padding: 14px 20px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
+  min-width: 380px;
+  max-width: 520px;
 }
 .toast-icon { flex-shrink: 0; margin-top: 1px; }
 .toast-body { flex: 1; }
-.toast-title { font-weight: 700; font-size: 15px; color: #1f2430; }
-.toast-sub { font-size: 13.5px; color: #6b7280; margin-top: 3px; }
+.toast-title { font-weight: 700; font-size: 14px; color: #1f2430; }
+.toast-sub { font-size: 13px; color: #16a34a; margin-top: 3px; }
 .toast-close {
   background: none;
   border: none;
-  color: #9a9aa8;
+  color: #9ca3af;
   cursor: pointer;
   padding: 0;
   display: flex;
 }
+.toast-close:hover { color: #374151; }
+.toast-enter-active, .toast-leave-active { transition: opacity 0.25s, transform 0.25s; }
+.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateX(-50%) translateY(-8px); }
 </style>
