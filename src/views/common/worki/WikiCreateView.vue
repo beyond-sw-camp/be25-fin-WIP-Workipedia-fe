@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ChevronLeft, MessageCircle, Plus, X } from '@lucide/vue'
-import http from '@/api/index'
+import { createQuestion } from '@/api/workiApi'
 
 const router = useRouter()
 
@@ -31,12 +31,16 @@ async function submit() {
     error.value = '질문 제목을 입력해 주세요.'
     return
   }
+  if (!body.value.trim()) {
+    error.value = '질문 내용을 입력해 주세요.'
+    return
+  }
   submitting.value = true
   try {
-    await http.post('/worki', {
+    // BE QuestionCreateRequest 는 title, content 만 받는다. (tags 미지원)
+    await createQuestion({
       title: title.value,
       content: body.value,
-      tags: tags.value,
     })
     router.push('/worki')
   } catch {
