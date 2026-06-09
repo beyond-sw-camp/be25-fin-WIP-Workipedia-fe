@@ -9,7 +9,7 @@ interface ApiResponse<T> {
 }
 
 export function login(data: LoginRequest) {
-  return http.post<ApiResponse<LoginData>>('/auth/login', data)
+  return http.post<LoginData>('/auth/login', data)
 }
 
 export function sendSignupCode(email: string) {
