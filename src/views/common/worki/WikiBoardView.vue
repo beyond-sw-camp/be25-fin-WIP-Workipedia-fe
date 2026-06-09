@@ -2,7 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Search, MessageCircle, CheckCircle2, Clock } from '@lucide/vue'
-import { getQuestions, searchQuestions } from '@/api/workiApi'
+import { getQuestions, searchQuestions, autocompleteQuestions } from '@/api/workiApi'
 import type { QuestionStatus } from '@/types/worki'
 
 const router = useRouter()
@@ -26,11 +26,15 @@ const hasNext = ref(false) // 다음 페이지 존재 여부
 const loading = ref(false) // 초기/검색 교체 로드
 const loadingMore = ref(false) // 무한스크롤 추가 로드
 const error = ref('')
+const suggestions = ref<string[]>([]) // 자동완성 추천 목록을 담을 상자
+const showSuggestions = ref(false) // 드롭다운 표시 여부
 
 // 활성 검색어. 2자 이상일 때만 채워지고, 비어 있으면 전체 목록 모드.
 const activeKeyword = ref('')
 // 빠르게 타이핑할 때 늦게 도착한 옛 응답이 최신 결과를 덮어쓰지 않도록 하는 토큰.
 let seq = 0
+// 추천어를 클릭해 query를 바꿀 때, watch가 다시 자동완성을 띄우지 않도록 한 번 건너뛰는 플래그.
+let suppressNext = false
 
 function isSolved(status: QuestionStatus) {
   return status === 'ANSWERED'
@@ -78,14 +82,55 @@ function loadMore() {
   fetchPage(page.value + 1, true)
 }
 
+// 자동완성 추천어 조회. 입력이 있으면 BE에서 추천 목록을 받아 드롭다운에 채운다.
+async function loadSuggestions(keyword: string) {
+  if (!keyword) {
+    suggestions.value = []
+    showSuggestions.value = false
+    return
+  }
+  try {
+    const res = await autocompleteQuestions(keyword)
+    suggestions.value = res.data
+    showSuggestions.value = res.data.length > 0
+  } catch {
+    suggestions.value = []
+    showSuggestions.value = false
+  }
+}
+
+// 추천어 클릭 → 그 단어로 즉시 검색하고 드롭다운을 닫는다.
+function selectSuggestion(word: string) {
+  suppressNext = true // 아래 query 변경으로 watch가 다시 자동완성을 띄우지 않게
+  query.value = word
+  showSuggestions.value = false
+  suggestions.value = []
+  clearTimeout(debounce)
+  activeKeyword.value = word.length >= 2 ? word : ''
+  fetchPage(0, false)
+}
+
+// 클릭이 먼저 처리되도록 약간 늦춰 드롭다운을 닫는다(blur 시).
+function hideSuggestionsSoon() {
+  setTimeout(() => {
+    showSuggestions.value = false
+  }, 150)
+}
+
 // 입력이 멈추면(0.3초) 활성 검색어를 갱신하고 첫 페이지부터 다시 로드. 2자 미만이면 전체 목록.
+// 같은 디바운스에서 자동완성 추천어도 함께 갱신한다.
 let debounce: ReturnType<typeof setTimeout>
 watch(query, () => {
+  if (suppressNext) {
+    suppressNext = false
+    return
+  }
   clearTimeout(debounce)
   debounce = setTimeout(() => {
     const kw = query.value.trim()
     activeKeyword.value = kw.length >= 2 ? kw : ''
     fetchPage(0, false)
+    loadSuggestions(kw)
   }, 300)
 })
 
@@ -145,9 +190,23 @@ const filtered = computed(() => {
         </button>
       </div>
 
-      <div class="search-bar" style="flex: 1; max-width: 380px;">
+      <div class="search-bar" style="flex: 1; max-width: 380px; position: relative;">
         <Search :size="16" />
-        <input v-model="query" placeholder="질문 검색" />
+        <input
+          v-model="query"
+          placeholder="질문 검색"
+          @focus="showSuggestions = suggestions.length > 0"
+          @blur="hideSuggestionsSoon"
+        />
+        <ul v-if="showSuggestions && suggestions.length" class="autocomplete">
+          <li
+            v-for="word in suggestions"
+            :key="word"
+            @mousedown.prevent="selectSuggestion(word)"
+          >
+            <Search :size="13" /> {{ word }}
+          </li>
+        </ul>
       </div>
     </div>
 
@@ -213,4 +272,32 @@ const filtered = computed(() => {
 .stat strong { font-size: 18px; font-weight: 800; color: #1f2430; }
 .scroll-sentinel { height: 1px; }
 .load-more { text-align: center; padding: 16px; font-size: 13px; color: #aeb2bb; }
+
+.autocomplete {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  max-height: 280px;
+  overflow-y: auto;
+}
+.autocomplete li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 7px;
+  font-size: 14px;
+  color: #1f2430;
+  cursor: pointer;
+}
+.autocomplete li:hover { background: #f3f0ff; color: #7c3aed; }
 </style>
