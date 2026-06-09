@@ -146,7 +146,7 @@ onMounted(() => {
   fetchPage(0, false)
   observer = new IntersectionObserver(
     (entries) => {
-      if (entries[0].isIntersecting) loadMore()
+      if (entries[0]?.isIntersecting) loadMore()
     },
     { rootMargin: '300px' }, // 바닥 300px 전에 미리 로드
   )

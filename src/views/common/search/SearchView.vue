@@ -1,51 +1,114 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Search, Ticket, MessageCircle, BookOpen, Library } from '@lucide/vue'
+import { Search, MessageCircle } from '@lucide/vue'
+import { searchQuestions, autocompleteQuestions } from '@/api/workiApi'
+import type { QuestionStatus } from '@/types/worki'
 
 const router = useRouter()
 const query = ref('')
-const activeTab = ref('전체')
 
-const tabs = ['전체', '티켓', '워키', '매뉴얼', '지식 베이스']
+// BE 통합 검색은 현재 워키 질문만 지원한다(search/worki). 매뉴얼·티켓·지식 검색은 BE 미구현.
+const PAGE_SIZE = 20
 
 interface Result {
-  id: number
-  kind: '티켓' | '워키' | '매뉴얼' | '지식 베이스'
+  questionId: number
   title: string
-  snippet: string
-  meta: string
-  path: string
+  status: QuestionStatus
+  viewCount: number
+  createdAt: string
 }
 
-const mockResults: Result[] = [
-  { id: 1, kind: '워키', title: '연차 신청은 며칠 전까지 해야 하나요?', snippet: '연차는 사용일 기준 72시간(3일) 전까지...', meta: '인사팀 · 2025.05.15', path: '/worki/1' },
-  { id: 2, kind: '매뉴얼', title: '연차·휴가 사용 가이드', snippet: '신청 기한, HR 시스템 경로, 반차 신청까지...', meta: '인사팀 · 2025.03.10', path: '/manuals/1' },
-  { id: 3, kind: '지식 베이스', title: '연차 사용 기준 완벽 정리', snippet: '신청 기한, HR 시스템 경로, 반차 신청까지 한 번에...', meta: '인사팀 · 2025.05.10', path: '/knowledge/1' },
-  { id: 4, kind: '티켓', title: '노트북 화면 출력 불가', snippet: 'IT지원팀에서 처리 중입니다...', meta: 'IT지원팀 · 처리중 · 2025.05.20', path: '/tickets/101' },
-]
+const results = ref<Result[]>([])
+const loading = ref(false)
+const error = ref('')
+const searched = ref(false) // 한 번이라도 검색을 시도했는지
+const suggestions = ref<string[]>([])
+const showSuggestions = ref(false)
 
-const kindIcon: Record<string, unknown> = {
-  티켓: Ticket,
-  워키: MessageCircle,
-  매뉴얼: BookOpen,
-  '지식 베이스': Library,
+// 빠른 타이핑 시 늦게 도착한 응답이 최신 결과를 덮어쓰지 않도록 하는 토큰.
+let seq = 0
+let suppressNext = false
+
+const statusLabel: Record<QuestionStatus, string> = {
+  WAITING: '답변 대기',
+  IN_PROGRESS: '답변 진행 중',
+  ANSWERED: '해결됨',
+  TICKETED: '티켓 전환',
+  DELETED: '삭제됨',
 }
 
-const kindColor: Record<string, string> = {
-  티켓: '#ff6900',
-  워키: '#7c3aed',
-  매뉴얼: '#ff6900',
-  '지식 베이스': '#2b7fff',
+function formatDate(iso: string) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
 }
 
-const results = computed(() => {
-  if (!query.value.trim()) return []
-  let list = mockResults.filter(r =>
-    r.title.includes(query.value.trim()) || r.snippet.includes(query.value.trim())
-  )
-  if (activeTab.value !== '전체') list = list.filter(r => r.kind === activeTab.value)
-  return list
+async function runSearch(keyword: string) {
+  // BE는 keyword 2~100자만 허용.
+  if (keyword.length < 2) {
+    results.value = []
+    searched.value = false
+    return
+  }
+  const mySeq = ++seq
+  loading.value = true
+  error.value = ''
+  try {
+    const res = await searchQuestions(keyword, { page: 0, size: PAGE_SIZE })
+    if (mySeq !== seq) return
+    results.value = res.data.content
+    searched.value = true
+  } catch {
+    if (mySeq === seq) error.value = '검색에 실패했습니다.'
+  } finally {
+    if (mySeq === seq) loading.value = false
+  }
+}
+
+async function loadSuggestions(keyword: string) {
+  if (!keyword) {
+    suggestions.value = []
+    showSuggestions.value = false
+    return
+  }
+  try {
+    const res = await autocompleteQuestions(keyword)
+    suggestions.value = res.data
+    showSuggestions.value = res.data.length > 0
+  } catch {
+    suggestions.value = []
+    showSuggestions.value = false
+  }
+}
+
+function selectSuggestion(word: string) {
+  suppressNext = true
+  query.value = word
+  showSuggestions.value = false
+  suggestions.value = []
+  clearTimeout(debounce)
+  runSearch(word.trim())
+}
+
+function hideSuggestionsSoon() {
+  setTimeout(() => {
+    showSuggestions.value = false
+  }, 150)
+}
+
+let debounce: ReturnType<typeof setTimeout>
+watch(query, () => {
+  if (suppressNext) {
+    suppressNext = false
+    return
+  }
+  clearTimeout(debounce)
+  debounce = setTimeout(() => {
+    const kw = query.value.trim()
+    runSearch(kw)
+    loadSuggestions(kw)
+  }, 300)
 })
 </script>
 
@@ -56,58 +119,92 @@ const results = computed(() => {
         <Search :size="28" color="#1f2430" />
         통합 검색
       </h1>
+      <p class="page-sub">워키 질문을 키워드로 검색하세요 (2자 이상)</p>
     </div>
 
-    <div class="search-bar" style="max-width: 620px; margin-bottom: 20px;">
+    <div class="search-bar" style="max-width: 620px; margin-bottom: 24px; position: relative;">
       <Search :size="18" />
-      <input v-model="query" placeholder="검색어를 입력하세요" autofocus />
+      <input
+        v-model="query"
+        placeholder="검색어를 입력하세요"
+        autofocus
+        @focus="showSuggestions = suggestions.length > 0"
+        @blur="hideSuggestionsSoon"
+      />
+      <ul v-if="showSuggestions && suggestions.length" class="autocomplete">
+        <li
+          v-for="word in suggestions"
+          :key="word"
+          @mousedown.prevent="selectSuggestion(word)"
+        >
+          <Search :size="13" /> {{ word }}
+        </li>
+      </ul>
     </div>
 
-    <div class="tag-bar">
-      <button
-        v-for="t in tabs"
-        :key="t"
-        class="chip"
-        :class="{ 'chip--on': activeTab === t }"
-        @click="activeTab = t"
-      >
-        {{ t }}
-      </button>
+    <div v-if="loading && results.length === 0" class="empty-ph" style="height: 240px;">
+      검색 중...
     </div>
-
-    <div v-if="!query.trim()" class="empty-ph" style="height: 240px;">
+    <div v-else-if="error" class="empty-ph" style="height: 240px;">
+      {{ error }}
+    </div>
+    <div v-else-if="!searched" class="empty-ph" style="height: 240px;">
       검색어를 입력하면 결과가 표시됩니다
     </div>
     <div v-else-if="results.length === 0" class="empty-ph" style="height: 240px;">
-      '{{ query }}'에 대한 검색 결과가 없습니다
+      '{{ query.trim() }}'에 대한 검색 결과가 없습니다
     </div>
     <div v-else class="result-list">
       <div
         v-for="r in results"
-        :key="r.id"
+        :key="r.questionId"
         class="card result-item"
-        @click="router.push(r.path)"
+        @click="router.push(`/worki/${r.questionId}`)"
       >
-        <div class="result-kind" :style="{ color: kindColor[r.kind] }">
-          <component :is="kindIcon[r.kind]" :size="14" />
-          {{ r.kind }}
+        <div class="result-kind" style="color: #7c3aed;">
+          <MessageCircle :size="14" />
+          워키
         </div>
         <h3 class="result-title">{{ r.title }}</h3>
-        <p class="result-snippet">{{ r.snippet }}</p>
-        <div class="result-meta">{{ r.meta }}</div>
+        <div class="result-meta">{{ statusLabel[r.status] }} · 조회 {{ r.viewCount }} · {{ formatDate(r.createdAt) }}</div>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.tag-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; }
-.chip--on { background: #2b7fff; border-color: #2b7fff; color: #fff; }
 .result-list { display: flex; flex-direction: column; gap: 12px; }
 .result-item { padding: 20px 24px; cursor: pointer; transition: box-shadow 0.15s; }
 .result-item:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
 .result-kind { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 700; margin-bottom: 8px; }
 .result-title { font-size: 16px; font-weight: 700; color: #1f2430; margin: 0 0 6px; }
-.result-snippet { font-size: 14px; color: #717182; line-height: 1.6; margin: 0 0 10px; }
 .result-meta { font-size: 12.5px; color: #aeb2bb; }
+
+.autocomplete {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  max-height: 280px;
+  overflow-y: auto;
+}
+.autocomplete li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 7px;
+  font-size: 14px;
+  color: #1f2430;
+  cursor: pointer;
+}
+.autocomplete li:hover { background: #f3f0ff; color: #7c3aed; }
 </style>

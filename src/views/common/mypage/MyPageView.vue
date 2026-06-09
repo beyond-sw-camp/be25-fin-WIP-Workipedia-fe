@@ -1,45 +1,69 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
-import { LogOut, Trophy, MessageCircle, Ticket, Star } from '@lucide/vue'
+import { LogOut, Trophy, Award, TrendingUp, Target } from '@lucide/vue'
+import { getMyPoint, getMyEsg, getPointHistories } from '@/api/pointApi'
+import { logout as logoutApi } from '@/api/authApi'
+import type { PointHistoryResponse } from '@/types/point'
 
 const router = useRouter()
 const auth = useAuthStore()
 
 const tab = ref<'activity' | 'settings'>('activity')
 
-interface ActivityItem {
-  kind: '워키 답변' | '티켓 처리' | '포인트 획득'
-  title: string
-  time: string
-  pts?: number
+const currentPoint = ref(0)
+const esgScore = ref(0)
+const gradeName = ref('-')
+const remainingForNext = ref<number | null>(null)
+const histories = ref<PointHistoryResponse[]>([])
+const loading = ref(false)
+
+const reasonLabel: Record<string, string> = {
+  ANSWER_ACCEPTED: '답변 채택',
+  ANSWER_CREATED: '답변 등록',
+  QUESTION_CREATED: '질문 등록',
+  TICKET_COMPLETED: '티켓 처리 완료',
+  ADMIN_DEDUCT: '관리자 차감',
+}
+function labelOf(reasonType: string) {
+  return reasonLabel[reasonType] ?? reasonType
 }
 
-const activities = ref<ActivityItem[]>([
-  { kind: '워키 답변', title: '연차 신청은 며칠 전까지?에 답변', time: '2일 전', pts: 30 },
-  { kind: '티켓 처리', title: '노트북 화면 출력 불가 처리 완료', time: '5일 전', pts: 50 },
-  { kind: '포인트 획득', title: '베스트 답변 선정', time: '1주 전', pts: 100 },
-  { kind: '워키 답변', title: 'VPN 설정 방법에 답변', time: '2주 전', pts: 30 },
-])
-
-const stats = [
-  { label: '총 포인트', value: '890pt', icon: Trophy, color: '#f5c000' },
-  { label: '워키 답변', value: '13개', icon: MessageCircle, color: '#7c3aed' },
-  { label: '처리한 티켓', value: '8개', icon: Ticket, color: '#ff6900' },
-  { label: '베스트 답변', value: '3개', icon: Star, color: '#00a63e' },
-]
-
-const kindColor: Record<string, string> = {
-  '워키 답변': '#7c3aed',
-  '티켓 처리': '#ff6900',
-  '포인트 획득': '#f5c000',
+function formatDate(iso: string) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
 }
 
-function logout() {
-  auth.clearAuth()
-  router.push('/login')
+async function logout() {
+  try {
+    await logoutApi()
+  } finally {
+    auth.clearAuth()
+    router.push('/login')
+  }
 }
+
+onMounted(async () => {
+  loading.value = true
+  try {
+    const [pointRes, esgRes, histRes] = await Promise.all([
+      getMyPoint(),
+      getMyEsg(),
+      getPointHistories({ page: 0, size: 10 }),
+    ])
+    currentPoint.value = pointRes.data.currentPoint
+    esgScore.value = esgRes.data.esgScore
+    gradeName.value = esgRes.data.gradeName
+    remainingForNext.value = esgRes.data.remainingScoreForNextGrade
+    histories.value = histRes.data.content
+  } catch {
+    // 부분 실패 시에도 화면은 표시(기본값 유지)
+  } finally {
+    loading.value = false
+  }
+})
 </script>
 
 <template>
@@ -57,27 +81,47 @@ function logout() {
     </div>
 
     <div class="stat-grid">
-      <div v-for="s in stats" :key="s.label" class="card stat-card">
-        <component :is="s.icon" :size="22" :color="s.color" />
-        <div class="stat-value">{{ s.value }}</div>
-        <div class="stat-label">{{ s.label }}</div>
+      <div class="card stat-card">
+        <Trophy :size="22" color="#f5c000" />
+        <div class="stat-value">{{ currentPoint.toLocaleString() }}pt</div>
+        <div class="stat-label">보유 포인트</div>
+      </div>
+      <div class="card stat-card">
+        <TrendingUp :size="22" color="#7c3aed" />
+        <div class="stat-value">{{ esgScore.toLocaleString() }}</div>
+        <div class="stat-label">ESG 점수</div>
+      </div>
+      <div class="card stat-card">
+        <Award :size="22" color="#00a63e" />
+        <div class="stat-value">{{ gradeName }}</div>
+        <div class="stat-label">ESG 등급</div>
+      </div>
+      <div class="card stat-card">
+        <Target :size="22" color="#ff6900" />
+        <div class="stat-value">{{ remainingForNext != null ? `${remainingForNext.toLocaleString()}` : '-' }}</div>
+        <div class="stat-label">다음 등급까지</div>
       </div>
     </div>
 
     <div class="seg" style="width: 280px; margin-bottom: 20px;">
-      <button :class="{ on: tab === 'activity' }" @click="tab = 'activity'">활동 내역</button>
+      <button :class="{ on: tab === 'activity' }" @click="tab = 'activity'">최근 활동</button>
       <button :class="{ on: tab === 'settings' }" @click="tab = 'settings'">설정</button>
     </div>
 
-    <div v-if="tab === 'activity'" class="act-list">
-      <div v-for="(a, i) in activities" :key="i" class="card act-row">
-        <div class="act-dot" :style="{ background: kindColor[a.kind] }"></div>
-        <div class="act-content">
-          <div class="act-kind" :style="{ color: kindColor[a.kind] }">{{ a.kind }}</div>
-          <div class="act-title">{{ a.title }}</div>
-          <div class="act-time">{{ a.time }}</div>
+    <div v-if="tab === 'activity'">
+      <div v-if="loading" class="empty-ph" style="height: 160px;">불러오는 중...</div>
+      <div v-else-if="histories.length === 0" class="empty-ph" style="height: 160px;">최근 활동이 없습니다</div>
+      <div v-else class="act-list">
+        <div v-for="h in histories" :key="h.pointHistoryId" class="card act-row">
+          <div class="act-dot" :style="{ background: h.pointAmount >= 0 ? '#00a63e' : '#ef4444' }"></div>
+          <div class="act-content">
+            <div class="act-title">{{ labelOf(h.reasonType) }}</div>
+            <div class="act-time">{{ formatDate(h.createdAt) }}</div>
+          </div>
+          <div class="act-pts" :class="h.pointAmount >= 0 ? 'plus' : 'minus'">
+            {{ h.pointAmount >= 0 ? '+' : '' }}{{ h.pointAmount }}pt
+          </div>
         </div>
-        <div v-if="a.pts" class="act-pts">+{{ a.pts }}pt</div>
       </div>
     </div>
 
@@ -85,22 +129,15 @@ function logout() {
       <div class="setting-row">
         <div>
           <div class="setting-label">비밀번호 변경</div>
-          <div class="setting-sub">마지막 변경: 2025.03.01</div>
+          <div class="setting-sub">로그인 비밀번호를 재설정합니다</div>
         </div>
         <button class="btn" @click="router.push('/reset-password')">변경</button>
       </div>
-      <div class="setting-row">
-        <div>
-          <div class="setting-label">알림 설정</div>
-          <div class="setting-sub">워키 답변, 티켓 상태 변경 알림</div>
-        </div>
-        <button class="btn">설정</button>
-      </div>
       <div class="setting-row" style="border-bottom: none;">
         <div>
-          <div class="setting-label" style="color: #ef4444;">회원 탈퇴</div>
+          <div class="setting-label">로그아웃</div>
         </div>
-        <button class="btn" style="color: #ef4444; border-color: #fecaca;">탈퇴</button>
+        <button class="btn" @click="logout">로그아웃</button>
       </div>
     </div>
   </div>
@@ -119,13 +156,14 @@ function logout() {
 .stat-label { font-size: 12.5px; color: #aeb2bb; }
 
 .act-list { display: flex; flex-direction: column; gap: 10px; }
-.act-row { display: flex; align-items: flex-start; gap: 14px; padding: 16px 20px; }
-.act-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+.act-row { display: flex; align-items: center; gap: 14px; padding: 16px 20px; }
+.act-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 .act-content { flex: 1; }
-.act-kind { font-size: 12px; font-weight: 700; margin-bottom: 3px; }
 .act-title { font-size: 14.5px; font-weight: 600; color: #1f2430; margin-bottom: 2px; }
 .act-time { font-size: 12.5px; color: #aeb2bb; }
-.act-pts { font-size: 14px; font-weight: 700; color: #00a63e; }
+.act-pts { font-size: 15px; font-weight: 800; }
+.act-pts.plus { color: #00a63e; }
+.act-pts.minus { color: #ef4444; }
 
 .settings-card { padding: 0; overflow: hidden; }
 .setting-row { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; border-bottom: 1px solid var(--line); }
