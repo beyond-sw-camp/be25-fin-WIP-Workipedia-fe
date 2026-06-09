@@ -76,6 +76,7 @@ export interface QuestionSummaryResponse {
   title: string
   status: QuestionStatus
   viewCount: number
+  likeCount: number
   createdAt: string // ISO LocalDateTime
 }
 

@@ -11,16 +11,19 @@ const PAGE_SIZE = 20
 const tab = ref<'all' | 'unsolved' | 'solved'>('all')
 const query = ref('')
 
-// 목록(QuestionSummaryResponse)과 검색(WorkiSearchResponse)이 공통으로 갖는 필드만 화면에 쓴다.
+// 목록(QuestionSummaryResponse)과 검색(WorkiSearchResponse)이 공통으로 갖는 필드 + likeCount(목록만 제공).
 interface QuestionListItem {
   questionId: number
   title: string
   status: QuestionStatus
   viewCount: number
+  likeCount?: number // 목록 응답에만 있음. 검색 응답엔 없어 undefined.
   createdAt: string
 }
 
 const items = ref<QuestionListItem[]>([])
+// 현재 표시 모드. 검색 중이면 좋아요 수가 없으므로 조회수를, 목록이면 좋아요 수를 보여준다.
+const searchMode = ref(false)
 const page = ref(0) // 현재까지 받은 마지막 페이지 (0-based)
 const hasNext = ref(false) // 다음 페이지 존재 여부
 const loading = ref(false) // 초기/검색 교체 로드
@@ -69,6 +72,7 @@ async function fetchPage(pageNum: number, append: boolean) {
     items.value = append ? [...items.value, ...next] : next
     hasNext.value = more
     page.value = pageNum
+    searchMode.value = !!activeKeyword.value // 검색 모드면 조회수, 목록 모드면 좋아요 수 표시
   } catch {
     if (mySeq === seq) error.value = append ? '더 불러오지 못했습니다.' : '목록을 불러오지 못했습니다.'
   } finally {
@@ -240,7 +244,8 @@ const filtered = computed(() => {
           </div>
         </div>
         <div class="wiki-stats">
-          <div class="stat"><span>조회</span><strong>{{ item.viewCount }}</strong></div>
+          <div v-if="searchMode" class="stat"><span>조회</span><strong>{{ item.viewCount }}</strong></div>
+          <div v-else class="stat"><span>좋아요</span><strong>{{ item.likeCount ?? 0 }}</strong></div>
         </div>
       </div>
 
@@ -264,6 +269,8 @@ const filtered = computed(() => {
 }
 .wiki-item:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
 .wiki-left { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+/* 세로 flex라 뱃지가 가로로 늘어나 색이 줄 전체에 칠해지는 것 방지 (상세 화면처럼 내용만큼만) */
+.wiki-left .badge { align-self: flex-start; }
 .wiki-title { font-size: 16.5px; font-weight: 700; color: #1f2430; margin: 0; }
 .wiki-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .wiki-stats { display: flex; gap: 24px; }
