@@ -1,69 +1,92 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { ChevronLeft, CheckCircle2, ThumbsUp, MessageCircle } from '@lucide/vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import { ChevronLeft, CheckCircle2, MessageCircle } from '@lucide/vue'
+import { getQuestionDetail, createAnswer, acceptAnswer } from '@/api/workiApi'
 import { useAuthStore } from '@/stores/authStore'
+import type { QuestionDetailResponse, AnswerResponse, QuestionStatus } from '@/types/worki'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 
-interface Answer {
-  id: number
-  author: string
-  team: string
-  body: string
-  time: string
-  likes: number
-  accepted: boolean
+const questionId = Number(route.params.id)
+
+const question = ref<QuestionDetailResponse | null>(null)
+const answers = ref<AnswerResponse[]>([])
+const loading = ref(false)
+const error = ref('')
+const newAnswer = ref('')
+const submitting = ref(false)
+const accepting = ref(false)
+
+function isSolved(status: QuestionStatus) {
+  return status === 'ANSWERED'
 }
 
-const question = ref({
-  id: 1,
-  title: '연차 신청은 며칠 전까지 해야 하나요?',
-  body: '팀에 배정받은 지 얼마 안 됐는데, 연차 사용하려면 며칠 전까지 신청해야 하는지 궁금합니다. HR 시스템을 사용해야 하는 건가요?',
-  team: '개발1팀',
-  author: '신입사원A',
-  time: '2025.05.15',
-  tags: ['연차', 'HR', '신입'],
-  solved: true,
-})
+// 질문 작성자 본인이고, 아직 채택된 답변이 없을 때만 채택 가능
+const canAccept = computed(
+  () =>
+    !!question.value &&
+    question.value.authorId === auth.userId &&
+    question.value.acceptedAnswerId == null,
+)
 
-const answers = ref<Answer[]>([
-  {
-    id: 1,
-    author: '박이화',
-    team: '인사팀',
-    body: '연차 신청은 반드시 사용일 기준 3일 전(72시간)까지 완료하셔야 합니다. HR 시스템에서 신청하시면 담당자 승인 후 자동으로 등록됩니다. 긴급한 경우 팀장께 먼저 구두 승인을 받으신 후 시스템에 등록하시면 됩니다.',
-    time: '2025.05.15',
-    likes: 12,
-    accepted: true,
-  },
-  {
-    id: 2,
-    author: '김동욱',
-    team: '개발2팀',
-    body: '저도 처음에 몰랐는데 3일 전이 맞아요. 저는 깜빡해서 팀장님께 말씀드리고 나중에 시스템에 올렸더니 괜찮더라고요.',
-    time: '2025.05.16',
-    likes: 5,
-    accepted: false,
-  },
-])
+async function accept(answerId: number) {
+  if (accepting.value) return
+  accepting.value = true
+  try {
+    await acceptAnswer(answerId)
+    await load() // 채택 결과(상태/채택여부) 반영
+  } catch {
+    error.value = '답변 채택에 실패했습니다.'
+  } finally {
+    accepting.value = false
+  }
+}
 
-const newAnswer = ref('')
+function formatDate(iso: string) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
+}
 
-function submitAnswer() {
-  const body = newAnswer.value.trim()
-  if (!body) return
-  answers.value.push({
-    id: answers.value.length + 1,
-    author: auth.nickname ?? '나',
-    team: auth.team ?? '',
-    body,
-    time: '방금',
-    likes: 0,
-    accepted: false,
-  })
-  newAnswer.value = ''
+// 작성자 표시: "부서 · 닉네임". BE 응답의 닉네임/부서명을 그대로 쓴다(질문·답변 공통).
+// 닉네임이 없으면(탈퇴 등 null) "작성자"로 표기.
+function formatAuthor(nickname?: string | null, department?: string | null) {
+  if (!nickname) return '작성자'
+  return department ? `${department} · ${nickname}` : nickname
+}
+
+async function load() {
+  loading.value = true
+  error.value = ''
+  try {
+    const res = await getQuestionDetail(questionId)
+    question.value = res.data
+    answers.value = res.data.answers
+  } catch {
+    error.value = '질문을 불러오지 못했습니다.'
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(load)
+
+async function submitAnswer() {
+  const content = newAnswer.value.trim()
+  if (!content || submitting.value) return
+  submitting.value = true
+  try {
+    const res = await createAnswer(questionId, { content })
+    answers.value.push(res.data)
+    newAnswer.value = ''
+  } catch {
+    error.value = '답변 등록에 실패했습니다.'
+  } finally {
+    submitting.value = false
+  }
 }
 </script>
 
@@ -73,62 +96,74 @@ function submitAnswer() {
       <ChevronLeft :size="16" /> 목록으로
     </button>
 
-    <div class="card q-card">
-      <div class="q-header">
-        <span class="badge" :class="question.solved ? 'green' : 'gray'">
-          <CheckCircle2 v-if="question.solved" :size="11" />
-          {{ question.solved ? '해결됨' : '미해결' }}
-        </span>
-        <span class="badge gray">{{ question.team }}</span>
-        <span style="color: #aeb2bb; font-size: 13px; margin-left: auto;">{{ question.time }} · {{ question.author }}</span>
-      </div>
-      <h2 class="q-title">{{ question.title }}</h2>
-      <p class="q-body">{{ question.body }}</p>
-      <div class="q-tags">
-        <span v-for="t in question.tags" :key="t" class="chip" style="padding: 4px 12px; font-size: 13px;">{{ t }}</span>
-      </div>
-    </div>
+    <div v-if="loading" class="empty-ph" style="height: 200px;">불러오는 중...</div>
+    <div v-else-if="error" class="empty-ph" style="height: 200px;">{{ error }}</div>
 
-    <h3 class="ans-head">답변 {{ answers.length }}개</h3>
-
-    <div class="ans-list">
-      <div v-for="a in answers" :key="a.id" class="card ans-item" :class="{ accepted: a.accepted }">
-        <div class="ans-top">
-          <div class="ans-author">
-            <span class="chat-av" style="font-size: 13px; font-weight: 700;">{{ a.author.slice(0, 1) }}</span>
-            <div>
-              <div style="font-weight: 700; font-size: 14px;">{{ a.author }}</div>
-              <div style="font-size: 12px; color: #aeb2bb;">{{ a.team }} · {{ a.time }}</div>
-            </div>
-          </div>
-          <div v-if="a.accepted" class="accepted-badge">
-            <CheckCircle2 :size="14" /> 채택된 답변
-          </div>
+    <template v-else-if="question">
+      <div class="card q-card">
+        <div class="q-header">
+          <span class="badge" :class="isSolved(question.status) ? 'green' : 'gray'">
+            <CheckCircle2 v-if="isSolved(question.status)" :size="11" />
+            {{ isSolved(question.status) ? '해결됨' : '미해결' }}
+          </span>
+          <span style="color: #aeb2bb; font-size: 13px; margin-left: auto;">
+            {{ formatDate(question.createdAt) }} · {{ formatAuthor(question.authorNickname, question.authorDepartmentName) }}
+          </span>
         </div>
-        <p class="ans-body">{{ a.body }}</p>
-        <div class="ans-footer">
-          <button class="btn" style="padding: 6px 14px; font-size: 13px;">
-            <ThumbsUp :size="14" /> {{ a.likes }}
+        <h2 class="q-title">{{ question.title }}</h2>
+        <p class="q-body">{{ question.content }}</p>
+      </div>
+
+      <h3 class="ans-head">답변 {{ answers.length }}개</h3>
+
+      <div class="ans-list">
+        <div v-for="a in answers" :key="a.answerId" class="card ans-item" :class="{ accepted: a.accepted }">
+          <div class="ans-top">
+            <div class="ans-author">
+              <span class="chat-av" style="font-size: 13px; font-weight: 700;">{{ (a.authorNickname ?? '작성자').slice(0, 1) }}</span>
+              <div>
+                <div class="ans-author-name">
+                  {{ a.authorNickname ?? '작성자' }}
+                  <span v-if="a.authorDepartmentName" class="ans-author-dept">{{ a.authorDepartmentName }}</span>
+                </div>
+                <div style="font-size: 12px; color: #aeb2bb;">{{ formatDate(a.createdAt) }}</div>
+              </div>
+            </div>
+            <div v-if="a.accepted" class="accepted-badge">
+              <CheckCircle2 :size="14" /> 채택된 답변
+            </div>
+            <button
+              v-else-if="canAccept"
+              class="btn primary"
+              style="padding: 6px 14px; font-size: 13px;"
+              :disabled="accepting"
+              @click="accept(a.answerId)"
+            >
+              <CheckCircle2 :size="14" /> 채택하기
+            </button>
+          </div>
+          <p class="ans-body">{{ a.content }}</p>
+        </div>
+      </div>
+
+      <div class="card ans-write">
+        <h4 style="margin: 0 0 12px; font-size: 15px; font-weight: 700; color: #1f2430;">
+          <MessageCircle :size="16" style="vertical-align: middle; margin-right: 6px;" />
+          답변 작성
+        </h4>
+        <textarea
+          v-model="newAnswer"
+          class="ans-textarea"
+          placeholder="도움이 될 만한 내용을 작성해 주세요"
+          rows="5"
+        />
+        <div style="display: flex; justify-content: flex-end; margin-top: 12px;">
+          <button class="btn primary" :disabled="!newAnswer.trim() || submitting" @click="submitAnswer">
+            {{ submitting ? '등록 중...' : '답변 등록' }}
           </button>
         </div>
       </div>
-    </div>
-
-    <div class="card ans-write">
-      <h4 style="margin: 0 0 12px; font-size: 15px; font-weight: 700; color: #1f2430;">
-        <MessageCircle :size="16" style="vertical-align: middle; margin-right: 6px;" />
-        답변 작성
-      </h4>
-      <textarea
-        v-model="newAnswer"
-        class="ans-textarea"
-        placeholder="도움이 될 만한 내용을 작성해 주세요"
-        rows="5"
-      />
-      <div style="display: flex; justify-content: flex-end; margin-top: 12px;">
-        <button class="btn primary" :disabled="!newAnswer.trim()" @click="submitAnswer">답변 등록</button>
-      </div>
-    </div>
+    </template>
   </div>
 </template>
 
@@ -136,8 +171,7 @@ function submitAnswer() {
 .q-card { padding: 28px 32px; margin-bottom: 28px; }
 .q-header { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
 .q-title { font-size: 22px; font-weight: 800; color: #1f2430; margin: 0 0 12px; }
-.q-body { font-size: 15.5px; color: #404055; line-height: 1.7; margin: 0 0 16px; }
-.q-tags { display: flex; gap: 8px; flex-wrap: wrap; }
+.q-body { font-size: 15.5px; color: #404055; line-height: 1.7; margin: 0; white-space: pre-wrap; }
 
 .ans-head { font-size: 17px; font-weight: 700; color: #1f2430; margin: 0 0 14px; }
 .ans-list { display: flex; flex-direction: column; gap: 14px; margin-bottom: 28px; }
@@ -145,9 +179,10 @@ function submitAnswer() {
 .ans-item.accepted { border-color: #00a63e; background: #f0fdf4; }
 .ans-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .ans-author { display: flex; align-items: center; gap: 10px; }
+.ans-author-name { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; color: #1f2430; }
+.ans-author-dept { font-weight: 500; font-size: 12px; color: #7c3aed; background: #f3f0ff; padding: 1px 9px; border-radius: 999px; }
 .accepted-badge { display: inline-flex; align-items: center; gap: 6px; color: #00a63e; font-size: 13px; font-weight: 700; }
-.ans-body { font-size: 15px; color: #1f2430; line-height: 1.7; margin: 0 0 16px; }
-.ans-footer { display: flex; gap: 8px; }
+.ans-body { font-size: 15px; color: #1f2430; line-height: 1.7; margin: 0; white-space: pre-wrap; }
 
 .ans-write { padding: 24px 28px; }
 .ans-textarea {

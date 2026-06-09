@@ -25,6 +25,30 @@ export interface PageParams {
   sort?: string // 예: 'createdAt,desc'
 }
 
+// 검색 API(GET /search/worki)는 목록과 달리 페이지 정보를 pageInfo로 한 번 더 감싼다 (BE PageResponse<T>).
+export interface SearchPageInfo {
+  page: number // 1-based
+  size: number
+  totalElements: number
+  totalPages: number
+  hasNext: boolean
+  hasPrevious: boolean
+}
+
+export interface SearchPage<T> {
+  content: T[]
+  pageInfo: SearchPageInfo
+}
+
+// 워키 질문 검색 결과 1건 (Elasticsearch document 기반, authorId 없음)
+export interface WorkiSearchResponse {
+  questionId: number
+  title: string
+  status: QuestionStatus
+  viewCount: number
+  createdAt: string
+}
+
 // ===== 질문(Question) =====
 
 export interface QuestionCreateRequest {
@@ -58,6 +82,8 @@ export interface QuestionSummaryResponse {
 export interface QuestionDetailResponse {
   questionId: number
   authorId: number
+  authorNickname: string | null // 작성자 없으면(탈퇴 등) null
+  authorDepartmentName: string | null
   title: string
   content: string
   status: QuestionStatus
@@ -78,6 +104,8 @@ export interface AnswerResponse {
   answerId: number
   questionId: number
   authorId: number
+  authorNickname: string | null // 작성자 없으면(탈퇴 등) null
+  authorDepartmentName: string | null
   content: string
   accepted: boolean
   official: boolean

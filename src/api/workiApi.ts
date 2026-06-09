@@ -3,6 +3,8 @@ import { useAuthStore } from '@/stores/authStore'
 import type {
   Page,
   PageParams,
+  SearchPage,
+  WorkiSearchResponse,
   QuestionCreateRequest,
   QuestionUpdateRequest,
   QuestionResponse,
@@ -37,6 +39,19 @@ export function getQuestions(params: PageParams = {}) {
 // 질문 상세
 export function getQuestionDetail(questionId: number) {
   return http.get<QuestionDetailResponse>(`/worki/questions/${questionId}`)
+}
+
+// 질문 키워드 검색 (Elasticsearch). BE는 keyword 2~100자만 허용한다.
+// 응답은 목록과 달리 PageResponse(pageInfo 중첩) 형태다.
+export function searchQuestions(keyword: string, params: PageParams = {}) {
+  return http.get<SearchPage<WorkiSearchResponse>>('/search/worki', {
+    params: { keyword, ...params },
+  })
+}
+
+// 검색어 자동완성 (worki_search_keywords 누적 기반)
+export function autocompleteQuestions(keyword: string) {
+  return http.get<string[]>('/search/worki/autocomplete', { params: { keyword } })
 }
 
 // 질문 수정
