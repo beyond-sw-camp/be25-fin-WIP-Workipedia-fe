@@ -11,6 +11,7 @@ import {
 } from '@lucide/vue'
 import NotificationPanel from './NotificationPanel.vue'
 import PointPanel from './PointPanel.vue'
+import { logout as logoutApi } from '@/api/authApi'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -32,9 +33,13 @@ function goMyPage() {
   router.push('/my')
 }
 
-function logout() {
-  auth.clearAuth()
-  router.push('/login')
+async function logout() {
+  try {
+    await logoutApi()
+  } finally {
+    auth.clearAuth()
+    router.push('/login')
+  }
 }
 
 const initials = computed(() =>
