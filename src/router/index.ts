@@ -155,13 +155,15 @@ const router = createRouter({
           component: () => import('@/views/common/notification/NotificationView.vue'),
         },
 
-        // ── TEAM_ADMIN ──────────────────────────────────────────────────
+        // ── USER ────────────────────────────────────────────────────────
         {
           path: 'dashboard/team',
           name: 'dashboard-team',
           component: () => import('@/views/dashboard/TeamDashboardView.vue'),
-          meta: { requiresAuth: true, roles: [ROLES.TEAM_ADMIN] },
+          meta: { requiresAuth: true, roles: [ROLES.USER] },
         },
+
+        // ── TEAM_ADMIN ──────────────────────────────────────────────────
         {
           path: 'dashboard/department',
           name: 'dashboard-department',

@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
-import { ROLES } from '@/constants/roles'
+import { ROLE_HOME } from '@/router/guards'
 import { login } from '@/api/authApi'
 import type { AxiosError } from 'axios'
 
@@ -16,11 +16,6 @@ const serverError = ref('')
 const isLoading = ref(false)
 const errors = ref({ employeeId: '', password: '' })
 
-const ROLE_HOME: Record<string, string> = {
-  [ROLES.USER]: '/knowit',
-  [ROLES.TEAM_ADMIN]: '/dashboard/team',
-  [ROLES.SYSTEM_ADMIN]: '/dashboard/admin',
-}
 
 function validate(): boolean {
   errors.value = { employeeId: '', password: '' }

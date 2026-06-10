@@ -109,23 +109,27 @@ const initials = computed(() =>
         <HelpCircle :size="16" /> FAQ
       </RouterLink>
 
-      <!-- 관리 섹션 -->
-      <template v-if="auth.role === ROLES.TEAM_ADMIN || auth.role === ROLES.SYSTEM_ADMIN">
-        <div class="nav-section-label">관리</div>
-        <RouterLink to="/dashboard/team" class="nav-item nav-item-secondary">
-          <LayoutDashboard :size="16" /> 부서 대시보드
+      <!-- 관리 섹션 (모든 역할) -->
+      <div class="nav-section-label">관리</div>
+
+      <!-- USER: 부서 대시보드 -->
+      <RouterLink v-if="auth.role === ROLES.USER" to="/dashboard/team" class="nav-item nav-item-secondary">
+        <LayoutDashboard :size="16" /> 부서 대시보드
+      </RouterLink>
+
+      <!-- TEAM_ADMIN: 부서 관리자 대시보드 -->
+      <RouterLink v-else-if="auth.role === ROLES.TEAM_ADMIN" to="/dashboard/department" class="nav-item nav-item-secondary">
+        <Building2 :size="16" /> 부서 관리자 대시보드
+      </RouterLink>
+
+      <!-- SYSTEM_ADMIN: 관리자 대시보드 + 관리자 설정 -->
+      <template v-else-if="auth.role === ROLES.SYSTEM_ADMIN">
+        <RouterLink to="/dashboard/admin" class="nav-item nav-item-secondary">
+          <ShieldCheck :size="16" /> 관리자 대시보드
         </RouterLink>
-        <RouterLink to="/dashboard/department" class="nav-item nav-item-secondary">
-          <Building2 :size="16" /> 부서 관리자 대시보드
+        <RouterLink to="/admin/settings" class="nav-item nav-item-secondary">
+          <Settings :size="16" /> 관리자 설정
         </RouterLink>
-        <template v-if="auth.role === ROLES.SYSTEM_ADMIN">
-          <RouterLink to="/dashboard/admin" class="nav-item nav-item-secondary">
-            <ShieldCheck :size="16" /> 관리자 대시보드
-          </RouterLink>
-          <RouterLink to="/admin/settings" class="nav-item nav-item-secondary">
-            <Settings :size="16" /> 관리자 설정
-          </RouterLink>
-        </template>
       </template>
     </nav>
 
