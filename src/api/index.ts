@@ -53,7 +53,7 @@ http.interceptors.response.use(
         {},
         { withCredentials: true },
       )
-      const newToken: string = data.data.accessToken
+      const newToken: string = data.accessToken
       const auth = useAuthStore()
       auth.setAuth(newToken, auth.role!, auth.userId!, auth.nickname!, auth.team)
       processQueue(null, newToken)

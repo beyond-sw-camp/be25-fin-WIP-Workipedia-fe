@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 import { Client } from '@stomp/stompjs'
-import SockJS from 'sockjs-client'
 import { useAuthStore } from '@/stores/authStore'
 import MessageComposer from '@/components/common/MessageComposer.vue'
 import { getActiveMessages } from '@/api/chatApi'
@@ -52,9 +51,12 @@ function scheduleDelete(msg: ChatMsg) {
 // STOMP 클라이언트
 let stompClient: Client | null = null
 
-function connectStomp() {
+async function connectStomp() {
+  const sockjsMod = await import('sockjs-client')
+  const SockJS = (sockjsMod.default ?? sockjsMod) as unknown as new (url: string) => WebSocket
+  const wsUrl = `${new URL(import.meta.env.VITE_API_BASE_URL).origin}/ws/flash-chat`
   stompClient = new Client({
-    webSocketFactory: () => new SockJS(`${new URL(import.meta.env.VITE_API_BASE_URL).origin}/ws/flash-chat`),
+    webSocketFactory: () => new SockJS(wsUrl),
     beforeConnect: async () => {
       stompClient!.connectHeaders = { Authorization: `Bearer ${auth.accessToken}` }
     },
@@ -79,6 +81,24 @@ function connectStomp() {
             ? { id: raw.replyToId, name: original?.name ?? null, content: original?.content ?? null }
             : null,
         }
+
+        // Optimistic dedup: 내가 보낸 메시지가 서버에서 echo로 돌아오면 임시 메시지를 교체
+        if (msg.me) {
+          const tmpIdx = msgs.value.findIndex(
+            m => m.id.startsWith('__tmp_') && m.content === msg.content
+          )
+          if (tmpIdx !== -1) {
+            const tmpMsg = msgs.value[tmpIdx]
+            if (tmpMsg) {
+              clearTimeout(timeouts.get(tmpMsg.id))
+              timeouts.delete(tmpMsg.id)
+            }
+            msgs.value.splice(tmpIdx, 1, msg)
+            scheduleDelete(msg)
+            return
+          }
+        }
+
         msgs.value.push(msg)
         scheduleDelete(msg)
         scroll()
@@ -110,7 +130,7 @@ onMounted(async () => {
     // 초기 로드 실패해도 실시간 연결은 유지
   }
 
-  connectStomp()
+  connectStomp().catch(console.error)
   scroll()
 })
 
@@ -143,13 +163,37 @@ const scroll = () =>
 function send() {
   const content = val.value.trim()
   if (!content) return
-  const replyToId = replyTo.value?.id ?? null
+  const replyRefNow = replyTo.value
   val.value = ''
   replyTo.value = null
-  stompClient?.publish({
-    destination: '/app/flash-chat/send',
-    body: JSON.stringify({ content, replyToId }),
-  })
+
+  // Optimistic: 서버 echo 전에 즉시 화면에 표시
+  const tempId = `__tmp_${Date.now()}`
+  const optimistic: ChatMsg = {
+    id: tempId,
+    userId: auth.userId as number,
+    me: true,
+    name: auth.nickname ?? '',
+    initial: (auth.nickname ?? '?').slice(0, 1),
+    content,
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    replyTo: replyRefNow
+      ? { id: replyRefNow.id, name: replyRefNow.name, content: replyRefNow.content }
+      : null,
+  }
+  msgs.value.push(optimistic)
+  scheduleDelete(optimistic)
+  scroll()
+
+  try {
+    stompClient?.publish({
+      destination: '/app/flash-chat/send',
+      body: JSON.stringify({ content, replyToId: replyRefNow?.id ?? null }),
+    })
+  } catch {
+    // STOMP 연결 전 전송 시 무시 (optimistic 메시지는 이미 표시됨)
+  }
 }
 
 function startReply(msg: ChatMsg) {
