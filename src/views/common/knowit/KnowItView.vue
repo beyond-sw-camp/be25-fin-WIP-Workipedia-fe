@@ -191,14 +191,11 @@ async function submitTicket() {
   }
   try {
     const res = await createTicket({
-      questionId: null,
       sourceChatbotMessageId: lastMessageId.value,
-      type: 'REQUEST',
-      categoryId: null,
       title: ticketTitle.value.trim(),
       content: ticketContent.value.trim(),
     })
-    ticketDept.value = res.data.data.assignedDepartmentName ?? ''
+    ticketDept.value = res.data.assignedDepartmentName ?? ''
     showTicketDialog.value = false
     ticketTitle.value = ''
     ticketContent.value = ''
