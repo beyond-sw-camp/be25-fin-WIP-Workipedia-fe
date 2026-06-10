@@ -1,69 +1,57 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { BookOpen, Search, ChevronRight } from '@lucide/vue'
+import { getManuals } from '@/api/manualApi'
+import type { ManualSummaryResponse } from '@/types/manual'
 
 const router = useRouter()
 const query = ref('')
 
-interface Manual {
-  id: number
-  title: string
-  updated: string
-  dept: string
+const PAGE_SIZE = 20
+const manuals = ref<ManualSummaryResponse[]>([])
+const page = ref(1) // BasePageRequest 기반(1-based)
+const hasNext = ref(false)
+const loading = ref(false)
+const loadingMore = ref(false)
+const error = ref('')
+
+function formatDate(iso: string) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
 }
 
-interface Category {
-  name: string
-  icon: string
-  manuals: Manual[]
-}
-
-const categories = ref<Category[]>([
-  {
-    name: '인사·복리후생',
-    icon: '👤',
-    manuals: [
-      { id: 1, title: '연차·휴가 사용 가이드', updated: '2025.03.10', dept: '인사팀' },
-      { id: 2, title: '재택근무 운영 기준', updated: '2025.02.28', dept: '인사팀' },
-      { id: 3, title: '신입사원 온보딩 체크리스트', updated: '2025.01.15', dept: '인사팀' },
-    ],
-  },
-  {
-    name: 'IT·장비',
-    icon: '💻',
-    manuals: [
-      { id: 4, title: '노트북 초기 설정 가이드', updated: '2025.04.02', dept: 'IT지원팀' },
-      { id: 5, title: 'VPN 접속 방법', updated: '2025.03.20', dept: 'IT지원팀' },
-    ],
-  },
-  {
-    name: '재무·경비',
-    icon: '💳',
-    manuals: [
-      { id: 6, title: '법인카드 사용 기준', updated: '2025.03.05', dept: '재무팀' },
-      { id: 7, title: '출장 경비 정산 절차', updated: '2025.02.10', dept: '재무팀' },
-    ],
-  },
-  {
-    name: '보안·컴플라이언스',
-    icon: '🔒',
-    manuals: [
-      { id: 8, title: '정보보안 준수 사항', updated: '2025.04.15', dept: '보안팀' },
-    ],
-  },
-])
-
+// BE 매뉴얼 목록엔 keyword 검색이 없어 불러온 항목에 대해 클라이언트 필터.
 const filtered = computed(() => {
   const q = query.value.trim()
-  if (!q) return categories.value
-  return categories.value
-    .map(c => ({
-      ...c,
-      manuals: c.manuals.filter(m => m.title.includes(q) || m.dept.includes(q)),
-    }))
-    .filter(c => c.manuals.length > 0)
+  if (!q) return manuals.value
+  return manuals.value.filter((m) => m.title.includes(q))
 })
+
+async function fetchPage(pageNum: number, append: boolean) {
+  if (append) loadingMore.value = true
+  else loading.value = true
+  error.value = ''
+  try {
+    const res = await getManuals({ page: pageNum, size: PAGE_SIZE })
+    manuals.value = append ? [...manuals.value, ...res.data.content] : res.data.content
+    hasNext.value = res.data.pageInfo.hasNext
+    page.value = pageNum
+  } catch {
+    error.value = '매뉴얼을 불러오지 못했습니다.'
+  } finally {
+    if (append) loadingMore.value = false
+    else loading.value = false
+  }
+}
+
+function loadMore() {
+  if (loading.value || loadingMore.value || !hasNext.value) return
+  fetchPage(page.value + 1, true)
+}
+
+onMounted(() => fetchPage(1, false))
 </script>
 
 <template>
@@ -73,7 +61,7 @@ const filtered = computed(() => {
         <BookOpen :size="28" color="#ff6900" />
         매뉴얼
       </h1>
-      <p class="page-sub">부서별 업무 가이드와 규정을 확인하세요</p>
+      <p class="page-sub">업무 가이드와 규정을 확인하세요</p>
     </div>
 
     <div class="search-bar" style="max-width: 480px; margin-bottom: 28px;">
@@ -81,53 +69,59 @@ const filtered = computed(() => {
       <input v-model="query" placeholder="매뉴얼 검색" />
     </div>
 
-    <div v-if="filtered.length === 0" class="empty-ph" style="height: 240px;">
-      검색 결과가 없습니다
+    <div v-if="loading && manuals.length === 0" class="empty-ph" style="height: 240px;">불러오는 중...</div>
+    <div v-else-if="error && manuals.length === 0" class="empty-ph" style="height: 240px;">{{ error }}</div>
+    <div v-else-if="filtered.length === 0" class="empty-ph" style="height: 240px;">
+      {{ query.trim() ? '검색 결과가 없습니다' : '등록된 매뉴얼이 없습니다' }}
     </div>
 
-    <div v-else class="cat-grid">
-      <div v-for="cat in filtered" :key="cat.name" class="card cat-card">
-        <div class="cat-head">
-          <span class="cat-icon">{{ cat.icon }}</span>
-          <h3 class="cat-name">{{ cat.name }}</h3>
-        </div>
-        <div class="manual-list">
-          <div
-            v-for="m in cat.manuals"
-            :key="m.id"
-            class="manual-row"
-            @click="router.push(`/manuals/${m.id}`)"
-          >
-            <div>
-              <div class="manual-title">{{ m.title }}</div>
-              <div class="manual-meta">{{ m.dept }} · {{ m.updated }}</div>
-            </div>
-            <ChevronRight :size="16" color="#aeb2bb" />
+    <div v-else class="manual-list">
+      <div
+        v-for="m in filtered"
+        :key="m.manualId"
+        class="card manual-row"
+        @click="router.push(`/manuals/${m.manualId}`)"
+      >
+        <div class="manual-icon"><BookOpen :size="18" color="#ff6900" /></div>
+        <div class="manual-info">
+          <div class="manual-title">{{ m.title }}</div>
+          <div class="manual-meta">
+            <span v-if="m.version">v{{ m.version }}</span>
+            <span>최종 수정 {{ formatDate(m.updatedAt) }}</span>
           </div>
         </div>
+        <ChevronRight :size="18" color="#aeb2bb" />
+      </div>
+
+      <div v-if="hasNext && !query.trim()" class="load-more">
+        <button class="btn" :disabled="loadingMore" @click="loadMore">
+          {{ loadingMore ? '불러오는 중...' : '더 보기' }}
+        </button>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 20px; }
-.cat-card { padding: 24px; }
-.cat-head { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
-.cat-icon { font-size: 22px; }
-.cat-name { font-size: 16px; font-weight: 700; color: #1f2430; margin: 0; }
-.manual-list { display: flex; flex-direction: column; }
+.manual-list { display: flex; flex-direction: column; gap: 12px; }
 .manual-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px 6px;
-  border-top: 1px solid var(--line);
+  gap: 16px;
+  padding: 18px 22px;
   cursor: pointer;
-  border-radius: 6px;
-  transition: background 0.12s;
+  transition: box-shadow 0.15s;
 }
-.manual-row:hover { background: #f7f8fa; }
-.manual-title { font-size: 14.5px; font-weight: 600; color: #1f2430; }
-.manual-meta { font-size: 12.5px; color: #aeb2bb; margin-top: 2px; }
+.manual-row:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+.manual-icon {
+  width: 42px; height: 42px;
+  border-radius: 12px;
+  background: #fff3e9;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.manual-info { flex: 1; min-width: 0; }
+.manual-title { font-size: 15.5px; font-weight: 700; color: #1f2430; }
+.manual-meta { display: flex; gap: 12px; font-size: 12.5px; color: #aeb2bb; margin-top: 3px; }
+.load-more { text-align: center; padding: 8px; }
 </style>

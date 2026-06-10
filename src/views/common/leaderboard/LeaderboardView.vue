@@ -1,32 +1,29 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { Trophy, Medal } from '@lucide/vue'
 import { useAuthStore } from '@/stores/authStore'
+import { getEsgLeaderboard } from '@/api/pointApi'
+import type { EsgLeaderboardResponse } from '@/types/esg'
 
 const auth = useAuthStore()
 
-interface LeaderEntry {
-  rank: number
-  name: string
-  team: string
-  points: number
-  answers: number
-  badges: string[]
-  isMe?: boolean
+const topRankers = ref<EsgLeaderboardResponse[]>([])
+const myRank = ref<EsgLeaderboardResponse | null>(null)
+const loading = ref(false)
+const error = ref('')
+
+// 내 순위가 상위 랭커 목록에 없으면 맨 아래에 별도로 덧붙인다.
+const rows = computed(() => {
+  const list = [...topRankers.value]
+  if (myRank.value && !list.some((r) => r.userId === myRank.value!.userId)) {
+    list.push(myRank.value)
+  }
+  return list
+})
+
+function isMe(entry: EsgLeaderboardResponse) {
+  return myRank.value?.userId === entry.userId
 }
-
-const period = ref<'week' | 'month' | 'all'>('month')
-
-const leaders = ref<LeaderEntry[]>([
-  { rank: 1, name: '박이화', team: '인사팀', points: 2840, answers: 47, badges: ['🏆', '⭐'] },
-  { rank: 2, name: '김동욱', team: 'IT지원팀', points: 2310, answers: 38, badges: ['🥇'] },
-  { rank: 3, name: '이서연', team: '재무팀', points: 1980, answers: 31, badges: ['🥈'] },
-  { rank: 4, name: '최준혁', team: '개발1팀', points: 1540, answers: 24, badges: [] },
-  { rank: 5, name: '한다원', team: '인사팀', points: 1230, answers: 19, badges: [] },
-  { rank: 6, name: auth.nickname ?? '나', team: auth.team ?? '', points: 890, answers: 13, badges: [], isMe: true },
-  { rank: 7, name: '정미래', team: '마케팅팀', points: 760, answers: 11, badges: [] },
-  { rank: 8, name: '오준석', team: '보안팀', points: 620, answers: 9, badges: [] },
-])
 
 function rankColor(rank: number) {
   if (rank === 1) return '#f5c000'
@@ -34,6 +31,22 @@ function rankColor(rank: number) {
   if (rank === 3) return '#cd7f32'
   return '#1f2430'
 }
+
+const podium = computed(() => topRankers.value.slice(0, 3))
+
+onMounted(async () => {
+  loading.value = true
+  error.value = ''
+  try {
+    const res = await getEsgLeaderboard()
+    topRankers.value = res.data.topRankers
+    myRank.value = res.data.myRank
+  } catch {
+    error.value = '리더보드를 불러오지 못했습니다.'
+  } finally {
+    loading.value = false
+  }
+})
 </script>
 
 <template>
@@ -43,51 +56,50 @@ function rankColor(rank: number) {
         <Trophy :size="28" color="#f5c000" />
         리더보드
       </h1>
-      <p class="page-sub">답변·티켓 처리로 포인트를 획득하세요</p>
+      <p class="page-sub">답변·채택으로 ESG 점수를 쌓아 보세요</p>
     </div>
 
-    <div class="seg" style="width: 280px; margin-bottom: 28px;">
-      <button :class="{ on: period === 'week' }" @click="period = 'week'">이번 주</button>
-      <button :class="{ on: period === 'month' }" @click="period = 'month'">이번 달</button>
-      <button :class="{ on: period === 'all' }" @click="period = 'all'">전체</button>
-    </div>
+    <div v-if="loading" class="empty-ph" style="height: 240px;">불러오는 중...</div>
+    <div v-else-if="error" class="empty-ph" style="height: 240px;">{{ error }}</div>
+    <div v-else-if="rows.length === 0" class="empty-ph" style="height: 240px;">랭킹 데이터가 없습니다</div>
 
-    <div class="podium">
-      <div v-for="entry in leaders.slice(0, 3)" :key="entry.rank" class="podium-item" :class="`rank-${entry.rank}`">
-        <span class="podium-badges">{{ entry.badges.join('') }}</span>
-        <span class="chat-av podium-av">{{ entry.name.slice(0, 1) }}</span>
-        <div class="podium-name">{{ entry.name }}</div>
-        <div class="podium-team">{{ entry.team }}</div>
-        <div class="podium-pts" :style="{ color: rankColor(entry.rank) }">{{ entry.points.toLocaleString() }}pt</div>
-        <div class="podium-bar" :style="{ height: `${100 - (entry.rank - 1) * 22}px`, background: rankColor(entry.rank) }"></div>
-      </div>
-    </div>
-
-    <div class="leader-list">
-      <div
-        v-for="entry in leaders"
-        :key="entry.rank"
-        class="card leader-row"
-        :class="{ 'leader-row--me': entry.isMe }"
-      >
-        <div class="rank-num" :style="{ color: rankColor(entry.rank), fontWeight: 800 }">
-          <Medal v-if="entry.rank <= 3" :size="18" />
-          <span v-else>{{ entry.rank }}</span>
+    <template v-else>
+      <div v-if="podium.length" class="podium">
+        <div v-for="entry in podium" :key="entry.userId" class="podium-item" :class="`rank-${entry.rank}`">
+          <span class="chat-av podium-av">{{ entry.nickname.slice(0, 1) }}</span>
+          <div class="podium-name">{{ entry.nickname }}</div>
+          <div class="podium-team">{{ entry.departmentName ?? '' }}</div>
+          <div class="podium-pts" :style="{ color: rankColor(entry.rank) }">{{ entry.esgScore.toLocaleString() }}점</div>
+          <div class="podium-bar" :style="{ height: `${100 - (entry.rank - 1) * 22}px`, background: rankColor(entry.rank) }"></div>
         </div>
-        <span class="chat-av" style="font-size: 13px; font-weight: 700;">{{ entry.name.slice(0, 1) }}</span>
-        <div class="leader-info">
-          <div class="leader-name">
-            {{ entry.name }}
-            <span v-if="entry.isMe" class="badge blue" style="font-size: 11px; padding: 2px 8px;">나</span>
+      </div>
+
+      <div class="leader-list">
+        <div
+          v-for="entry in rows"
+          :key="entry.userId"
+          class="card leader-row"
+          :class="{ 'leader-row--me': isMe(entry) }"
+        >
+          <div class="rank-num" :style="{ color: rankColor(entry.rank), fontWeight: 800 }">
+            <Medal v-if="entry.rank <= 3" :size="18" />
+            <span v-else>{{ entry.rank }}</span>
           </div>
-          <div class="leader-team">{{ entry.team }}</div>
-        </div>
-        <div class="leader-stats">
-          <span style="font-size: 13px; color: #aeb2bb;">답변 {{ entry.answers }}개</span>
-          <span class="leader-pts" :style="{ color: rankColor(entry.rank) }">{{ entry.points.toLocaleString() }}pt</span>
+          <span class="chat-av" style="font-size: 13px; font-weight: 700;">{{ entry.nickname.slice(0, 1) }}</span>
+          <div class="leader-info">
+            <div class="leader-name">
+              {{ entry.nickname }}
+              <span v-if="isMe(entry)" class="badge blue" style="font-size: 11px; padding: 2px 8px;">나</span>
+            </div>
+            <div class="leader-team">{{ entry.departmentName ?? '' }} · {{ entry.gradeName }}</div>
+          </div>
+          <div class="leader-stats">
+            <span style="font-size: 13px; color: #aeb2bb;">채택 {{ entry.acceptedAnswerCount }} / 답변 {{ entry.answerCount }}</span>
+            <span class="leader-pts" :style="{ color: rankColor(entry.rank) }">{{ entry.esgScore.toLocaleString() }}점</span>
+          </div>
         </div>
       </div>
-    </div>
+    </template>
   </div>
 </template>
 
@@ -106,7 +118,6 @@ function rankColor(rank: number) {
 .rank-1 { order: 2; }
 .rank-2 { order: 1; }
 .rank-3 { order: 3; }
-.podium-badges { font-size: 20px; height: 28px; }
 .podium-av { width: 46px; height: 46px; font-size: 16px; font-weight: 800; }
 .podium-name { font-size: 14px; font-weight: 700; color: #1f2430; }
 .podium-team { font-size: 12px; color: #aeb2bb; }

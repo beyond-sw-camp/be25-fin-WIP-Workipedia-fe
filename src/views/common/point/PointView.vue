@@ -1,31 +1,70 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { Trophy, TrendingUp } from '@lucide/vue'
+import { ref, onMounted } from 'vue'
+import { Trophy } from '@lucide/vue'
 import { useAuthStore } from '@/stores/authStore'
-import LineChart from '@/components/common/LineChart.vue'
+import { getMyPoint, getPointHistories } from '@/api/pointApi'
+import type { PointHistoryResponse } from '@/types/point'
 
 const auth = useAuthStore()
 
-interface PointHistory {
-  id: number
-  reason: string
-  pts: number
-  date: string
-  plus: boolean
+const currentPoint = ref(0)
+const histories = ref<PointHistoryResponse[]>([])
+const page = ref(0) // Pageable 기반(0-based)
+const hasNext = ref(false)
+const loading = ref(false)
+const loadingMore = ref(false)
+const error = ref('')
+
+const PAGE_SIZE = 20
+
+// BE reasonType 코드 → 한글 라벨. 미정의 코드는 코드 그대로 노출.
+const reasonLabel: Record<string, string> = {
+  ANSWER_ACCEPTED: '답변 채택',
+  ANSWER_CREATED: '답변 등록',
+  QUESTION_CREATED: '질문 등록',
+  TICKET_COMPLETED: '티켓 처리 완료',
+  ADMIN_DEDUCT: '관리자 차감',
 }
 
-const history = ref<PointHistory[]>([
-  { id: 1, reason: '베스트 답변 선정', pts: 100, date: '2025.05.20', plus: true },
-  { id: 2, reason: '워키 답변 등록', pts: 30, date: '2025.05.18', plus: true },
-  { id: 3, reason: '티켓 처리 완료', pts: 50, date: '2025.05.15', plus: true },
-  { id: 4, reason: '워키 답변 등록', pts: 30, date: '2025.05.10', plus: true },
-  { id: 5, reason: '워키 답변 등록', pts: 30, date: '2025.05.05', plus: true },
-])
+function labelOf(reasonType: string) {
+  return reasonLabel[reasonType] ?? reasonType
+}
 
-const monthlyPoints = [120, 180, 90, 210, 340, 890]
-const monthLabels = ['1월', '2월', '3월', '4월', '5월', '6월']
+function formatDate(iso: string) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
+}
 
-const totalPoints = history.value.reduce((acc, h) => acc + (h.plus ? h.pts : -h.pts), 0)
+async function fetchHistories(pageNum: number, append: boolean) {
+  if (append) loadingMore.value = true
+  try {
+    const res = await getPointHistories({ page: pageNum, size: PAGE_SIZE })
+    histories.value = append ? [...histories.value, ...res.data.content] : res.data.content
+    hasNext.value = res.data.pageInfo.hasNext
+    page.value = pageNum
+  } finally {
+    if (append) loadingMore.value = false
+  }
+}
+
+function loadMore() {
+  if (loadingMore.value || !hasNext.value) return
+  fetchHistories(page.value + 1, true)
+}
+
+onMounted(async () => {
+  loading.value = true
+  error.value = ''
+  try {
+    const [pointRes] = await Promise.all([getMyPoint(), fetchHistories(0, false)])
+    currentPoint.value = pointRes.data.currentPoint
+  } catch {
+    error.value = '포인트 정보를 불러오지 못했습니다.'
+  } finally {
+    loading.value = false
+  }
+})
 </script>
 
 <template>
@@ -38,27 +77,34 @@ const totalPoints = history.value.reduce((acc, h) => acc + (h.plus ? h.pts : -h.
       <p class="page-sub">{{ auth.nickname }}님의 포인트 현황</p>
     </div>
 
-    <div class="points-banner card">
-      <div class="banner-pts">{{ totalPoints.toLocaleString() }}<span>pt</span></div>
-      <div class="banner-label">보유 포인트</div>
-    </div>
+    <div v-if="loading" class="empty-ph" style="height: 240px;">불러오는 중...</div>
+    <div v-else-if="error" class="empty-ph" style="height: 240px;">{{ error }}</div>
 
-    <div class="card chart-card">
-      <h3 class="chart-title"><TrendingUp :size="16" /> 월별 포인트 획득 추이</h3>
-      <LineChart :data="monthlyPoints" :labels="monthLabels" color="#f5c000" />
-    </div>
+    <template v-else>
+      <div class="points-banner card">
+        <div class="banner-pts">{{ currentPoint.toLocaleString() }}<span>pt</span></div>
+        <div class="banner-label">보유 포인트</div>
+      </div>
 
-    <h3 class="hist-head">포인트 내역</h3>
+      <h3 class="hist-head">포인트 내역</h3>
 
-    <div class="hist-list">
-      <div v-for="h in history" :key="h.id" class="card hist-row">
-        <div class="hist-reason">{{ h.reason }}</div>
-        <div class="hist-date">{{ h.date }}</div>
-        <div class="hist-pts" :class="h.plus ? 'plus' : 'minus'">
-          {{ h.plus ? '+' : '-' }}{{ h.pts }}pt
+      <div v-if="histories.length === 0" class="empty-ph" style="height: 160px;">내역이 없습니다</div>
+      <div v-else class="hist-list">
+        <div v-for="h in histories" :key="h.pointHistoryId" class="card hist-row">
+          <div class="hist-reason">{{ labelOf(h.reasonType) }}</div>
+          <div class="hist-date">{{ formatDate(h.createdAt) }}</div>
+          <div class="hist-pts" :class="h.pointAmount >= 0 ? 'plus' : 'minus'">
+            {{ h.pointAmount >= 0 ? '+' : '' }}{{ h.pointAmount }}pt
+          </div>
+        </div>
+
+        <div v-if="hasNext" class="load-more">
+          <button class="btn" :disabled="loadingMore" @click="loadMore">
+            {{ loadingMore ? '불러오는 중...' : '더 보기' }}
+          </button>
         </div>
       </div>
-    </div>
+    </template>
   </div>
 </template>
 
@@ -68,15 +114,12 @@ const totalPoints = history.value.reduce((acc, h) => acc + (h.plus ? h.pts : -h.
   flex-direction: column;
   align-items: center;
   padding: 36px 24px;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
   background: linear-gradient(135deg, #fdf6e3, #fff8e7);
 }
 .banner-pts { font-size: 48px; font-weight: 900; color: #f5c000; line-height: 1; }
 .banner-pts span { font-size: 22px; margin-left: 4px; }
 .banner-label { font-size: 14px; color: #aeb2bb; margin-top: 6px; }
-
-.chart-card { padding: 22px 24px; margin-bottom: 24px; }
-.chart-title { display: flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 700; color: #1f2430; margin: 0 0 16px; }
 
 .hist-head { font-size: 16px; font-weight: 700; color: #1f2430; margin: 0 0 12px; }
 .hist-list { display: flex; flex-direction: column; gap: 8px; }
@@ -86,4 +129,5 @@ const totalPoints = history.value.reduce((acc, h) => acc + (h.plus ? h.pts : -h.
 .hist-pts { font-size: 16px; font-weight: 800; }
 .plus { color: #00a63e; }
 .minus { color: #ef4444; }
+.load-more { text-align: center; padding: 8px; }
 </style>

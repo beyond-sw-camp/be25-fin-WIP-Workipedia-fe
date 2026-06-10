@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
+import { useNotificationStore } from '@/stores/notificationStore'
 import { ROLES } from '@/constants/roles'
 import {
   MessageCircle, FileText, MessagesSquare, Trophy,
@@ -15,13 +16,23 @@ import { logout as logoutApi } from '@/api/authApi'
 
 const auth = useAuthStore()
 const router = useRouter()
+const notiStore = useNotificationStore()
 
 const showNotification = ref(false)
 const showPoint = ref(false)
 
+// 안읽음 알림 배지: 로그인 상태에서 폴링으로 갱신.
+onMounted(() => {
+  if (auth.isLoggedIn) notiStore.startPolling()
+})
+onUnmounted(() => notiStore.stopPolling())
+
 function toggleNotification() {
   showNotification.value = !showNotification.value
-  if (showNotification.value) showPoint.value = false
+  if (showNotification.value) {
+    showPoint.value = false
+    notiStore.refreshUnreadCount()
+  }
 }
 
 function togglePoint() {
@@ -62,6 +73,9 @@ const initials = computed(() =>
       </div>
       <button class="bell-btn" @click="toggleNotification">
         <Bell :size="18" />
+        <span v-if="notiStore.unreadCount > 0" class="bell-badge">
+          {{ notiStore.unreadCount > 99 ? '99+' : notiStore.unreadCount }}
+        </span>
       </button>
     </div>
 
@@ -220,6 +234,22 @@ const initials = computed(() =>
 .bell-btn:hover {
   color: #c7d2fe;
   transform: scale(1.2);
+}
+
+.bell-badge {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 99px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
 }
 
 /* 네비게이션 */
