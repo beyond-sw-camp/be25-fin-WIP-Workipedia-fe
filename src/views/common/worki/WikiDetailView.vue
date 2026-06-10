@@ -136,6 +136,12 @@ onMounted(() => {
   load()
 })
 
+// 앱 내부에서 진입했으면 뒤로가기(스크롤·필터 복원), 직접 URL 진입이면 목록으로 안전 이동.
+function goBack() {
+  if (window.history.state?.back) router.back()
+  else router.push('/worki')
+}
+
 async function submitAnswer() {
   const content = newAnswer.value.trim()
   if (!content || submitting.value) return
@@ -144,6 +150,7 @@ async function submitAnswer() {
     const res = await createAnswer(questionId, { content })
     answers.value.push(res.data)
     newAnswer.value = ''
+    error.value = '' // 이전 오류 후 재시도 성공 시 메시지 잔류 방지
   } catch {
     error.value = '답변 등록에 실패했습니다.'
   } finally {
@@ -154,7 +161,7 @@ async function submitAnswer() {
 
 <template>
   <div class="content-inner" style="max-width: 860px;">
-    <button class="btn" style="margin-bottom: 20px;" @click="router.back()">
+    <button class="btn" style="margin-bottom: 20px;" @click="goBack">
       <ChevronLeft :size="16" /> 목록으로
     </button>
 
@@ -213,8 +220,11 @@ async function submitAnswer() {
         </div>
       </div>
 
-      <!-- 채택된 답변이 있으면(해결 완료) 답변 작성창을 숨긴다 -->
-      <div v-if="question.acceptedAnswerId == null" class="card ans-write">
+      <!-- 채택 완료/티켓 전환/삭제 상태면 답변 작성창을 숨긴다 -->
+      <div
+        v-if="question.acceptedAnswerId == null && question.status !== 'TICKETED' && question.status !== 'DELETED'"
+        class="card ans-write"
+      >
         <h4 style="margin: 0 0 12px; font-size: 15px; font-weight: 700; color: #1f2430;">
           <MessageCircle :size="16" style="vertical-align: middle; margin-right: 6px;" />
           답변 작성
