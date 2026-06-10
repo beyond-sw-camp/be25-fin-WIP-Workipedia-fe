@@ -1,0 +1,274 @@
+@import "tailwindcss";
+@import "./variables.css";
+
+/* ── 스크롤바 ─────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.14);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.24);
+  background-clip: padding-box;
+}
+
+/* ── 기본 폰트 ────────────────────────────────────────────── */
+body {
+  font-family: 'Inter', -apple-system, system-ui, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  color: var(--ink);
+  background: var(--bg-soft);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ── Card ────────────────────────────────────────────────── */
+.card {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+}
+
+/* ── Badge ───────────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--bg-soft);
+  color: var(--muted-2);
+  white-space: nowrap;
+}
+/* 라이트 변형 — 레이블·카테고리용 */
+.badge.blue   { background: #eaf2ff; color: var(--blue); }
+.badge.green  { background: #e7f8ee; color: #0a8a43; }
+.badge.gray   { background: #eef0f3; color: #4b5563; }
+.badge.orange { background: #fff0e6; color: var(--orange); }
+.badge.purple { background: var(--purple); color: #fff; }
+.badge.red    { background: #fee2e2; color: #dc2626; }
+/* 솔리드 변형 — 상태 강조용 */
+.badge.solid-blue   { background: var(--blue); color: #fff; }
+.badge.solid-green  { background: #00a63e; color: #fff; }
+.badge.solid-orange { background: var(--orange); color: #fff; }
+.badge.solid-dark   { background: var(--ink-2); color: #fff; }
+
+/* ── Button ──────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.05s;
+  font-family: inherit;
+}
+.btn:hover { background: var(--bg-soft); }
+.btn:active { transform: translateY(1px); }
+.btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+.btn.primary:hover { background: #1a6ef5; }
+.btn.dark { background: var(--ink-2); border-color: var(--ink-2); color: #fff; }
+.btn.dark:hover { background: #15151f; }
+.btn.green { background: #00a63e; border-color: #00a63e; color: #fff; }
+.btn.green:hover { background: #008f35; }
+.btn.ghost-purple { border-color: #e7d2ff; color: var(--purple); background: #f9f0ff; }
+.btn.ghost-purple:hover { background: #f3e8ff; }
+.btn:disabled { background: #d1d5db; border-color: #d1d5db; color: #9ca3af; cursor: not-allowed; transform: none; }
+
+/* ── Content layout ──────────────────────────────────────── */
+.content-inner {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 40px 44px 80px;
+}
+
+/* ── Page header ─────────────────────────────────────────── */
+.page-head { margin-bottom: 28px; }
+.page-title {
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  letter-spacing: -0.5px;
+}
+.page-sub { color: var(--muted); font-size: 15px; margin-top: 6px; }
+
+/* ── Segmented control ───────────────────────────────────── */
+.seg {
+  display: flex;
+  background: var(--bg-soft);
+  border-radius: 12px;
+  padding: 5px;
+  gap: 4px;
+}
+.seg button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border-radius: 9px;
+  border: none;
+  background: none;
+  color: var(--muted-2);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s;
+}
+.seg button.on {
+  background: var(--bg);
+  color: var(--ink);
+  box-shadow: var(--shadow-card);
+}
+
+/* ── Chip ────────────────────────────────────────────────── */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.chip:hover { background: var(--bg-soft); }
+
+/* ── Search bar ──────────────────────────────────────────── */
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: var(--bg-soft);
+  border: 1px solid transparent;
+  color: var(--muted);
+  transition: border-color 0.15s;
+}
+.search-bar:focus-within { border-color: var(--blue); background: var(--bg); }
+.search-bar input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 15px;
+  color: var(--ink);
+  font-family: inherit;
+}
+.search-bar input::placeholder { color: var(--muted); }
+
+/* ── Empty placeholder ───────────────────────────────────── */
+.empty-ph {
+  border: 1px dashed #d7dae0;
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: repeating-linear-gradient(45deg, #fafafa, #fafafa 8px, #f3f3f5 8px, #f3f3f5 16px);
+}
+
+/* ── Skeleton ────────────────────────────────────────────── */
+.skel {
+  background: #ececf0;
+  border-radius: 8px;
+  animation: skel-pulse 1.5s ease-in-out infinite;
+}
+@keyframes skel-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ── Chat avatar ─────────────────────────────────────────── */
+.chat-av {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #eef0f3;
+  color: #4b5563;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* ── Auth 공통 ───────────────────────────────────────────── */
+.auth-wrap {
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: linear-gradient(135deg, #0f1f44 0%, #16213e 45%, #1a2a52 100%);
+}
+.auth-card {
+  width: 440px;
+  max-width: 100%;
+  background: #f3f4f6;
+  border-radius: 24px;
+  padding: 40px 44px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+}
+.auth-label {
+  font-weight: 700;
+  font-size: 15px;
+  margin-bottom: 8px;
+  display: block;
+  color: #1f2937;
+}
+.auth-input {
+  width: 100%;
+  padding: 15px 18px;
+  border-radius: 12px;
+  border: 1px solid #d6dae1;
+  background: #fff;
+  font-size: 15.5px;
+  outline: none;
+  margin-bottom: 20px;
+  font-family: inherit;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+.auth-input:focus { border-color: var(--blue); }
+
+/* ── Toast (BaseToast.vue 보조) ──────────────────────────── */
+.toast-global {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: #effaf2;
+  border: 1px solid #bfead0;
+  box-shadow: var(--shadow-pop);
+  min-width: 320px;
+}
