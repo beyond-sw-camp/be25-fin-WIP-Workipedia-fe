@@ -9,6 +9,7 @@ export interface LoginData {
   accessToken: string
   userId: number
   departmentId: number
+  departmentName: string
   role: Role
   nickname: string
   status: 'ACTIVE' | 'INACTIVE'
