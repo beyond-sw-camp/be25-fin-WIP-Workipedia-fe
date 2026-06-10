@@ -2,7 +2,6 @@
 import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
-import { ROLE_HOME } from '@/router/guards'
 import { login } from '@/api/authApi'
 import type { AxiosError } from 'axios'
 
@@ -40,17 +39,17 @@ async function handleLogin() {
   serverError.value = ''
   try {
     const res = await login({ employeeId: employeeId.value, password: password.value })
-    const { accessToken, userId, role, nickname, status } = res.data
+    const { accessToken, userId, role, nickname, departmentName, status } = res.data
 
     if (status === 'INACTIVE') {
       serverError.value = '비활성화된 계정입니다. 관리자에게 문의해주세요.'
       return
     }
 
-    auth.setAuth(accessToken, role, userId, nickname)
+    auth.setAuth(accessToken, role, userId, nickname, departmentName)
 
     const redirect = route.query.redirect as string | undefined
-    router.push(redirect || ROLE_HOME[role] || '/knowit')
+    router.push(redirect || '/knowit')
   } catch (e) {
     const err = e as AxiosError<{ message: string }>
     serverError.value = err.response?.data?.message ?? '사번 또는 비밀번호가 올바르지 않습니다.'
