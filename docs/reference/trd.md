@@ -4,8 +4,8 @@
 > 상태: Draft
 > 정본 위치: `docs/001-reference/trd.md`
 > 관련 문서: `docs/001-reference/constitution.md`, `docs/001-reference/service-flow.md`, `docs/001-reference/prd.md`
-> 버전: v0.3
-> 최종 수정: 2026-06-01
+> 버전: v0.4
+> 최종 수정: 2026-06-11
 
 ---
 
@@ -48,22 +48,23 @@
 | Backend | Spring Boot 3.x (Java 21) |
 | ORM | JPA(Hibernate) |
 | RDB | MariaDB/MySQL 계열 |
-| Vector Store | Elasticsearch (kNN 검색, 민정기 담당) — ADR 009 참조 |
+| BE 검색 엔진 | Elasticsearch (전문 검색, 민정기 담당) — ADR 009 참조 |
+| AI Vector Store | ChromaDB (RAG·부서 라우팅 검색) |
 | 인증 | JWT (Access + Refresh), 비밀번호 BCrypt |
 | 세션 저장 | Redis (Refresh Token 저장) — ADR 003 참조 |
 | LLM | 로컬 LLM 또는 검색 결과 기반 template 답변, 외부 LLM은 후순위 |
 | Embedding | 로컬 임베딩 모델 우선 |
-| 메시지 브로커 | Kafka (이벤트 기반 알림 등) |
+| 메시지 브로커 | RabbitMQ (알림·포인트·ESG 비동기 이벤트) |
 | 배치 | Spring Scheduler/Quartz 우선 |
 | 인프라 | Docker, Kubernetes(선택), CI/CD: GitHub Actions |
 | 모니터링 | Prometheus + Grafana, 로그: ELK / Loki |
 
 ### 2.3 RAG 파이프라인
 
-1. **인덱싱(배치, 1일 1회)** — KNOIT_006
-   - `manuals`, `worki_questions`, `worki_answers` 중 신규/수정/채택된 데이터 조회
-   - 문장 단위로 분할(chunk) → `worki_chunks` 등 chunk 테이블에 저장
-   - 로컬 임베딩 생성 → local vector adapter 또는 Vector Store에 upsert
+1. **인덱싱(`ai_sync_jobs` + 정합성 점검)** — KNOIT_006
+   - 매뉴얼·워키·승인 지식화 문서·수기 지식 변경 시 BE가 동기화 작업을 기록
+   - AI 서버가 민감정보 마스킹, 문서 유형별 chunking, embedding, ChromaDB upsert 수행
+   - `knowledge_data`와 `manual_knowledge`는 DB·`sourceType`·collection을 분리
 
 2. **질의 처리(실시간)** — KNOIT_001~003
    - 사용자 질문 → 개인정보 마스킹/필터(KNOIT_007/008)
@@ -73,8 +74,19 @@
    - 채팅 메시지 저장(KNOIT_004) → `chatbot_sessions`, `chatbot_messages`
 
 3. **실패 / 불만족 / 요청 전환 흐름** — KNOIT_005
-   - LLM이 답변 불가 또는 사용자 불만족 피드백 → 워키 질문 등록 흐름으로 분기
+   - 검색 결과 없음, 점수 미달, 출처 검증 실패 시 구조화된 `NO_RESULT` 반환
+   - 사용자 불만족 피드백 → 워키 질문 등록 흐름으로 분기
    - 실제 처리나 공식 확인이 필요한 경우 → 요청 티켓 생성 흐름으로 분기, 챗봇 입력 내용을 요청 초안으로 전달
+
+4. **A→B→C→D 폴백 오케스트레이션**
+   - A: 매뉴얼 RAG
+   - B: 워키 RAG
+   - C: 지식 RAG
+     - TEAM_ADMIN 승인 지식화 게시판(`KNOWLEDGE_DATA`)
+     - SYSTEM_ADMIN 수기 지식(`MANUAL_KNOWLEDGE`)
+   - D: 등록된 API 또는 승인 DB Query Tool
+   - C단계는 분리된 두 collection의 후보를 합쳐 통합 reranking
+   - 모든 단계 실패 시 워키 등록 또는 요청 티켓 생성 전환 액션 반환
 
 ---
 
