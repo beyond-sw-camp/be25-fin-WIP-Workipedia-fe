@@ -3,9 +3,11 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { BookOpen, Search, ChevronRight } from '@lucide/vue'
 import { getManuals } from '@/api/manualApi'
+import { useDeptStore } from '@/stores/deptStore'
 import type { ManualSummaryResponse } from '@/types/manual'
 
 const router = useRouter()
+const deptStore = useDeptStore()
 const query = ref('')
 
 const PAGE_SIZE = 20
@@ -22,11 +24,10 @@ function formatDate(iso: string) {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
 }
 
-// BE 매뉴얼 목록엔 keyword 검색이 없어 불러온 항목에 대해 클라이언트 필터.
 const filtered = computed(() => {
   const q = query.value.trim()
   if (!q) return manuals.value
-  return manuals.value.filter((m) => m.title.includes(q))
+  return manuals.value.filter((m) => m.title.toLowerCase().includes(q.toLowerCase()))
 })
 
 async function fetchPage(pageNum: number, append: boolean) {
@@ -86,6 +87,7 @@ onMounted(() => fetchPage(1, false))
         <div class="manual-info">
           <div class="manual-title">{{ m.title }}</div>
           <div class="manual-meta">
+            <span class="dept-tag">{{ deptStore.getName(m.departmentId) }}</span>
             <span v-if="m.version">v{{ m.version }}</span>
             <span>최종 수정 {{ formatDate(m.updatedAt) }}</span>
           </div>
@@ -122,6 +124,10 @@ onMounted(() => fetchPage(1, false))
 }
 .manual-info { flex: 1; min-width: 0; }
 .manual-title { font-size: 15.5px; font-weight: 700; color: #1f2430; }
-.manual-meta { display: flex; gap: 12px; font-size: 12.5px; color: #aeb2bb; margin-top: 3px; }
+.manual-meta { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: #aeb2bb; margin-top: 3px; }
+.dept-tag {
+  font-size: 11.5px; font-weight: 600; color: #2b7fff;
+  background: #eff6ff; border-radius: 4px; padding: 1px 7px;
+}
 .load-more { text-align: center; padding: 8px; }
 </style>

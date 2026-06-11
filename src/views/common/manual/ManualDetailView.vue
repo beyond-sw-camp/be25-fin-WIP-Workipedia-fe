@@ -3,10 +3,12 @@ import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ChevronLeft, BookOpen, ExternalLink } from '@lucide/vue'
 import { getManualDetail } from '@/api/manualApi'
+import { useDeptStore } from '@/stores/deptStore'
 import type { ManualDetailResponse } from '@/types/manual'
 
 const router = useRouter()
 const route = useRoute()
+const deptStore = useDeptStore()
 
 const manual = ref<ManualDetailResponse | null>(null)
 const loading = ref(false)
@@ -48,7 +50,7 @@ onMounted(async () => {
     <div v-else-if="manual" class="card manual-wrap">
       <div class="manual-header">
         <div class="manual-header-left">
-          <span class="badge blue"><BookOpen :size="11" /> 매뉴얼</span>
+          <span class="badge blue"><BookOpen :size="11" /> {{ deptStore.getName(manual.departmentId) }}</span>
           <span v-if="manual.version" class="badge gray">v{{ manual.version }}</span>
         </div>
         <a

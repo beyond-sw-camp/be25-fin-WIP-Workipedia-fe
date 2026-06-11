@@ -2,21 +2,14 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { sendSignupCode, verifySignupCode, signup } from '@/api/authApi'
-import { getDepartments, type Department } from '@/api/adminApi'
+import { useDeptStore } from '@/stores/deptStore'
 import type { AxiosError } from 'axios'
 
 const router = useRouter()
+const deptStore = useDeptStore()
 
-// 부서 목록
-const departments = ref<Department[]>([])
-onMounted(async () => {
-  try {
-    const res = await getDepartments()
-    departments.value = res.data.data
-  } catch {
-    // 부서 목록 로드 실패 시 빈 목록 유지
-  }
-})
+// 로그인 전 페이지라 AppLayout이 없으므로 여기서 직접 로드
+onMounted(() => deptStore.load())
 
 // 폼 상태
 const employeeId = ref('')
@@ -195,8 +188,8 @@ async function handleSignup() {
             :class="{ 'field-input--error': errors.departmentId }"
           >
             <option value="" disabled>부서를 선택하세요</option>
-            <option v-for="dept in departments" :key="dept.departmentId" :value="dept.departmentId">
-              {{ dept.name }}
+            <option v-for="dept in deptStore.departments" :key="dept.departmentId" :value="dept.departmentId">
+              {{ dept.departmentName }}
             </option>
           </select>
           <p v-if="errors.departmentId" class="field-error">{{ errors.departmentId }}</p>

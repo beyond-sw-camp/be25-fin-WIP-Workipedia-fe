@@ -1,7 +1,12 @@
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import { RouterView } from 'vue-router'
 import Sidebar from './Sidebar.vue'
 import Header from './Header.vue'
+import { useDeptStore } from '@/stores/deptStore'
+
+const deptStore = useDeptStore()
+onMounted(() => deptStore.load())
 </script>
 
 <template>
