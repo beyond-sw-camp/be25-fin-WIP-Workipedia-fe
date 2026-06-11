@@ -114,3 +114,11 @@ export interface AnswerResponse {
   acceptedAt: string | null
   createdAt: string
 }
+
+// 관리자 질문 삭제(soft delete) 응답
+export interface AdminWorkiQuestionDeleteResponse {
+  questionId: number
+  authorId: number
+  deductedPoint: number
+  remainingPoint: number
+}
