@@ -1,16 +1,17 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { BookOpen, Search, ChevronRight } from '@lucide/vue'
+import { BookOpen, Search, Clock, FileText, ChevronRight } from '@lucide/vue'
 import { getManuals } from '@/api/manualApi'
 import type { ManualSummaryResponse } from '@/types/manual'
 
 const router = useRouter()
 const query = ref('')
+const activeTab = ref<'recent' | 'all'>('recent')
 
 const PAGE_SIZE = 20
 const manuals = ref<ManualSummaryResponse[]>([])
-const page = ref(1) // BasePageRequest 기반(1-based)
+const page = ref(1)
 const hasNext = ref(false)
 const loading = ref(false)
 const loadingMore = ref(false)
@@ -22,12 +23,31 @@ function formatDate(iso: string) {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
 }
 
-// BE 매뉴얼 목록엔 keyword 검색이 없어 불러온 항목에 대해 클라이언트 필터.
+function timeAgo(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime()
+  const h = Math.floor(diff / 3_600_000)
+  const day = Math.floor(diff / 86_400_000)
+  if (h < 1) return '방금 전'
+  if (h < 24) return `${h}시간 전`
+  if (day < 7) return `${day}일 전`
+  return formatDate(iso)
+}
+
 const filtered = computed(() => {
   const q = query.value.trim()
   if (!q) return manuals.value
-  return manuals.value.filter((m) => m.title.includes(q))
+  return manuals.value.filter((m) => m.title.toLowerCase().includes(q.toLowerCase()))
 })
+
+// API가 최신순 고정이므로 상위 6개가 가장 최근
+const recentManuals = computed(() => filtered.value.slice(0, 6))
+
+// TODO: BE가 departmentName을 응답에 포함하면 제거
+const DEPT_NAME: Record<number, string> = {}
+function deptName(id: number | null) {
+  if (id == null) return '공통'
+  return DEPT_NAME[id] ?? `부서 ${id}`
+}
 
 async function fetchPage(pageNum: number, append: boolean) {
   if (append) loadingMore.value = true
@@ -56,72 +76,139 @@ onMounted(() => fetchPage(1, false))
 
 <template>
   <div class="content-inner">
+
+    <!-- Header -->
     <div class="page-head">
       <h1 class="page-title">
-        <BookOpen :size="28" color="#ff6900" />
-        매뉴얼
+        <BookOpen :size="28" color="#10b981" />
+        문서 / 매뉴얼
       </h1>
-      <p class="page-sub">업무 가이드와 규정을 확인하세요</p>
+      <p class="page-sub">사내 매뉴얼과 최근 업데이트 내역을 확인하세요</p>
     </div>
 
-    <div class="search-bar" style="max-width: 480px; margin-bottom: 28px;">
+    <!-- Search -->
+    <div class="search-bar" style="margin-bottom: 24px;">
       <Search :size="16" />
-      <input v-model="query" placeholder="매뉴얼 검색" />
+      <input v-model="query" placeholder="매뉴얼 검색..." />
+    </div>
+
+    <!-- Tabs -->
+    <div class="seg" style="margin-bottom: 24px;">
+      <button :class="{ on: activeTab === 'recent' }" @click="activeTab = 'recent'">
+        <Clock :size="14" /> 최근 업데이트
+      </button>
+      <button :class="{ on: activeTab === 'all' }" @click="activeTab = 'all'">
+        <FileText :size="14" /> 전체 매뉴얼
+      </button>
     </div>
 
     <div v-if="loading && manuals.length === 0" class="empty-ph" style="height: 240px;">불러오는 중...</div>
     <div v-else-if="error && manuals.length === 0" class="empty-ph" style="height: 240px;">{{ error }}</div>
-    <div v-else-if="filtered.length === 0" class="empty-ph" style="height: 240px;">
-      {{ query.trim() ? '검색 결과가 없습니다' : '등록된 매뉴얼이 없습니다' }}
-    </div>
 
-    <div v-else class="manual-list">
-      <div
-        v-for="m in filtered"
-        :key="m.manualId"
-        class="card manual-row"
-        @click="router.push(`/manuals/${m.manualId}`)"
-      >
-        <div class="manual-icon"><BookOpen :size="18" color="#ff6900" /></div>
-        <div class="manual-info">
-          <div class="manual-title">{{ m.title }}</div>
-          <div class="manual-meta">
-            <span v-if="m.version">v{{ m.version }}</span>
-            <span>최종 수정 {{ formatDate(m.updatedAt) }}</span>
+    <!-- 최근 업데이트 탭 -->
+    <template v-else-if="activeTab === 'recent'">
+      <div v-if="recentManuals.length === 0" class="empty-ph" style="height: 240px;">
+        {{ query.trim() ? '검색 결과가 없습니다' : '등록된 매뉴얼이 없습니다' }}
+      </div>
+      <div v-else class="recent-grid">
+        <div
+          v-for="m in recentManuals"
+          :key="m.manualId"
+          class="card recent-card"
+          @click="router.push(`/manuals/${m.manualId}`)"
+        >
+          <div class="rc-top">
+            <div class="rc-icon"><BookOpen :size="20" color="#10b981" /></div>
+            <div class="rc-badges">
+              <span class="badge solid-blue">{{ deptName(m.departmentId) }}</span>
+              <span v-if="m.version" class="badge gray">v{{ m.version }}</span>
+            </div>
+          </div>
+          <div class="rc-title">{{ m.title }}</div>
+          <div class="rc-date">
+            <Clock :size="12" />
+            {{ timeAgo(m.updatedAt) }}
           </div>
         </div>
-        <ChevronRight :size="18" color="#aeb2bb" />
       </div>
+    </template>
 
-      <div v-if="hasNext && !query.trim()" class="load-more">
-        <button class="btn" :disabled="loadingMore" @click="loadMore">
-          {{ loadingMore ? '불러오는 중...' : '더 보기' }}
-        </button>
+    <!-- 전체 매뉴얼 탭 -->
+    <template v-else>
+      <div v-if="filtered.length === 0" class="empty-ph" style="height: 240px;">
+        {{ query.trim() ? '검색 결과가 없습니다' : '등록된 매뉴얼이 없습니다' }}
       </div>
-    </div>
+      <div v-else class="manual-list">
+        <div
+          v-for="m in filtered"
+          :key="m.manualId"
+          class="card manual-row"
+          @click="router.push(`/manuals/${m.manualId}`)"
+        >
+          <div class="manual-icon"><BookOpen :size="18" color="#10b981" /></div>
+          <div class="manual-info">
+            <div class="manual-title">{{ m.title }}</div>
+            <div class="manual-meta">
+              <span class="dept-tag">{{ deptName(m.departmentId) }}</span>
+              <span v-if="m.version">v{{ m.version }}</span>
+              <span>최종 수정 {{ formatDate(m.updatedAt) }}</span>
+            </div>
+          </div>
+          <ChevronRight :size="18" color="#aeb2bb" />
+        </div>
+
+        <div v-if="hasNext && !query.trim()" class="load-more">
+          <button class="btn" :disabled="loadingMore" @click="loadMore">
+            {{ loadingMore ? '불러오는 중...' : '더 보기' }}
+          </button>
+        </div>
+      </div>
+    </template>
+
   </div>
 </template>
 
 <style scoped>
+/* ── Tabs icon alignment ── */
+.seg button { display: flex; align-items: center; gap: 6px; }
+
+/* ── Recent Grid ── */
+.recent-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+
+.recent-card {
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 20px 22px; cursor: pointer; transition: box-shadow 0.15s;
+}
+.recent-card:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+
+.rc-top { display: flex; align-items: center; justify-content: space-between; }
+.rc-badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.rc-icon {
+  width: 40px; height: 40px; border-radius: 10px;
+  background: #ecfdf5;
+  display: flex; align-items: center; justify-content: center;
+}
+.rc-title { font-size: 15px; font-weight: 700; color: #1f2430; line-height: 1.4; }
+.rc-date { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: #aeb2bb; }
+
+/* ── All List ── */
 .manual-list { display: flex; flex-direction: column; gap: 12px; }
 .manual-row {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 18px 22px;
-  cursor: pointer;
-  transition: box-shadow 0.15s;
+  display: flex; align-items: center; gap: 16px;
+  padding: 18px 22px; cursor: pointer; transition: box-shadow 0.15s;
 }
 .manual-row:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
 .manual-icon {
-  width: 42px; height: 42px;
-  border-radius: 12px;
-  background: #fff3e9;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
+  width: 42px; height: 42px; border-radius: 12px;
+  background: #ecfdf5;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
 .manual-info { flex: 1; min-width: 0; }
 .manual-title { font-size: 15.5px; font-weight: 700; color: #1f2430; }
-.manual-meta { display: flex; gap: 12px; font-size: 12.5px; color: #aeb2bb; margin-top: 3px; }
+.manual-meta { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: #aeb2bb; margin-top: 4px; }
+.dept-tag {
+  font-size: 11.5px; font-weight: 600; color: #2b7fff;
+  background: #eff6ff; border-radius: 4px; padding: 1px 7px;
+}
 .load-more { text-align: center; padding: 8px; }
 </style>
