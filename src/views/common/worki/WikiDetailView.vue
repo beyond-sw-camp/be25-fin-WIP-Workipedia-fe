@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ChevronLeft, CheckCircle2, MessageCircle, ThumbsUp } from '@lucide/vue'
-import { getQuestionDetail, createAnswer, acceptAnswer, likeQuestion, unlikeQuestion } from '@/api/workiApi'
+import { ChevronLeft, CheckCircle2, MessageCircle, ThumbsUp, Trash2 } from '@lucide/vue'
+import { getQuestionDetail, createAnswer, acceptAnswer, likeQuestion, unlikeQuestion, deleteQuestionAsAdmin } from '@/api/workiApi'
 import { useAuthStore } from '@/stores/authStore'
+import { ROLES } from '@/constants/roles'
 import type { AxiosError } from 'axios'
 import type { QuestionDetailResponse, AnswerResponse, QuestionStatus } from '@/types/worki'
 
@@ -89,6 +90,25 @@ const canAccept = computed(
     question.value.authorId === auth.userId &&
     question.value.acceptedAnswerId == null,
 )
+
+// 관리자(팀/시스템)만 질문 삭제 가능
+const isAdmin = computed(
+  () => auth.role === ROLES.TEAM_ADMIN || auth.role === ROLES.SYSTEM_ADMIN,
+)
+const deleting = ref(false)
+
+async function deleteQuestion() {
+  if (deleting.value) return
+  if (!window.confirm('이 질문을 삭제하시겠습니까? 되돌릴 수 없습니다.')) return
+  deleting.value = true
+  try {
+    await deleteQuestionAsAdmin(questionId)
+    router.push('/worki')
+  } catch {
+    window.alert('질문 삭제에 실패했습니다.')
+    deleting.value = false
+  }
+}
 
 async function accept(answerId: number) {
   if (accepting.value) return
@@ -182,6 +202,14 @@ async function submitAnswer() {
         <h2 class="q-title">{{ question.title }}</h2>
         <p class="q-body">{{ question.content }}</p>
         <div class="q-footer">
+          <button
+            v-if="isAdmin"
+            class="delete-btn"
+            :disabled="deleting"
+            @click="deleteQuestion"
+          >
+            <Trash2 :size="15" /> {{ deleting ? '삭제 중...' : '삭제' }}
+          </button>
           <button class="like-btn" :class="{ liked }" :disabled="likePending" @click="toggleLike">
             <ThumbsUp :size="15" /> 좋아요 {{ likeCount }}
           </button>
@@ -250,7 +278,23 @@ async function submitAnswer() {
 .q-header { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
 .q-title { font-size: 22px; font-weight: 800; color: #1f2430; margin: 0 0 12px; }
 .q-body { font-size: 15.5px; color: #404055; line-height: 1.7; margin: 0; white-space: pre-wrap; }
-.q-footer { display: flex; justify-content: flex-end; margin-top: 18px; }
+.q-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.delete-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #e7000b;
+  background: #fff;
+  border: 1px solid #ffc9c9;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.delete-btn:hover:not(:disabled) { background: #fff0f0; border-color: #e7000b; }
+.delete-btn:disabled { opacity: 0.6; cursor: default; }
 .like-btn {
   display: inline-flex;
   align-items: center;

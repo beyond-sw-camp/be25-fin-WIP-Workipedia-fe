@@ -12,6 +12,7 @@ import type {
   QuestionDetailResponse,
   AnswerCreateRequest,
   AnswerResponse,
+  AdminWorkiQuestionDeleteResponse,
 } from '@/types/worki'
 
 // worki 컨트롤러는 ApiResponse 래퍼 없이 DTO를 직접 반환한다 (BE 컨벤션).
@@ -39,6 +40,11 @@ export function getQuestions(params: PageParams = {}) {
 // 질문 상세
 export function getQuestionDetail(questionId: number) {
   return http.get<QuestionDetailResponse>(`/worki/questions/${questionId}`)
+}
+
+// 관리자 질문 삭제 (TEAM_ADMIN / SYSTEM_ADMIN, soft delete)
+export function deleteQuestionAsAdmin(questionId: number) {
+  return http.delete<AdminWorkiQuestionDeleteResponse>(`/admin/worki/questions/${questionId}`)
 }
 
 // 질문 키워드 검색 (Elasticsearch). BE는 keyword 2~100자만 허용한다.
