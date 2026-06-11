@@ -3,9 +3,11 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { BookOpen, Search, Clock, FileText, ChevronRight } from '@lucide/vue'
 import { getManuals } from '@/api/manualApi'
+import { useDeptStore } from '@/stores/deptStore'
 import type { ManualSummaryResponse } from '@/types/manual'
 
 const router = useRouter()
+const deptStore = useDeptStore()
 const query = ref('')
 const activeTab = ref<'recent' | 'all'>('recent')
 
@@ -23,16 +25,6 @@ function formatDate(iso: string) {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
 }
 
-function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime()
-  const h = Math.floor(diff / 3_600_000)
-  const day = Math.floor(diff / 86_400_000)
-  if (h < 1) return '방금 전'
-  if (h < 24) return `${h}시간 전`
-  if (day < 7) return `${day}일 전`
-  return formatDate(iso)
-}
-
 const filtered = computed(() => {
   const q = query.value.trim()
   if (!q) return manuals.value
@@ -41,13 +33,6 @@ const filtered = computed(() => {
 
 // API가 최신순 고정이므로 상위 6개가 가장 최근
 const recentManuals = computed(() => filtered.value.slice(0, 6))
-
-// TODO: BE가 departmentName을 응답에 포함하면 제거
-const DEPT_NAME: Record<number, string> = {}
-function deptName(id: number | null) {
-  if (id == null) return '공통'
-  return DEPT_NAME[id] ?? `부서 ${id}`
-}
 
 async function fetchPage(pageNum: number, append: boolean) {
   if (append) loadingMore.value = true
@@ -110,25 +95,23 @@ onMounted(() => fetchPage(1, false))
       <div v-if="recentManuals.length === 0" class="empty-ph" style="height: 240px;">
         {{ query.trim() ? '검색 결과가 없습니다' : '등록된 매뉴얼이 없습니다' }}
       </div>
-      <div v-else class="recent-grid">
+      <div v-else class="manual-list">
         <div
           v-for="m in recentManuals"
           :key="m.manualId"
-          class="card recent-card"
+          class="card manual-row"
           @click="router.push(`/manuals/${m.manualId}`)"
         >
-          <div class="rc-top">
-            <div class="rc-icon"><BookOpen :size="20" color="#10b981" /></div>
-            <div class="rc-badges">
-              <span class="badge solid-blue">{{ deptName(m.departmentId) }}</span>
-              <span v-if="m.version" class="badge gray">v{{ m.version }}</span>
+          <div class="manual-icon"><BookOpen :size="18" color="#10b981" /></div>
+          <div class="manual-info">
+            <div class="manual-title">{{ m.title }}</div>
+            <div class="manual-meta">
+              <span class="dept-tag">{{ deptStore.getName(m.departmentId) }}</span>
+              <span v-if="m.version">v{{ m.version }}</span>
+              <span>최종 수정 {{ formatDate(m.updatedAt) }}</span>
             </div>
           </div>
-          <div class="rc-title">{{ m.title }}</div>
-          <div class="rc-date">
-            <Clock :size="12" />
-            {{ timeAgo(m.updatedAt) }}
-          </div>
+          <ChevronRight :size="18" color="#aeb2bb" />
         </div>
       </div>
     </template>
@@ -149,7 +132,7 @@ onMounted(() => fetchPage(1, false))
           <div class="manual-info">
             <div class="manual-title">{{ m.title }}</div>
             <div class="manual-meta">
-              <span class="dept-tag">{{ deptName(m.departmentId) }}</span>
+              <span class="dept-tag">{{ deptStore.getName(m.departmentId) }}</span>
               <span v-if="m.version">v{{ m.version }}</span>
               <span>최종 수정 {{ formatDate(m.updatedAt) }}</span>
             </div>
@@ -172,25 +155,6 @@ onMounted(() => fetchPage(1, false))
 /* ── Tabs icon alignment ── */
 .seg button { display: flex; align-items: center; gap: 6px; }
 
-/* ── Recent Grid ── */
-.recent-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-
-.recent-card {
-  display: flex; flex-direction: column; gap: 12px;
-  padding: 20px 22px; cursor: pointer; transition: box-shadow 0.15s;
-}
-.recent-card:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
-
-.rc-top { display: flex; align-items: center; justify-content: space-between; }
-.rc-badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-.rc-icon {
-  width: 40px; height: 40px; border-radius: 10px;
-  background: #ecfdf5;
-  display: flex; align-items: center; justify-content: center;
-}
-.rc-title { font-size: 15px; font-weight: 700; color: #1f2430; line-height: 1.4; }
-.rc-date { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: #aeb2bb; }
-
 /* ── All List ── */
 .manual-list { display: flex; flex-direction: column; gap: 12px; }
 .manual-row {
@@ -205,7 +169,7 @@ onMounted(() => fetchPage(1, false))
 }
 .manual-info { flex: 1; min-width: 0; }
 .manual-title { font-size: 15.5px; font-weight: 700; color: #1f2430; }
-.manual-meta { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: #aeb2bb; margin-top: 4px; }
+.manual-meta { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: #aeb2bb; margin-top: 3px; }
 .dept-tag {
   font-size: 11.5px; font-weight: 600; color: #2b7fff;
   background: #eff6ff; border-radius: 4px; padding: 1px 7px;
