@@ -27,6 +27,8 @@ const PAGE_META: Record<string, { label: string; icon: object; color: string }> 
   'ticket-new':          { label: '티켓 생성',             icon: FileText,        color: '#ef4444' },
   'ticket-detail':       { label: '티켓 상세',             icon: FileText,        color: '#ef4444' },
   my:                    { label: '마이페이지',            icon: User,            color: '#64748b' },
+  'my-tickets':          { label: '내 발행 티켓',          icon: FileText,        color: '#ef4444' },
+  'my-ticket-detail':    { label: '내 발행 티켓',          icon: FileText,        color: '#ef4444' },
   'my-points':           { label: '포인트',                icon: Trophy,          color: '#f59e0b' },
   notifications:         { label: '알림',                  icon: Bell,            color: '#64748b' },
   'dashboard-team':      { label: '부서 대시보드',         icon: LayoutDashboard, color: '#3b82f6' },

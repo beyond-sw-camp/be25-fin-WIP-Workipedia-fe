@@ -147,6 +147,16 @@ const router = createRouter({
           name: 'my-points',
           component: () => import('@/views/common/point/PointView.vue'),
         },
+        {
+          path: 'my/tickets',
+          name: 'my-tickets',
+          component: () => import('@/views/common/mypage/MyIssuedTicketsView.vue'),
+        },
+        {
+          path: 'my/tickets/:id',
+          name: 'my-ticket-detail',
+          component: () => import('@/views/common/mypage/MyIssuedTicketDetailView.vue'),
+        },
 
         // 알림
         {
