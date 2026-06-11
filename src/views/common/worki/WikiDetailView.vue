@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ChevronLeft, CheckCircle2, MessageCircle } from '@lucide/vue'
-import { getQuestionDetail, createAnswer, acceptAnswer } from '@/api/workiApi'
+import { ChevronLeft, CheckCircle2, MessageCircle, ThumbsUp } from '@lucide/vue'
+import { getQuestionDetail, createAnswer, acceptAnswer, likeQuestion, unlikeQuestion } from '@/api/workiApi'
 import { useAuthStore } from '@/stores/authStore'
+import type { AxiosError } from 'axios'
 import type { QuestionDetailResponse, AnswerResponse, QuestionStatus } from '@/types/worki'
 
 const router = useRouter()
@@ -19,6 +20,63 @@ const error = ref('')
 const newAnswer = ref('')
 const submitting = ref(false)
 const accepting = ref(false)
+
+// 좋아요. BE 상세 응답에 liked 필드가 없어, 사용자별로 "어떤 질문을 좋아요했는지"를
+// localStorage에 저장해 뒤로가기/새로고침 후에도 상태를 복원한다.
+// TODO: BE QuestionDetailResponse에 liked(+likeCount) 추가되면 응답값으로 대체.
+const liked = ref(false)
+const likeCount = ref(0)
+const likePending = ref(false)
+const LIKED_KEY = `worki:liked:${auth.userId ?? 'anon'}`
+
+function readLikedSet(): Set<number> {
+  try {
+    const raw = localStorage.getItem(LIKED_KEY)
+    return new Set<number>(raw ? JSON.parse(raw) : [])
+  } catch {
+    return new Set<number>()
+  }
+}
+
+function persistLiked(value: boolean) {
+  const set = readLikedSet()
+  if (value) set.add(questionId)
+  else set.delete(questionId)
+  localStorage.setItem(LIKED_KEY, JSON.stringify(Array.from(set)))
+}
+
+async function toggleLike() {
+  if (likePending.value) return
+  likePending.value = true
+  const prev = liked.value
+  liked.value = !prev // 낙관적 업데이트
+  likeCount.value += prev ? -1 : 1 // 개수도 즉시 반영
+  try {
+    if (prev) await unlikeQuestion(questionId)
+    else await likeQuestion(questionId)
+    persistLiked(liked.value)
+  } catch (e) {
+    // 로컬 상태와 서버가 어긋난 경우 자기치유:
+    //  - like 했는데 409(이미 좋아요) → 이미 눌린 상태이므로 방금 더한 +1만 취소
+    //  - unlike 했는데 404(기록 없음) → 안 눌린 상태이므로 방금 뺀 -1만 취소
+    const status = (e as AxiosError)?.response?.status
+    if (!prev && status === 409) {
+      liked.value = true
+      likeCount.value -= 1
+      persistLiked(true)
+    } else if (prev && status === 404) {
+      liked.value = false
+      likeCount.value += 1
+      persistLiked(false)
+    } else {
+      liked.value = prev // 그 외 오류는 원복
+      likeCount.value += prev ? 1 : -1
+      error.value = '좋아요 처리에 실패했습니다.'
+    }
+  } finally {
+    likePending.value = false
+  }
+}
 
 function isSolved(status: QuestionStatus) {
   return status === 'ANSWERED'
@@ -65,6 +123,7 @@ async function load() {
     const res = await getQuestionDetail(questionId)
     question.value = res.data
     answers.value = res.data.answers
+    likeCount.value = res.data.likeCount ?? 0 // 서버 집계 개수로 초기화
   } catch {
     error.value = '질문을 불러오지 못했습니다.'
   } finally {
@@ -72,7 +131,16 @@ async function load() {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  liked.value = readLikedSet().has(questionId) // 뒤로가기/새로고침 후 좋아요 상태 복원
+  load()
+})
+
+// 앱 내부에서 진입했으면 뒤로가기(스크롤·필터 복원), 직접 URL 진입이면 목록으로 안전 이동.
+function goBack() {
+  if (window.history.state?.back) router.back()
+  else router.push('/worki')
+}
 
 async function submitAnswer() {
   const content = newAnswer.value.trim()
@@ -82,6 +150,7 @@ async function submitAnswer() {
     const res = await createAnswer(questionId, { content })
     answers.value.push(res.data)
     newAnswer.value = ''
+    error.value = '' // 이전 오류 후 재시도 성공 시 메시지 잔류 방지
   } catch {
     error.value = '답변 등록에 실패했습니다.'
   } finally {
@@ -92,7 +161,7 @@ async function submitAnswer() {
 
 <template>
   <div class="content-inner" style="max-width: 860px;">
-    <button class="btn" style="margin-bottom: 20px;" @click="router.back()">
+    <button class="btn" style="margin-bottom: 20px;" @click="goBack">
       <ChevronLeft :size="16" /> 목록으로
     </button>
 
@@ -112,6 +181,11 @@ async function submitAnswer() {
         </div>
         <h2 class="q-title">{{ question.title }}</h2>
         <p class="q-body">{{ question.content }}</p>
+        <div class="q-footer">
+          <button class="like-btn" :class="{ liked }" :disabled="likePending" @click="toggleLike">
+            <ThumbsUp :size="15" /> 좋아요 {{ likeCount }}
+          </button>
+        </div>
       </div>
 
       <h3 class="ans-head">답변 {{ answers.length }}개</h3>
@@ -146,7 +220,11 @@ async function submitAnswer() {
         </div>
       </div>
 
-      <div class="card ans-write">
+      <!-- 채택 완료/티켓 전환/삭제 상태면 답변 작성창을 숨긴다 -->
+      <div
+        v-if="question.acceptedAnswerId == null && question.status !== 'TICKETED' && question.status !== 'DELETED'"
+        class="card ans-write"
+      >
         <h4 style="margin: 0 0 12px; font-size: 15px; font-weight: 700; color: #1f2430;">
           <MessageCircle :size="16" style="vertical-align: middle; margin-right: 6px;" />
           답변 작성
@@ -172,6 +250,24 @@ async function submitAnswer() {
 .q-header { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
 .q-title { font-size: 22px; font-weight: 800; color: #1f2430; margin: 0 0 12px; }
 .q-body { font-size: 15.5px; color: #404055; line-height: 1.7; margin: 0; white-space: pre-wrap; }
+.q-footer { display: flex; justify-content: flex-end; margin-top: 18px; }
+.like-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #57534e;
+  background: #fff;
+  border: 1px solid #d6d3d1;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.like-btn:hover:not(:disabled) { border-color: #7c3aed; color: #7c3aed; }
+.like-btn.liked { background: #f3f0ff; border-color: #7c3aed; color: #7c3aed; }
+.like-btn:disabled { opacity: 0.6; cursor: default; }
 
 .ans-head { font-size: 17px; font-weight: 700; color: #1f2430; margin: 0 0 14px; }
 .ans-list { display: flex; flex-direction: column; gap: 14px; margin-bottom: 28px; }

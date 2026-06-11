@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { Send } from '@lucide/vue'
 defineProps<{ modelValue: string; placeholder?: string }>()
-defineEmits<{ 'update:modelValue': [value: string]; send: [] }>()
+const emit = defineEmits<{ 'update:modelValue': [value: string]; send: [] }>()
+
+// 한글 등 IME 조합 중에 눌린 Enter는 무시한다.
+// (조합 중 Enter는 글자 확정용이라, 이걸 전송으로 처리하면 "테스"/"테스트"가 중복 전송됨)
+function onEnter(e: KeyboardEvent) {
+  if (e.isComposing) return
+  emit('send')
+}
 </script>
 
 <template>
@@ -12,7 +19,7 @@ defineEmits<{ 'update:modelValue': [value: string]; send: [] }>()
         :placeholder="placeholder"
         class="composer-input"
         @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)"
-        @keydown.enter="$emit('send')"
+        @keydown.enter="onEnter"
       />
       <button
         class="composer-send"

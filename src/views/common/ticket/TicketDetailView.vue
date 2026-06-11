@@ -1,68 +1,40 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ChevronLeft, Clock, Loader, CheckCircle2, XCircle, MessageCircle } from '@lucide/vue'
+import { ChevronLeft, Info } from '@lucide/vue'
+import { getTicketDetail } from '@/api/ticketApi'
+import { TICKET_STATUS_META } from '@/constants/ticketStatus'
+import type { TicketResponse } from '@/types/ticket'
 
 const router = useRouter()
 const route = useRoute()
 
-type TicketStatus = '접수중' | '처리중' | '완료' | '반려'
+const ticket = ref<TicketResponse | null>(null)
+const loading = ref(false)
+const error = ref('')
 
-interface Comment {
-  id: number
-  author: string
-  team: string
-  body: string
-  time: string
-  isHandler: boolean
+function formatDateTime(iso: string) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-const ticket = ref({
-  id: Number(route.params.id),
-  title: '노트북 화면 출력 불가',
-  category: 'IT장비',
-  status: '처리중' as TicketStatus,
-  handler: 'IT지원팀',
-  handlerName: '김동욱',
-  created: '2025.05.20',
-  updated: '2025.05.21',
-  body: '회의실 노트북을 외부 모니터에 연결했더니 화면 출력이 되지 않습니다. HDMI 케이블은 정상이고, 다른 노트북에서는 모니터가 잘 됩니다. 재부팅해도 동일 증상입니다.',
+onMounted(async () => {
+  const id = Number(route.params.id)
+  if (!Number.isFinite(id)) {
+    error.value = '잘못된 접근입니다.'
+    return
+  }
+  loading.value = true
+  try {
+    const res = await getTicketDetail(id)
+    ticket.value = res.data
+  } catch {
+    error.value = '티켓을 불러오지 못했습니다.'
+  } finally {
+    loading.value = false
+  }
 })
-
-const comments = ref<Comment[]>([
-  {
-    id: 1,
-    author: '김동욱',
-    team: 'IT지원팀',
-    body: '안녕하세요, 담당자 김동욱입니다. 그래픽 드라이버 문제일 수 있습니다. 오전 중에 찾아뵙겠습니다.',
-    time: '2025.05.21 09:30',
-    isHandler: true,
-  },
-])
-
-const newComment = ref('')
-
-const statusIcon = { '접수중': Clock, '처리중': Loader, '완료': CheckCircle2, '반려': XCircle }
-const statusColor: Record<TicketStatus, string> = {
-  '접수중': '#aeb2bb', '처리중': '#2b7fff', '완료': '#00a63e', '반려': '#ef4444',
-}
-const statusBadge: Record<TicketStatus, string> = {
-  '접수중': 'gray', '처리중': 'blue', '완료': 'green', '반려': '',
-}
-
-function submitComment() {
-  const body = newComment.value.trim()
-  if (!body) return
-  comments.value.push({
-    id: comments.value.length + 1,
-    author: '나',
-    team: '요청자',
-    body,
-    time: '방금',
-    isHandler: false,
-  })
-  newComment.value = ''
-}
 </script>
 
 <template>
@@ -71,76 +43,68 @@ function submitComment() {
       <ChevronLeft :size="16" /> 목록으로
     </button>
 
-    <div class="card ticket-card">
-      <div class="ticket-header">
-        <div class="header-badges">
-          <span
-            class="badge"
-            :class="statusBadge[ticket.status]"
-            :style="statusBadge[ticket.status] ? {} : { background: '#fee2e2', color: '#ef4444' }"
+    <div v-if="loading" class="empty-ph" style="height: 240px;">불러오는 중...</div>
+    <div v-else-if="error" class="empty-ph" style="height: 240px;">{{ error }}</div>
+
+    <template v-else-if="ticket">
+      <div class="card ticket-card">
+        <div class="ticket-header">
+          <div class="header-badges">
+            <span
+              class="badge"
+              :class="TICKET_STATUS_META[ticket.status].badgeClass"
+              :style="TICKET_STATUS_META[ticket.status].badgeClass ? {} : { background: TICKET_STATUS_META[ticket.status].color + '22', color: TICKET_STATUS_META[ticket.status].color }"
+            >
+              {{ TICKET_STATUS_META[ticket.status].label }}
+            </span>
+            <span v-if="ticket.priority === 'HIGH'" class="badge" style="background: #fee2e2; color: #ef4444;">긴급</span>
+          </div>
+          <div class="ticket-status-bar" :style="{ background: TICKET_STATUS_META[ticket.status].color }"></div>
+        </div>
+
+        <h2 class="ticket-title">{{ ticket.title }}</h2>
+
+        <div class="ticket-meta-grid">
+          <div class="meta-item"><span>담당 부서</span><strong>{{ ticket.assignedDepartmentName ?? '미배정' }}</strong></div>
+          <div class="meta-item"><span>담당자</span><strong>{{ ticket.assigneeId ? `#${ticket.assigneeId}` : '미지정' }}</strong></div>
+          <div class="meta-item"><span>등록일</span><strong>{{ formatDateTime(ticket.createdAt) }}</strong></div>
+          <div class="meta-item"><span>최근 업데이트</span><strong>{{ formatDateTime(ticket.updatedAt) }}</strong></div>
+        </div>
+
+        <hr class="divider" />
+
+        <p class="ticket-body">{{ ticket.content }}</p>
+      </div>
+
+      <!-- 라우팅 근거: BE가 자동 배정 시 제공 -->
+      <div v-if="ticket.routingReasons?.length || ticket.candidateDepartments?.length" class="card routing-card">
+        <h3 class="routing-head"><Info :size="16" color="#2b7fff" /> 자동 배정 정보</h3>
+        <div v-if="ticket.routingConfidenceScore != null" class="routing-score">
+          신뢰도 {{ ticket.routingConfidenceScore }}점
+        </div>
+        <ul v-if="ticket.routingReasons?.length" class="routing-reasons">
+          <li v-for="(r, i) in ticket.routingReasons" :key="i">{{ r }}</li>
+        </ul>
+        <div v-if="ticket.candidateDepartments?.length" class="candidates">
+          <div class="candidates-label">후보 부서</div>
+          <div
+            v-for="c in ticket.candidateDepartments"
+            :key="c.departmentId"
+            class="candidate-row"
           >
-            <component :is="statusIcon[ticket.status]" :size="11" />
-            {{ ticket.status }}
-          </span>
-          <span class="badge gray">{{ ticket.category }}</span>
-        </div>
-        <div class="ticket-status-bar-wrap">
-          <div class="ticket-status-bar" :style="{ background: statusColor[ticket.status] }"></div>
-        </div>
-      </div>
-
-      <h2 class="ticket-title">{{ ticket.title }}</h2>
-
-      <div class="ticket-meta-grid">
-        <div class="meta-item"><span>담당 부서</span><strong>{{ ticket.handler }}</strong></div>
-        <div class="meta-item"><span>담당자</span><strong>{{ ticket.handlerName }}</strong></div>
-        <div class="meta-item"><span>등록일</span><strong>{{ ticket.created }}</strong></div>
-        <div class="meta-item"><span>최근 업데이트</span><strong>{{ ticket.updated }}</strong></div>
-      </div>
-
-      <hr class="divider" />
-
-      <p class="ticket-body">{{ ticket.body }}</p>
-    </div>
-
-    <h3 class="comment-head">
-      <MessageCircle :size="17" style="vertical-align: middle; margin-right: 6px;" />
-      댓글 {{ comments.length }}개
-    </h3>
-
-    <div class="comment-list">
-      <div v-for="c in comments" :key="c.id" class="card comment-item" :class="{ 'comment-handler': c.isHandler }">
-        <div class="comment-top">
-          <span class="chat-av" style="font-size: 12px; font-weight: 700;">{{ c.author.slice(0, 1) }}</span>
-          <div>
-            <span class="comment-author">{{ c.author }}</span>
-            <span v-if="c.isHandler" class="badge blue" style="font-size: 11px; padding: 2px 8px; margin-left: 6px;">담당자</span>
-            <div class="comment-meta">{{ c.team }} · {{ c.time }}</div>
+            <span>{{ c.departmentName }}</span>
+            <span class="candidate-score">{{ c.confidenceScore }}점</span>
           </div>
         </div>
-        <p class="comment-body">{{ c.body }}</p>
       </div>
-    </div>
-
-    <div class="card comment-write">
-      <textarea
-        v-model="newComment"
-        class="comment-textarea"
-        placeholder="댓글을 입력하세요"
-        rows="4"
-      />
-      <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
-        <button class="btn primary" :disabled="!newComment.trim()" @click="submitComment">등록</button>
-      </div>
-    </div>
+    </template>
   </div>
 </template>
 
 <style scoped>
-.ticket-card { padding: 28px 32px; margin-bottom: 24px; }
+.ticket-card { padding: 28px 32px; margin-bottom: 20px; }
 .ticket-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .header-badges { display: flex; gap: 8px; }
-.ticket-status-bar-wrap { }
 .ticket-status-bar { height: 6px; width: 120px; border-radius: 99px; }
 .ticket-title { font-size: 22px; font-weight: 800; color: #1f2430; margin: 0 0 20px; }
 .ticket-meta-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
@@ -148,29 +112,15 @@ function submitComment() {
 .meta-item span { font-size: 12px; color: #aeb2bb; }
 .meta-item strong { font-size: 14px; color: #1f2430; }
 .divider { border: none; border-top: 1px solid var(--line); margin: 0 0 20px; }
-.ticket-body { font-size: 15px; color: #404055; line-height: 1.75; margin: 0; }
+.ticket-body { font-size: 15px; color: #404055; line-height: 1.75; margin: 0; white-space: pre-wrap; }
 
-.comment-head { font-size: 16px; font-weight: 700; color: #1f2430; margin: 0 0 14px; }
-.comment-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
-.comment-item { padding: 18px 22px; }
-.comment-handler { background: #eff6ff; border-color: #2b7fff; }
-.comment-top { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
-.comment-author { font-size: 14px; font-weight: 700; color: #1f2430; }
-.comment-meta { font-size: 12px; color: #aeb2bb; margin-top: 2px; }
-.comment-body { font-size: 14.5px; color: #404055; line-height: 1.65; margin: 0; }
-
-.comment-write { padding: 20px 24px; }
-.comment-textarea {
-  width: 100%;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 12px 14px;
-  font-size: 15px;
-  line-height: 1.6;
-  resize: vertical;
-  outline: none;
-  box-sizing: border-box;
-  font-family: inherit;
-}
-.comment-textarea:focus { border-color: #2b7fff; }
+.routing-card { padding: 22px 26px; }
+.routing-head { display: flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 700; color: #1f2430; margin: 0 0 12px; }
+.routing-score { font-size: 13px; color: #2b7fff; font-weight: 600; margin-bottom: 10px; }
+.routing-reasons { margin: 0 0 12px; padding-left: 18px; }
+.routing-reasons li { font-size: 14px; color: #404055; line-height: 1.7; }
+.candidates { border-top: 1px solid var(--line); padding-top: 12px; }
+.candidates-label { font-size: 12.5px; color: #aeb2bb; margin-bottom: 8px; }
+.candidate-row { display: flex; justify-content: space-between; font-size: 14px; color: #1f2430; padding: 4px 0; }
+.candidate-score { color: #717182; }
 </style>

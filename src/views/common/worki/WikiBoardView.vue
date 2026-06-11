@@ -2,7 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Search, MessageCircle, CheckCircle2, Clock } from '@lucide/vue'
-import { getQuestions, searchQuestions } from '@/api/workiApi'
+import { getQuestions, searchQuestions, autocompleteQuestions } from '@/api/workiApi'
 import type { QuestionStatus } from '@/types/worki'
 
 const router = useRouter()
@@ -11,26 +11,33 @@ const PAGE_SIZE = 20
 const tab = ref<'all' | 'unsolved' | 'solved'>('all')
 const query = ref('')
 
-// 목록(QuestionSummaryResponse)과 검색(WorkiSearchResponse)이 공통으로 갖는 필드만 화면에 쓴다.
+// 목록(QuestionSummaryResponse)과 검색(WorkiSearchResponse)이 공통으로 갖는 필드 + likeCount(목록만 제공).
 interface QuestionListItem {
   questionId: number
   title: string
   status: QuestionStatus
   viewCount: number
+  likeCount?: number // 목록 응답에만 있음. 검색 응답엔 없어 undefined.
   createdAt: string
 }
 
 const items = ref<QuestionListItem[]>([])
+// 현재 표시 모드. 검색 중이면 좋아요 수가 없으므로 조회수를, 목록이면 좋아요 수를 보여준다.
+const searchMode = ref(false)
 const page = ref(0) // 현재까지 받은 마지막 페이지 (0-based)
 const hasNext = ref(false) // 다음 페이지 존재 여부
 const loading = ref(false) // 초기/검색 교체 로드
 const loadingMore = ref(false) // 무한스크롤 추가 로드
 const error = ref('')
+const suggestions = ref<string[]>([]) // 자동완성 추천 목록을 담을 상자
+const showSuggestions = ref(false) // 드롭다운 표시 여부
 
 // 활성 검색어. 2자 이상일 때만 채워지고, 비어 있으면 전체 목록 모드.
 const activeKeyword = ref('')
 // 빠르게 타이핑할 때 늦게 도착한 옛 응답이 최신 결과를 덮어쓰지 않도록 하는 토큰.
 let seq = 0
+// 추천어를 클릭해 query를 바꿀 때, watch가 다시 자동완성을 띄우지 않도록 한 번 건너뛰는 플래그.
+let suppressNext = false
 
 function isSolved(status: QuestionStatus) {
   return status === 'ANSWERED'
@@ -65,6 +72,7 @@ async function fetchPage(pageNum: number, append: boolean) {
     items.value = append ? [...items.value, ...next] : next
     hasNext.value = more
     page.value = pageNum
+    searchMode.value = !!activeKeyword.value // 검색 모드면 조회수, 목록 모드면 좋아요 수 표시
   } catch {
     if (mySeq === seq) error.value = append ? '더 불러오지 못했습니다.' : '목록을 불러오지 못했습니다.'
   } finally {
@@ -78,14 +86,55 @@ function loadMore() {
   fetchPage(page.value + 1, true)
 }
 
+// 자동완성 추천어 조회. 입력이 있으면 BE에서 추천 목록을 받아 드롭다운에 채운다.
+async function loadSuggestions(keyword: string) {
+  if (!keyword) {
+    suggestions.value = []
+    showSuggestions.value = false
+    return
+  }
+  try {
+    const res = await autocompleteQuestions(keyword)
+    suggestions.value = res.data
+    showSuggestions.value = res.data.length > 0
+  } catch {
+    suggestions.value = []
+    showSuggestions.value = false
+  }
+}
+
+// 추천어 클릭 → 그 단어로 즉시 검색하고 드롭다운을 닫는다.
+function selectSuggestion(word: string) {
+  suppressNext = true // 아래 query 변경으로 watch가 다시 자동완성을 띄우지 않게
+  query.value = word
+  showSuggestions.value = false
+  suggestions.value = []
+  clearTimeout(debounce)
+  activeKeyword.value = word.length >= 2 ? word : ''
+  fetchPage(0, false)
+}
+
+// 클릭이 먼저 처리되도록 약간 늦춰 드롭다운을 닫는다(blur 시).
+function hideSuggestionsSoon() {
+  setTimeout(() => {
+    showSuggestions.value = false
+  }, 150)
+}
+
 // 입력이 멈추면(0.3초) 활성 검색어를 갱신하고 첫 페이지부터 다시 로드. 2자 미만이면 전체 목록.
+// 같은 디바운스에서 자동완성 추천어도 함께 갱신한다.
 let debounce: ReturnType<typeof setTimeout>
 watch(query, () => {
+  if (suppressNext) {
+    suppressNext = false
+    return
+  }
   clearTimeout(debounce)
   debounce = setTimeout(() => {
     const kw = query.value.trim()
     activeKeyword.value = kw.length >= 2 ? kw : ''
     fetchPage(0, false)
+    loadSuggestions(kw)
   }, 300)
 })
 
@@ -97,7 +146,7 @@ onMounted(() => {
   fetchPage(0, false)
   observer = new IntersectionObserver(
     (entries) => {
-      if (entries[0].isIntersecting) loadMore()
+      if (entries[0]?.isIntersecting) loadMore()
     },
     { rootMargin: '300px' }, // 바닥 300px 전에 미리 로드
   )
@@ -145,9 +194,23 @@ const filtered = computed(() => {
         </button>
       </div>
 
-      <div class="search-bar" style="flex: 1; max-width: 380px;">
+      <div class="search-bar" style="flex: 1; max-width: 380px; position: relative;">
         <Search :size="16" />
-        <input v-model="query" placeholder="질문 검색" />
+        <input
+          v-model="query"
+          placeholder="질문 검색"
+          @focus="showSuggestions = suggestions.length > 0"
+          @blur="hideSuggestionsSoon"
+        />
+        <ul v-if="showSuggestions && suggestions.length" class="autocomplete">
+          <li
+            v-for="word in suggestions"
+            :key="word"
+            @mousedown.prevent="selectSuggestion(word)"
+          >
+            <Search :size="13" /> {{ word }}
+          </li>
+        </ul>
       </div>
     </div>
 
@@ -181,7 +244,8 @@ const filtered = computed(() => {
           </div>
         </div>
         <div class="wiki-stats">
-          <div class="stat"><span>조회</span><strong>{{ item.viewCount }}</strong></div>
+          <div v-if="searchMode" class="stat"><span>조회</span><strong>{{ item.viewCount }}</strong></div>
+          <div v-else class="stat"><span>좋아요</span><strong>{{ item.likeCount ?? 0 }}</strong></div>
         </div>
       </div>
 
@@ -205,6 +269,8 @@ const filtered = computed(() => {
 }
 .wiki-item:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
 .wiki-left { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+/* 세로 flex라 뱃지가 가로로 늘어나 색이 줄 전체에 칠해지는 것 방지 (상세 화면처럼 내용만큼만) */
+.wiki-left .badge { align-self: flex-start; }
 .wiki-title { font-size: 16.5px; font-weight: 700; color: #1f2430; margin: 0; }
 .wiki-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .wiki-stats { display: flex; gap: 24px; }
@@ -213,4 +279,32 @@ const filtered = computed(() => {
 .stat strong { font-size: 18px; font-weight: 800; color: #1f2430; }
 .scroll-sentinel { height: 1px; }
 .load-more { text-align: center; padding: 16px; font-size: 13px; color: #aeb2bb; }
+
+.autocomplete {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  max-height: 280px;
+  overflow-y: auto;
+}
+.autocomplete li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 7px;
+  font-size: 14px;
+  color: #1f2430;
+  cursor: pointer;
+}
+.autocomplete li:hover { background: #f3f0ff; color: #7c3aed; }
 </style>
