@@ -26,7 +26,7 @@ function onEnter(e: KeyboardEvent) {
         :class="{ active: modelValue?.trim() }"
         @click="$emit('send')"
       >
-        <Send :size="22" />
+        <Send :size="20" />
       </button>
     </div>
   </div>
@@ -35,28 +35,29 @@ function onEnter(e: KeyboardEvent) {
 <style scoped>
 .composer {
   border-top: 1px solid #eceef2;
-  padding: 18px 8%;
+  padding: 16px 2%;
   background: #fff;
 }
 .composer-inner {
-  max-width: 940px;
+  max-width: 1100px;
   margin: 0 auto;
   display: flex;
-  gap: 14px;
+  gap: 12px;
   align-items: center;
 }
 .composer-input {
   flex: 1;
-  padding: 16px 22px;
-  border-radius: 14px;
+  padding: 14px 20px;
+  border-radius: 12px;
   border: 1px solid #e6e8ec;
   background: #f7f8fa;
-  font-size: 16px;
+  font-size: 15px;
   outline: none;
+  font-family: inherit;
 }
 .composer-send {
-  width: 54px;
-  height: 54px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   background: #8a8f99;
   border: none;
