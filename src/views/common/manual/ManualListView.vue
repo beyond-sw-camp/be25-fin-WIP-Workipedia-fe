@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { BookOpen, Search, Clock, FileText, ChevronRight } from '@lucide/vue'
 import { getManuals } from '@/api/manualApi'
-import { getDepartments } from '@/api/adminApi'
+import { useDeptStore } from '@/stores/deptStore'
 import type { ManualSummaryResponse } from '@/types/manual'
 
 const router = useRouter()
@@ -56,13 +56,6 @@ const filtered = computed(() => {
 // API가 최신순 고정이므로 상위 6개가 가장 최근이다. 검색 중이면 검색 결과의 상위 6개를 표시한다.
 const recentManuals = computed(() => filtered.value.slice(0, 6))
 
-// ManualSummaryResponse는 departmentId(숫자)만 포함하므로 부서명 표시를 위해 별도 API로 매핑을 구성한다.
-const deptMap = ref<Record<number, string>>({})
-function deptName(id: number | null) {
-  if (id == null) return '공통'
-  return deptMap.value[id] ?? '공통'
-}
-
 // append=true 이면 기존 목록 뒤에 붙여 무한 스크롤을 구현한다. false 이면 첫 페이지 로드.
 async function fetchPage(pageNum: number, append: boolean) {
   if (append) loadingMore.value = true
@@ -87,15 +80,7 @@ function loadMore() {
   fetchPage(page.value + 1, true)
 }
 
-// 매뉴얼 목록과 부서 맵을 병렬로 시작한다. 부서 로드 실패 시 '공통'으로 폴백.
-onMounted(() => {
-  fetchPage(1, false)
-  getDepartments().then(res => {
-    const raw = res.data as unknown
-    const arr = Array.isArray(raw) ? raw as { departmentId: number; departmentName: string }[] : []
-    deptMap.value = Object.fromEntries(arr.map(d => [d.departmentId, d.departmentName]))
-  }).catch(() => {})
-})
+onMounted(() => fetchPage(1, false))
 </script>
 
 <template>
@@ -144,7 +129,7 @@ onMounted(() => {
           <div class="rc-top">
             <div class="rc-icon"><BookOpen :size="20" color="#10b981" /></div>
             <div class="rc-badges">
-              <span :class="['badge', m.departmentId != null ? 'solid-blue' : 'gray']">{{ deptName(m.departmentId) }}</span>
+              <span :class="['badge', m.departmentId != null ? 'solid-blue' : 'gray']">{{ deptStore.getName(m.departmentId) }}</span>
               <span v-if="m.version" class="badge gray">{{ fmtVersion(m.version) }}</span>
             </div>
           </div>
@@ -175,7 +160,7 @@ onMounted(() => {
             <div class="manual-title">{{ m.title }}</div>
             <div v-if="m.description" class="manual-desc line-clamp-1">{{ m.description }}</div>
             <div class="manual-meta">
-              <span :class="m.departmentId != null ? 'dept-tag' : 'dept-tag dept-common'">{{ deptName(m.departmentId) }}</span>
+              <span :class="m.departmentId != null ? 'dept-tag' : 'dept-tag dept-common'">{{ deptStore.getName(m.departmentId) }}</span>
               <span v-if="m.version">{{ fmtVersion(m.version) }}</span>
               <span>최종 수정 {{ formatDate(m.updatedAt) }}</span>
             </div>

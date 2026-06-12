@@ -3,7 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ChevronLeft, BookOpen, ExternalLink, Calendar, FileDown } from '@lucide/vue'
 import { getManualDetail } from '@/api/manualApi'
-import { getDepartments } from '@/api/adminApi'
+import { useDeptStore } from '@/stores/deptStore'
 import type { ManualDetailResponse } from '@/types/manual'
 
 const router = useRouter()
@@ -13,14 +13,6 @@ const deptStore = useDeptStore()
 const manual = ref<ManualDetailResponse | null>(null)
 const loading = ref(false)
 const error = ref('')
-
-// ManualSummaryResponse는 departmentId(숫자)만 포함하므로, 화면에 부서명을 표시하기 위해
-// 공통 부서 목록 API를 별도 호출해 id → 이름 맵을 구성한다. 매핑 실패 시 '공통'으로 폴백.
-const deptMap = ref<Record<number, string>>({})
-function deptName(id: number | null) {
-  if (id == null) return '공통'
-  return deptMap.value[id] ?? '공통'
-}
 
 // "v1" / "1.0" / "v1.0" 등 다양한 형식을 화면 표시용 "vN.M"으로 통일한다.
 function fmtVersion(v: string | null | undefined): string | null {
@@ -38,12 +30,7 @@ function formatDate(iso: string) {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
 }
 
-// 부서 목록과 매뉴얼 상세를 병렬로 시작한다. 부서 로드 실패 시 deptMap이 빈 상태로 남아 '공통'으로 표시된다.
 onMounted(async () => {
-  getDepartments().then(res => {
-    deptMap.value = Object.fromEntries(res.data.map(d => [d.departmentId, d.departmentName]))
-  }).catch(() => {})
-
   const id = Number(route.params.id)
   if (!Number.isFinite(id)) {
     error.value = '잘못된 접근입니다.'
@@ -71,23 +58,13 @@ onMounted(async () => {
     <div v-if="loading" class="empty-ph" style="height: 240px;">불러오는 중...</div>
     <div v-else-if="error" class="empty-ph" style="height: 240px;">{{ error }}</div>
 
-    <template v-else-if="manual">
-
-      <!-- Header Card -->
-      <div class="card header-card">
-        <div class="header-icon">
-          <BookOpen :size="28" color="#10b981" />
-        </div>
-        <div class="header-body">
-          <div class="header-badges">
-            <span :class="['badge', manual.departmentId != null ? 'solid-blue' : 'gray']">{{ deptName(manual.departmentId) }}</span>
-            <span v-if="manual.version" class="badge gray">{{ fmtVersion(manual.version) }}</span>
-          </div>
-          <h1 class="header-title">{{ manual.title }}</h1>
-          <div class="header-meta">
-            <Calendar :size="14" color="#aeb2bb" />
-            <span>최종 수정 {{ formatDate(manual.updatedAt) }}</span>
-          </div>
+    <div v-else-if="manual" class="card manual-wrap">
+      <div class="manual-header">
+        <div class="manual-header-left">
+          <span :class="['badge', manual.departmentId != null ? 'blue' : 'gray']">
+            <BookOpen :size="11" /> {{ deptStore.getName(manual.departmentId) }}
+          </span>
+          <span v-if="manual.version" class="badge gray">{{ fmtVersion(manual.version) }}</span>
         </div>
         <div class="header-actions">
           <a
