@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { watch, onUnmounted } from 'vue'
-import { CheckCircle, X } from '@lucide/vue'
+import { CheckCircle, AlertCircle, X } from '@lucide/vue'
 
 const props = defineProps<{
   modelValue: boolean
   title: string
   sub?: string
   duration?: number
+  type?: 'success' | 'error'
 }>()
 
 const emit = defineEmits<{
@@ -30,8 +31,9 @@ onUnmounted(() => {
 <template>
   <Teleport to="body">
     <Transition name="toast">
-      <div v-if="modelValue" class="toast">
-        <CheckCircle :size="22" color="#22c55e" class="toast-icon" />
+      <div v-if="modelValue" :class="['toast', type === 'error' ? 'toast-error' : 'toast-success']">
+        <AlertCircle v-if="type === 'error'" :size="22" color="#ef4444" class="toast-icon" />
+        <CheckCircle v-else :size="22" color="#22c55e" class="toast-icon" />
         <div class="toast-body">
           <div class="toast-title">{{ title }}</div>
           <div v-if="sub" class="toast-sub">{{ sub }}</div>
@@ -54,18 +56,19 @@ onUnmounted(() => {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  background: #f0fdf4;
-  border: 1px solid #86efac;
   border-radius: 12px;
   padding: 14px 20px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
   min-width: 380px;
   max-width: 520px;
 }
+.toast-success { background: #f0fdf4; border: 1px solid #86efac; }
+.toast-error   { background: #fef2f2; border: 1px solid #fca5a5; }
 .toast-icon { flex-shrink: 0; margin-top: 1px; }
 .toast-body { flex: 1; }
 .toast-title { font-weight: 700; font-size: 14px; color: #1f2430; }
-.toast-sub { font-size: 13px; color: #16a34a; margin-top: 3px; }
+.toast-success .toast-sub { font-size: 13px; color: #16a34a; margin-top: 3px; }
+.toast-error   .toast-sub { font-size: 13px; color: #dc2626; margin-top: 3px; }
 .toast-close {
   background: none;
   border: none;

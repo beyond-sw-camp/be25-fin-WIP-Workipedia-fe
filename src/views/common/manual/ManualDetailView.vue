@@ -14,6 +14,16 @@ const manual = ref<ManualDetailResponse | null>(null)
 const loading = ref(false)
 const error = ref('')
 
+// "v1" / "1.0" / "v1.0" 등 다양한 형식을 화면 표시용 "vN.M"으로 통일한다.
+function fmtVersion(v: string | null | undefined): string | null {
+  if (!v) return null
+  const withDot = v.match(/v?(\d+)\.(\d+)/)
+  if (withDot) return `v${withDot[1]}.${withDot[2]}`
+  const onlyMajor = v.match(/v?(\d+)/)
+  if (onlyMajor) return `v${onlyMajor[1]}.0`
+  return v
+}
+
 function formatDate(iso: string) {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
@@ -51,8 +61,10 @@ onMounted(async () => {
     <div v-else-if="manual" class="card manual-wrap">
       <div class="manual-header">
         <div class="manual-header-left">
-          <span class="badge blue"><BookOpen :size="11" /> {{ deptStore.getName(manual.departmentId) }}</span>
-          <span v-if="manual.version" class="badge gray">v{{ manual.version }}</span>
+          <span :class="['badge', manual.departmentId != null ? 'blue' : 'gray']">
+            <BookOpen :size="11" /> {{ deptStore.getName(manual.departmentId) }}
+          </span>
+          <span v-if="manual.version" class="badge gray">{{ fmtVersion(manual.version) }}</span>
         </div>
         <div class="header-actions">
           <a

@@ -26,15 +26,19 @@ interface ChatMsg {
   replyTo?: ReplyRef | null
 }
 
-// 30초마다 갱신되어 "방금" → 실제 시간 전환을 트리거
+// formatTime이 "방금"(60초 내) ↔ 실제 시각을 전환하려면 현재 시각이 반응형이어야 한다.
+// 30초마다 갱신해 DOM을 최소한으로 업데이트한다.
 const now = ref(Date.now())
 let ticker: ReturnType<typeof setInterval>
 
-// 메시지별 삭제 타이머 (id → timeoutHandle)
+// 각 메시지는 expiresAt 시점에 자동 제거된다. 타이머 핸들을 Map으로 관리해 DELETE 이벤트나
+// 언마운트 시 clearTimeout으로 메모리 누수를 방지한다.
 const timeouts = new Map<string, ReturnType<typeof setTimeout>>()
 
 const msgs = ref<ChatMsg[]>([])
 
+// 메시지 expiresAt까지 남은 시간(ms)을 계산해 setTimeout으로 자동 제거를 예약한다.
+// 이미 만료된 메시지는 즉시 제거한다.
 function scheduleDelete(msg: ChatMsg) {
   const delay = new Date(msg.expiresAt).getTime() - Date.now()
   if (delay <= 0) {
@@ -48,7 +52,9 @@ function scheduleDelete(msg: ChatMsg) {
   timeouts.set(msg.id, handle)
 }
 
-// STOMP 클라이언트
+// STOMP over SockJS로 Flash Chat 실시간 채널에 연결한다.
+// SockJS는 WebSocket이 차단된 환경을 위한 fallback 라이브러리이며, 동적 import로 번들을 분리한다.
+// VITE_API_BASE_URL에서 origin만 추출해 /ws/flash-chat 엔드포인트를 구성한다.
 let stompClient: Client | null = null
 
 async function connectStomp() {
@@ -64,6 +70,7 @@ async function connectStomp() {
       stompClient!.subscribe('/topic/flash-chat', (frame) => {
         const raw = JSON.parse(frame.body)
 
+        // 관리자 삭제 등 서버 주도 메시지 제거. 로컬 타이머도 함께 정리한다.
         if (raw.type === 'DELETE') {
           clearTimeout(timeouts.get(raw.id))
           timeouts.delete(raw.id)
@@ -72,8 +79,10 @@ async function connectStomp() {
         }
 
         const original = raw.replyToId ? msgs.value.find(m => m.id === raw.replyToId) : null
+        const ttlSec = parseInt(localStorage.getItem('chat_message_ttl_seconds') ?? '600')
         const msg: ChatMsg = {
           ...raw,
+          expiresAt: new Date(new Date(raw.createdAt).getTime() + ttlSec * 1000).toISOString(),
           name: raw.nickname,
           me: raw.userId === auth.userId,
           initial: (raw.nickname as string).slice(0, 1),
@@ -82,7 +91,8 @@ async function connectStomp() {
             : null,
         }
 
-        // Optimistic dedup: 내가 보낸 메시지가 서버에서 echo로 돌아오면 임시 메시지를 교체
+        // Optimistic dedup: 내가 보낸 메시지가 서버 echo로 돌아오면 __tmp_ 임시 메시지를 실제 메시지로 교체한다.
+        // 내용 기반 매칭이므로 동일 내용의 연속 전송 시 첫 번째 임시 메시지만 교체된다.
         if (msg.me) {
           const tmpIdx = msgs.value.findIndex(
             m => m.id.startsWith('__tmp_') && m.content === msg.content
@@ -108,15 +118,19 @@ async function connectStomp() {
   stompClient.activate()
 }
 
+// 마운트 시 미만료 메시지를 REST로 선로드한 뒤 STOMP를 연결한다.
+// expiresAt은 BE 없이 createdAt + TTL(localStorage)로 클라이언트에서 계산한다.
 onMounted(async () => {
   ticker = setInterval(() => { now.value = Date.now() }, 30_000)
 
   try {
     const res = await getActiveMessages()
+    const ttlSec = parseInt(localStorage.getItem('chat_message_ttl_seconds') ?? '600')
     msgs.value = res.data.messages.map((raw: FlashChatMessageResponse) => {
       const original = raw.replyToId ? res.data.messages.find(m => m.id === raw.replyToId) : null
       return {
         ...raw,
+        expiresAt: new Date(new Date(raw.createdAt).getTime() + ttlSec * 1000).toISOString(),
         name: raw.nickname,
         initial: raw.nickname.slice(0, 1),
         me: raw.userId === auth.userId,
@@ -141,6 +155,7 @@ onUnmounted(() => {
   stompClient?.deactivate()
 })
 
+// 60초 이내는 "방금", 이후는 오전/오후 시:분 형식으로 표시한다. now ref가 30초마다 갱신되어 재계산을 트리거한다.
 function formatTime(createdAt: string): string {
   const ts = new Date(createdAt).getTime()
   if (now.value - ts < 60_000) return '방금'
@@ -167,7 +182,8 @@ function send() {
   val.value = ''
   replyTo.value = null
 
-  // Optimistic: 서버 echo 전에 즉시 화면에 표시
+  // Optimistic UI: STOMP 전송 전에 임시 메시지(__tmp_)를 즉시 추가해 지연 없이 표시한다.
+  // 서버 echo가 돌아오면 onConnect 핸들러가 임시 메시지를 실제 메시지로 교체한다.
   const tempId = `__tmp_${Date.now()}`
   const optimistic: ChatMsg = {
     id: tempId,
@@ -177,7 +193,7 @@ function send() {
     initial: (auth.nickname ?? '?').slice(0, 1),
     content,
     createdAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    expiresAt: new Date(Date.now() + parseInt(localStorage.getItem('chat_message_ttl_seconds') ?? '600') * 1000).toISOString(),
     replyTo: replyRefNow
       ? { id: replyRefNow.id, name: replyRefNow.name, content: replyRefNow.content }
       : null,
@@ -200,10 +216,13 @@ function startReply(msg: ChatMsg) {
   replyTo.value = msg
 }
 
+// 원본 메시지가 만료됐는지 확인해 인용 카드 클릭 가능 여부를 결정한다.
 function originalExists(id: string): boolean {
   return msgs.value.some(m => m.id === id)
 }
 
+// 인용 카드 클릭 시 원본 메시지로 스크롤하고 1.5초간 하이라이트한다.
+// data-msg-id 속성으로 DOM 요소를 특정한다.
 function scrollToMessage(id: string) {
   if (!msgs.value.some(m => m.id === id)) return
   const el = scrollEl.value?.querySelector(`[data-msg-id="${id}"]`)
@@ -213,6 +232,7 @@ function scrollToMessage(id: string) {
   setTimeout(() => { highlightedId.value = null }, 1500)
 }
 
+// 같은 사용자가 연속으로 보낸 메시지는 아바타·이름을 숨겨 채팅을 압축한다(isContinuation).
 function isContinuation(i: number): boolean {
   if (i === 0) return false
   const cur = msgs.value[i]
