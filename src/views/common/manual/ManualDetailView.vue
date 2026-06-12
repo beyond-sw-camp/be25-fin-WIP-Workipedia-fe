@@ -8,6 +8,7 @@ import type { ManualDetailResponse } from '@/types/manual'
 
 const router = useRouter()
 const route = useRoute()
+const deptStore = useDeptStore()
 
 const manual = ref<ManualDetailResponse | null>(null)
 const loading = ref(false)
@@ -90,53 +91,47 @@ onMounted(async () => {
         </div>
         <div class="header-actions">
           <a
-            v-if="manual.fileUrl"
-            class="btn source-btn"
-            :href="manual.fileUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <FileDown :size="14" /> PDF 다운로드
-          </a>
-          <a
             v-if="manual.sourceUrl"
             class="btn source-btn"
+            style="padding: 8px 14px; font-size: 13px; text-decoration: none;"
             :href="manual.sourceUrl"
             target="_blank"
             rel="noopener noreferrer"
           >
             <ExternalLink :size="14" /> 원문 보기
           </a>
+          <a
+            v-if="manual.fileUrl"
+            class="btn"
+            style="padding: 8px 14px; font-size: 13px; text-decoration: none;"
+            :href="manual.fileUrl"
+            download
+          >
+            <FileDown :size="14" /> 파일 다운로드
+          </a>
         </div>
       </div>
 
-      <!-- Content Card -->
+      <h1 class="header-title">{{ manual.title }}</h1>
+      <div class="header-meta"><Calendar :size="13" /> 최종 수정 {{ formatDate(manual.updatedAt) }}</div>
+
       <div class="card content-card">
         <div class="content-label">매뉴얼 내용</div>
         <div class="manual-body">{{ manual.content }}</div>
       </div>
+    </div>
 
-    </template>
   </div>
 </template>
 
 <style scoped>
-/* ── Header Card ── */
-.header-card {
-  display: flex; align-items: flex-start; gap: 20px;
-  padding: 28px 32px; margin-bottom: 16px;
-}
-.header-icon {
-  width: 56px; height: 56px; border-radius: 14px;
-  background: #ecfdf5;
-  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-}
-.header-body { flex: 1; min-width: 0; }
-.header-badges { display: flex; gap: 8px; margin-bottom: 10px; }
-.header-title { font-size: 24px; font-weight: 800; color: #1f2430; margin: 0 0 10px; line-height: 1.3; }
-.header-meta { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #aeb2bb; }
-.header-actions { display: flex; flex-direction: column; gap: 8px; align-self: flex-start; flex-shrink: 0; }
+.manual-wrap { padding: 36px 40px; }
+.manual-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.manual-header-left { display: flex; gap: 8px; }
+.header-actions { display: flex; gap: 8px; }
 .source-btn { text-decoration: none; }
+.header-title { font-size: 24px; font-weight: 800; color: #1f2430; margin: 0 0 8px; line-height: 1.3; }
+.header-meta { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #aeb2bb; margin-bottom: 24px; }
 
 /* ── Content Card ── */
 .content-card { padding: 28px 32px; }

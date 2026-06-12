@@ -7,6 +7,7 @@ import { getDepartments } from '@/api/adminApi'
 import type { ManualSummaryResponse } from '@/types/manual'
 
 const router = useRouter()
+const deptStore = useDeptStore()
 const query = ref('')
 const activeTab = ref<'recent' | 'all'>('recent')
 
@@ -133,11 +134,11 @@ onMounted(() => {
       <div v-if="recentManuals.length === 0" class="empty-ph" style="height: 240px;">
         {{ query.trim() ? '검색 결과가 없습니다' : '등록된 매뉴얼이 없습니다' }}
       </div>
-      <div v-else class="recent-grid">
+      <div v-else class="manual-list">
         <div
           v-for="m in recentManuals"
           :key="m.manualId"
-          class="card recent-card"
+          class="card manual-row"
           @click="router.push(`/manuals/${m.manualId}`)"
         >
           <div class="rc-top">
