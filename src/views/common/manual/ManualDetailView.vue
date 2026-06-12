@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ChevronLeft, BookOpen, ExternalLink, Calendar, FileDown } from '@lucide/vue'
 import { getManualDetail } from '@/api/manualApi'
+import { getDepartments } from '@/api/adminApi'
 import type { ManualDetailResponse } from '@/types/manual'
 
 const router = useRouter()
@@ -12,11 +13,22 @@ const manual = ref<ManualDetailResponse | null>(null)
 const loading = ref(false)
 const error = ref('')
 
-// TODO: BE가 departmentName을 응답에 포함하면 제거
-const DEPT_NAME: Record<number, string> = {}
+// ManualSummaryResponse는 departmentId(숫자)만 포함하므로, 화면에 부서명을 표시하기 위해
+// 공통 부서 목록 API를 별도 호출해 id → 이름 맵을 구성한다. 매핑 실패 시 '공통'으로 폴백.
+const deptMap = ref<Record<number, string>>({})
 function deptName(id: number | null) {
   if (id == null) return '공통'
-  return DEPT_NAME[id] ?? `부서 ${id}`
+  return deptMap.value[id] ?? '공통'
+}
+
+// "v1" / "1.0" / "v1.0" 등 다양한 형식을 화면 표시용 "vN.M"으로 통일한다.
+function fmtVersion(v: string | null | undefined): string | null {
+  if (!v) return null
+  const withDot = v.match(/v?(\d+)\.(\d+)/)
+  if (withDot) return `v${withDot[1]}.${withDot[2]}`
+  const onlyMajor = v.match(/v?(\d+)/)
+  if (onlyMajor) return `v${onlyMajor[1]}.0`
+  return v
 }
 
 function formatDate(iso: string) {
@@ -25,7 +37,12 @@ function formatDate(iso: string) {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
 }
 
+// 부서 목록과 매뉴얼 상세를 병렬로 시작한다. 부서 로드 실패 시 deptMap이 빈 상태로 남아 '공통'으로 표시된다.
 onMounted(async () => {
+  getDepartments().then(res => {
+    deptMap.value = Object.fromEntries(res.data.map(d => [d.departmentId, d.departmentName]))
+  }).catch(() => {})
+
   const id = Number(route.params.id)
   if (!Number.isFinite(id)) {
     error.value = '잘못된 접근입니다.'
@@ -62,8 +79,8 @@ onMounted(async () => {
         </div>
         <div class="header-body">
           <div class="header-badges">
-            <span class="badge solid-blue">{{ deptName(manual.departmentId) }}</span>
-            <span v-if="manual.version" class="badge gray">v{{ manual.version }}</span>
+            <span :class="['badge', manual.departmentId != null ? 'solid-blue' : 'gray']">{{ deptName(manual.departmentId) }}</span>
+            <span v-if="manual.version" class="badge gray">{{ fmtVersion(manual.version) }}</span>
           </div>
           <h1 class="header-title">{{ manual.title }}</h1>
           <div class="header-meta">

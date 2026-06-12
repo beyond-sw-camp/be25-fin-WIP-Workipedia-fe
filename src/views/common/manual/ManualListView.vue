@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { BookOpen, Search, Clock, FileText, ChevronRight } from '@lucide/vue'
 import { getManuals } from '@/api/manualApi'
+import { getDepartments } from '@/api/adminApi'
 import type { ManualSummaryResponse } from '@/types/manual'
 
 const router = useRouter()
@@ -17,12 +18,23 @@ const loading = ref(false)
 const loadingMore = ref(false)
 const error = ref('')
 
+// "v1" / "1.0" / "v1.0" 등 다양한 형식을 화면 표시용 "vN.M"으로 통일한다.
+function fmtVersion(v: string | null | undefined): string | null {
+  if (!v) return null
+  const withDot = v.match(/v?(\d+)\.(\d+)/)
+  if (withDot) return `v${withDot[1]}.${withDot[2]}`
+  const onlyMajor = v.match(/v?(\d+)/)
+  if (onlyMajor) return `v${onlyMajor[1]}.0`
+  return v
+}
+
 function formatDate(iso: string) {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
 }
 
+// 1시간 미만 → "방금 전", 24시간 미만 → "N시간 전", 7일 미만 → "N일 전", 그 이상 → 날짜 형식으로 표시한다.
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime()
   const h = Math.floor(diff / 3_600_000)
@@ -33,22 +45,24 @@ function timeAgo(iso: string) {
   return formatDate(iso)
 }
 
+// 클라이언트 사이드 검색. 페이지에 이미 로드된 목록 안에서만 제목으로 필터링한다.
 const filtered = computed(() => {
   const q = query.value.trim()
   if (!q) return manuals.value
   return manuals.value.filter((m) => m.title.toLowerCase().includes(q.toLowerCase()))
 })
 
-// API가 최신순 고정이므로 상위 6개가 가장 최근
+// API가 최신순 고정이므로 상위 6개가 가장 최근이다. 검색 중이면 검색 결과의 상위 6개를 표시한다.
 const recentManuals = computed(() => filtered.value.slice(0, 6))
 
-// TODO: BE가 departmentName을 응답에 포함하면 제거
-const DEPT_NAME: Record<number, string> = {}
+// ManualSummaryResponse는 departmentId(숫자)만 포함하므로 부서명 표시를 위해 별도 API로 매핑을 구성한다.
+const deptMap = ref<Record<number, string>>({})
 function deptName(id: number | null) {
   if (id == null) return '공통'
-  return DEPT_NAME[id] ?? `부서 ${id}`
+  return deptMap.value[id] ?? '공통'
 }
 
+// append=true 이면 기존 목록 뒤에 붙여 무한 스크롤을 구현한다. false 이면 첫 페이지 로드.
 async function fetchPage(pageNum: number, append: boolean) {
   if (append) loadingMore.value = true
   else loading.value = true
@@ -66,12 +80,21 @@ async function fetchPage(pageNum: number, append: boolean) {
   }
 }
 
+// "더 보기" 버튼 핸들러. 로딩 중이거나 다음 페이지가 없으면 무시한다.
 function loadMore() {
   if (loading.value || loadingMore.value || !hasNext.value) return
   fetchPage(page.value + 1, true)
 }
 
-onMounted(() => fetchPage(1, false))
+// 매뉴얼 목록과 부서 맵을 병렬로 시작한다. 부서 로드 실패 시 '공통'으로 폴백.
+onMounted(() => {
+  fetchPage(1, false)
+  getDepartments().then(res => {
+    const raw = res.data as unknown
+    const arr = Array.isArray(raw) ? raw as { departmentId: number; departmentName: string }[] : []
+    deptMap.value = Object.fromEntries(arr.map(d => [d.departmentId, d.departmentName]))
+  }).catch(() => {})
+})
 </script>
 
 <template>
@@ -120,11 +143,12 @@ onMounted(() => fetchPage(1, false))
           <div class="rc-top">
             <div class="rc-icon"><BookOpen :size="20" color="#10b981" /></div>
             <div class="rc-badges">
-              <span class="badge solid-blue">{{ deptName(m.departmentId) }}</span>
-              <span v-if="m.version" class="badge gray">v{{ m.version }}</span>
+              <span :class="['badge', m.departmentId != null ? 'solid-blue' : 'gray']">{{ deptName(m.departmentId) }}</span>
+              <span v-if="m.version" class="badge gray">{{ fmtVersion(m.version) }}</span>
             </div>
           </div>
           <div class="rc-title">{{ m.title }}</div>
+          <div v-if="m.description" class="rc-desc line-clamp-2">{{ m.description }}</div>
           <div class="rc-date">
             <Clock :size="12" />
             {{ timeAgo(m.updatedAt) }}
@@ -148,9 +172,10 @@ onMounted(() => fetchPage(1, false))
           <div class="manual-icon"><BookOpen :size="18" color="#10b981" /></div>
           <div class="manual-info">
             <div class="manual-title">{{ m.title }}</div>
+            <div v-if="m.description" class="manual-desc line-clamp-1">{{ m.description }}</div>
             <div class="manual-meta">
-              <span class="dept-tag">{{ deptName(m.departmentId) }}</span>
-              <span v-if="m.version">v{{ m.version }}</span>
+              <span :class="m.departmentId != null ? 'dept-tag' : 'dept-tag dept-common'">{{ deptName(m.departmentId) }}</span>
+              <span v-if="m.version">{{ fmtVersion(m.version) }}</span>
               <span>최종 수정 {{ formatDate(m.updatedAt) }}</span>
             </div>
           </div>
@@ -189,6 +214,7 @@ onMounted(() => fetchPage(1, false))
   display: flex; align-items: center; justify-content: center;
 }
 .rc-title { font-size: 15px; font-weight: 700; color: #1f2430; line-height: 1.4; }
+.rc-desc { font-size: 12.5px; color: #7a8fa8; line-height: 1.5; }
 .rc-date { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: #aeb2bb; }
 
 /* ── All List ── */
@@ -205,10 +231,12 @@ onMounted(() => fetchPage(1, false))
 }
 .manual-info { flex: 1; min-width: 0; }
 .manual-title { font-size: 15.5px; font-weight: 700; color: #1f2430; }
+.manual-desc { font-size: 12.5px; color: #7a8fa8; margin-top: 3px; }
 .manual-meta { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: #aeb2bb; margin-top: 4px; }
 .dept-tag {
   font-size: 11.5px; font-weight: 600; color: #2b7fff;
   background: #eff6ff; border-radius: 4px; padding: 1px 7px;
 }
+.dept-tag.dept-common { color: #9ca3af; background: #f3f4f6; }
 .load-more { text-align: center; padding: 8px; }
 </style>

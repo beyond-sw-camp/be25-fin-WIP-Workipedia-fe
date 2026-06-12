@@ -6,6 +6,7 @@ export interface ManualSummaryResponse {
   manualId: number
   departmentId: number | null
   title: string
+  description?: string
   status: ManualStatus
   sourceUrl: string | null
   version: string | null
