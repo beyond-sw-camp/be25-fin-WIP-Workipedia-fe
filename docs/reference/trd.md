@@ -29,8 +29,8 @@
             ▼                ▼                        ▼             ▼
       ┌──────────┐    ┌──────────────┐         ┌──────────┐  ┌────────────┐
       │   RDB    │    │ Vector Store │         │  LLM API │  │ Embedding  │
-      │ (MySQL/  │    │ (pgvector /  │         │ (OpenAI/ │  │   Model    │
-      │ Postgres)│    │  OpenSearch) │         │  사내LLM)│  │            │
+      │ (MariaDB)│    │   (Qdrant)   │         │ (OpenAI/ │  │   Model    │
+      │          │    │              │         │  사내LLM)│  │            │
       └──────────┘    └──────────────┘         └──────────┘  └────────────┘
                                 ▲
                                 │ 1일 1회 배치
@@ -49,7 +49,7 @@
 | ORM | JPA(Hibernate) |
 | RDB | MariaDB/MySQL 계열 |
 | BE 검색 엔진 | Elasticsearch (전문 검색, 민정기 담당) — ADR 009 참조 |
-| AI Vector Store | ChromaDB (RAG·부서 라우팅 검색) |
+| AI Vector Store | Qdrant (RAG·부서 라우팅 검색) |
 | 인증 | JWT (Access + Refresh), 비밀번호 BCrypt |
 | 세션 저장 | Redis (Refresh Token 저장) — ADR 003 참조 |
 | LLM | 로컬 LLM 또는 검색 결과 기반 template 답변, 외부 LLM은 후순위 |
@@ -63,7 +63,7 @@
 
 1. **인덱싱(`ai_sync_jobs` + 정합성 점검)** — KNOIT_006
    - 매뉴얼·워키·승인 지식화 문서·수기 지식 변경 시 BE가 동기화 작업을 기록
-   - AI 서버가 민감정보 마스킹, 문서 유형별 chunking, embedding, ChromaDB upsert 수행
+   - AI 서버가 민감정보 마스킹, 문서 유형별 chunking, embedding, Qdrant upsert 수행
    - `knowledge_data`와 `manual_knowledge`는 DB·`sourceType`·collection을 분리
 
 2. **질의 처리(실시간)** — KNOIT_001~003
@@ -319,7 +319,7 @@
 
 ## 10. 미해결 기술 이슈
 
-1. Vector Store 선택 — pgvector vs OpenSearch (운영 부담 vs 검색 품질)
+1. Qdrant 운영 설정 — payload index, snapshot, 재색인 절차
 2. 매뉴얼 PDF 등 비정형 문서의 chunking 전략
 3. 티켓 자동 배정 알고리즘 — 키워드, 문서 유사도, 카테고리 매핑, 과거 티켓, LLM 분류 점수 가중치
 4. 워키 답변 우선순위 (정책 미확정 — PRD §7 참조)
