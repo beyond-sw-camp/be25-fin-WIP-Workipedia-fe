@@ -8,21 +8,25 @@ export interface EsgResponse {
   gradeImageUrl: string | null
 }
 
-// BE: esg.dto.EsgLeaderboardResponse (리더보드 1건)
+// BE: leaderboard.dto.LeaderboardRankerResponse (topRankers 1건)
 export interface EsgLeaderboardResponse {
   rank: number
   userId: number
   nickname: string
   departmentName: string | null
-  esgScore: number
+  gradeId: number
   gradeName: string
   gradeImageUrl: string | null
-  answerCount: number
-  acceptedAnswerCount: number
+  esgScore: number
+  answerCount?: number       // mySummary에만 존재, topRankers에는 없음
+  acceptedAnswerCount?: number
 }
 
-// BE: esg.dto.EsgLeaderboardPageResponse (상위 랭커 + 내 순위)
+// BE: leaderboard.dto.LeaderboardResponse (상위 랭커 + 내 순위)
 export interface EsgLeaderboardPageResponse {
+  rankingPeriodStart: string | null
+  calculatedAt: string | null
   topRankers: EsgLeaderboardResponse[]
-  myRank: EsgLeaderboardResponse | null
+  mySummary: EsgLeaderboardResponse | null
+  totalEsgScore: number
 }

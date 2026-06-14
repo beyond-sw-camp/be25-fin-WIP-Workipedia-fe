@@ -23,5 +23,5 @@ export function getMyEsg() {
 
 // ESG 리더보드 (상위 랭커 + 내 순위)
 export function getEsgLeaderboard() {
-  return http.get<EsgLeaderboardPageResponse>('/esg/leaderboard')
+  return http.get<EsgLeaderboardPageResponse>('/leaderboard')
 }
