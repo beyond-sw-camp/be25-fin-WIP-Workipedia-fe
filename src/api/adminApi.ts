@@ -93,7 +93,6 @@ export function updateAdminDepartment(departmentId: number, body: { departmentNa
 export function deleteAdminDepartment(departmentId: number) {
   return http.delete<ApiResponse<null>>(`/admin/departments/${departmentId}`)
 }
-
 // ── 포인트 관리 ────────────────────────────────────────────────
 export interface AdminPointUser {
   userId: number

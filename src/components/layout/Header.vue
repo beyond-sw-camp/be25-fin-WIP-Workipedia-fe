@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 import {
   MessageCircle, FileText, MessagesSquare, Trophy,
   Search, BookOpen, Library, HelpCircle,
-  LayoutDashboard, Building2, ShieldCheck, Settings,
+  LayoutDashboard, Building2, ShieldCheck, Settings, Bot,
   Bell, User,
 } from '@lucide/vue'
 
@@ -35,6 +35,7 @@ const PAGE_META: Record<string, { label: string; icon: object; color: string }> 
   'dashboard-department':{ label: '부서 관리자 대시보드',  icon: Building2,       color: '#8b5cf6' },
   'dashboard-admin':     { label: '관리자 대시보드',       icon: ShieldCheck,     color: '#ef4444' },
   'admin-settings':      { label: '관리자 설정',           icon: Settings,        color: '#64748b' },
+  'admin-ai':            { label: 'AI 관리',               icon: Bot,             color: '#6366f1' },
 }
 
 const current = computed(() => PAGE_META[route.name as string] ?? { label: '', icon: null, color: '#64748b' })
