@@ -843,13 +843,13 @@ onMounted(() => {
       <div v-else class="item-list">
         <div v-for="u in filteredUsers" :key="u.userId"
           :class="['user-row', { inactive: u.status === 'INACTIVE' }]">
-          <div class="user-avatar">{{ u.employeeId.slice(-2) }}</div>
+          <div class="user-avatar">{{ u.employeeId?.slice(-2) ?? '?' }}</div>
           <div class="user-info">
             <div class="user-id-row">
               <span class="user-id">{{ u.employeeId }}</span>
               <span v-if="u.status === 'INACTIVE'" class="badge" style="background:#fef2f2; color:#ef4444; font-size:11px;">비활성</span>
             </div>
-            <div class="user-meta">{{ u.departmentName }} · 최근 로그인: {{ u.lastLoginAt.slice(0, 10) }}</div>
+            <div class="user-meta">{{ u.departmentName }} · 최근 로그인: {{ u.lastLoginAt?.slice(0, 10) ?? '기록 없음' }}</div>
           </div>
           <button
             :class="['btn', u.status === 'ACTIVE' ? 'danger' : 'primary']"
@@ -885,7 +885,7 @@ onMounted(() => {
         <div v-for="u in pointSearchResults" :key="u.userId"
           :class="['user-row', 'clickable', { selected: selectedUser?.userId === u.userId }]"
           @click="selectUser(u)">
-          <div class="user-avatar">{{ u.employeeId.slice(-2) }}</div>
+          <div class="user-avatar">{{ u.employeeId?.slice(-2) ?? '?' }}</div>
           <div class="user-info">
             <div class="user-id">{{ u.employeeId }}</div>
             <div class="user-meta">{{ u.nickname }}</div>
