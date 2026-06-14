@@ -189,6 +189,12 @@ const router = createRouter({
           meta: { requiresAuth: true, roles: [ROLES.SYSTEM_ADMIN] },
         },
         {
+          path: 'admin/ai',
+          name: 'admin-ai',
+          component: () => import('@/views/admin/AiAdminView.vue'),
+          meta: { requiresAuth: true, roles: [ROLES.SYSTEM_ADMIN] },
+        },
+        {
           path: 'admin/settings',
           name: 'admin-settings',
           component: () => import('@/views/admin/AdminSettingsView.vue'),
