@@ -1,8 +1,8 @@
 // BE: ticket.domain.TicketStatus
 export type TicketStatus =
-  | 'RECEIVED'
   | 'COMMON_QUEUE'
   | 'ASSIGNED'
+  | 'TRANSFERRED'
   | 'COMPLETED'
   | 'DELETED'
 
@@ -68,4 +68,21 @@ export interface TicketAssigneeResponse {
   priority: TicketPriority | null
   assigneeId: number | null
   assigneeNickname: string | null
+}
+
+// BE: ticket.dto.TicketAnswerResponse
+export interface TicketAnswerResponse {
+  answerId: number
+  ticketId: number
+  content: string
+  authorId: number
+  authorNickname: string | null
+  authorDepartmentId: number | null
+  authorDepartmentName: string | null
+  fileKey: string | null
+  fileUrl: string | null
+  fileName: string | null
+  fileContentType: string | null
+  fileSize: number | null
+  answeredAt: string
 }

@@ -165,15 +165,18 @@ const router = createRouter({
           component: () => import('@/views/common/notification/NotificationView.vue'),
         },
 
-        // ── USER ────────────────────────────────────────────────────────
+        // ── USER / SYSTEM_ADMIN 공통 ─────────────────────────────────────
+        // SYSTEM_ADMIN도 부서 소속 구성원이므로 팀 대시보드 열람이 필요하다.
+        // 단, 지식화 승인 큐와 차트는 TEAM_ADMIN 전용 API를 사용하므로 뷰 내에서 role로 분기한다.
         {
           path: 'dashboard/team',
           name: 'dashboard-team',
           component: () => import('@/views/dashboard/TeamDashboardView.vue'),
-          meta: { requiresAuth: true, roles: [ROLES.USER] },
+          meta: { requiresAuth: true, roles: [ROLES.USER, ROLES.SYSTEM_ADMIN] },
         },
 
         // ── TEAM_ADMIN ──────────────────────────────────────────────────
+        // 부서 대시보드(티켓 처리·지식화 승인)는 TEAM_ADMIN 전용이다.
         {
           path: 'dashboard/department',
           name: 'dashboard-department',

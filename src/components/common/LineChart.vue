@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-const props = defineProps<{ data: number[]; color: string; max?: number; w?: number; h?: number }>()
+const props = defineProps<{ data: number[]; color: string; labels?: string[]; max?: number; w?: number; h?: number }>()
 
 const geo = computed(() => {
   const W = props.w ?? 460, H = props.h ?? 220
   const pad = { l: 38, r: 12, t: 14, b: 28 }
   const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b
-  const mx = props.max ?? Math.max(...props.data) * 1.15
+  // y축 5개 라벨을 정수로 표시할 때 최댓값이 너무 작으면 라벨이 중복된다(예: 0,0,1,1,1).
+  // 최솟값을 4로 고정해 항상 0~4 이상의 범위가 확보되도록 한다.
+  const mx = Math.max(props.max ?? Math.max(...props.data) * 1.2, 4)
+  // data가 1개일 때 (length - 1 = 0) 나누기 방지. Math.max(..., 1)로 가드한다.
   const pts = props.data.map((v, i) => ({
-    x: pad.l + (i / (props.data.length - 1)) * iw,
+    x: pad.l + (i / Math.max(props.data.length - 1, 1)) * iw,
     y: pad.t + ih - (v / mx) * ih,
   }))
   const path = pts.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ')
@@ -18,8 +21,8 @@ const geo = computed(() => {
     label: Math.round(mx - (i / 4) * mx),
   }))
   const xl = props.data.map((_, i) => ({
-    x: pad.l + (i / (props.data.length - 1)) * iw,
-    label: `${i + 1}월`,
+    x: pad.l + (i / Math.max(props.data.length - 1, 1)) * iw,
+    label: props.labels?.[i] ?? `${i + 1}월`,
   }))
   return { pts, path, yt, xl }
 })
