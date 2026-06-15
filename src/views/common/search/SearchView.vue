@@ -1,25 +1,23 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Search, MessageCircle } from '@lucide/vue'
-import { searchQuestions, autocompleteQuestions } from '@/api/workiApi'
-import type { QuestionStatus } from '@/types/worki'
+import { Search, MessageCircle, BookOpen } from '@lucide/vue'
+import { searchIntegrated, autocompleteSearch } from '@/api/searchApi'
+import type { WorkiSearchResponse, QuestionStatus } from '@/types/worki'
+import type { ManualSearchResponse } from '@/types/search'
+import type { ManualStatus } from '@/types/manual'
 
 const router = useRouter()
 const query = ref('')
 
-// BE 통합 검색은 현재 워키 질문만 지원한다(search/worki). 매뉴얼·티켓·지식 검색은 BE 미구현.
-const PAGE_SIZE = 20
+// 통합 검색 미리보기 크기(도메인별). 더 보려면 각 도메인 목록으로 이동한다.
+const PREVIEW_SIZE = 10
 
-interface Result {
-  questionId: number
-  title: string
-  status: QuestionStatus
-  viewCount: number
-  createdAt: string
-}
+const workiResults = ref<WorkiSearchResponse[]>([])
+const workiTotal = ref(0)
+const manualResults = ref<ManualSearchResponse[]>([])
+const manualTotal = ref(0)
 
-const results = ref<Result[]>([])
 const loading = ref(false)
 const error = ref('')
 const searched = ref(false) // 한 번이라도 검색을 시도했는지
@@ -30,11 +28,18 @@ const showSuggestions = ref(false)
 let seq = 0
 let suppressNext = false
 
-const statusLabel: Record<QuestionStatus, string> = {
+const workiStatusLabel: Record<QuestionStatus, string> = {
   WAITING: '답변 대기',
   IN_PROGRESS: '답변 진행 중',
   ANSWERED: '해결됨',
   TICKETED: '티켓 전환',
+  DELETED: '삭제됨',
+}
+
+const manualStatusLabel: Record<ManualStatus, string> = {
+  DRAFT: '작성 중',
+  PUBLISHED: '게시됨',
+  ARCHIVED: '보관됨',
   DELETED: '삭제됨',
 }
 
@@ -47,7 +52,8 @@ function formatDate(iso: string) {
 async function runSearch(keyword: string) {
   // BE는 keyword 2~100자만 허용.
   if (keyword.length < 2) {
-    results.value = []
+    workiResults.value = []
+    manualResults.value = []
     searched.value = false
     return
   }
@@ -55,9 +61,12 @@ async function runSearch(keyword: string) {
   loading.value = true
   error.value = ''
   try {
-    const res = await searchQuestions(keyword, { page: 0, size: PAGE_SIZE })
+    const res = await searchIntegrated(keyword, PREVIEW_SIZE)
     if (mySeq !== seq) return
-    results.value = res.data.content
+    workiResults.value = res.data.worki.content
+    workiTotal.value = res.data.worki.pageInfo.totalElements
+    manualResults.value = res.data.manuals.content
+    manualTotal.value = res.data.manuals.pageInfo.totalElements
     searched.value = true
   } catch {
     if (mySeq === seq) error.value = '검색에 실패했습니다.'
@@ -73,7 +82,7 @@ async function loadSuggestions(keyword: string) {
     return
   }
   try {
-    const res = await autocompleteQuestions(keyword)
+    const res = await autocompleteSearch(keyword)
     suggestions.value = res.data
     showSuggestions.value = res.data.length > 0
   } catch {
@@ -119,7 +128,7 @@ watch(query, () => {
         <Search :size="28" color="#1f2430" />
         통합 검색
       </h1>
-      <p class="page-sub">워키 질문을 키워드로 검색하세요 (2자 이상)</p>
+      <p class="page-sub">워키 질문과 매뉴얼을 키워드로 검색하세요 (2자 이상)</p>
     </div>
 
     <div class="search-bar" style="max-width: 620px; margin-bottom: 24px; position: relative;">
@@ -142,7 +151,7 @@ watch(query, () => {
       </ul>
     </div>
 
-    <div v-if="loading && results.length === 0" class="empty-ph" style="height: 240px;">
+    <div v-if="loading && !searched" class="empty-ph" style="height: 240px;">
       검색 중...
     </div>
     <div v-else-if="error" class="empty-ph" style="height: 240px;">
@@ -151,32 +160,69 @@ watch(query, () => {
     <div v-else-if="!searched" class="empty-ph" style="height: 240px;">
       검색어를 입력하면 결과가 표시됩니다
     </div>
-    <div v-else-if="results.length === 0" class="empty-ph" style="height: 240px;">
+    <div v-else-if="workiResults.length === 0 && manualResults.length === 0" class="empty-ph" style="height: 240px;">
       '{{ query.trim() }}'에 대한 검색 결과가 없습니다
     </div>
-    <div v-else class="result-list">
-      <div
-        v-for="r in results"
-        :key="r.questionId"
-        class="card result-item"
-        @click="router.push(`/worki/${r.questionId}`)"
-      >
-        <div class="result-kind" style="color: #7c3aed;">
-          <MessageCircle :size="14" />
-          워키
+    <template v-else>
+      <!-- 워키 -->
+      <section v-if="workiResults.length" class="result-section">
+        <div class="section-head" style="color: #7c3aed;">
+          <MessageCircle :size="16" />
+          워키 <span class="section-count">{{ workiTotal }}</span>
         </div>
-        <h3 class="result-title">{{ r.title }}</h3>
-        <div class="result-meta">{{ statusLabel[r.status] }} · 조회 {{ r.viewCount }} · {{ formatDate(r.createdAt) }}</div>
-      </div>
-    </div>
+        <div class="result-list">
+          <div
+            v-for="r in workiResults"
+            :key="r.questionId"
+            class="card result-item"
+            @click="router.push(`/worki/${r.questionId}`)"
+          >
+            <h3 class="result-title">{{ r.title }}</h3>
+            <div class="result-meta">{{ workiStatusLabel[r.status] }} · 조회 {{ r.viewCount }} · {{ formatDate(r.createdAt) }}</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 매뉴얼 -->
+      <section v-if="manualResults.length" class="result-section">
+        <div class="section-head" style="color: #10b981;">
+          <BookOpen :size="16" />
+          매뉴얼 <span class="section-count">{{ manualTotal }}</span>
+        </div>
+        <div class="result-list">
+          <div
+            v-for="m in manualResults"
+            :key="m.manualId"
+            class="card result-item"
+            @click="router.push(`/manuals/${m.manualId}`)"
+          >
+            <h3 class="result-title">{{ m.title }}</h3>
+            <div class="result-meta">{{ manualStatusLabel[m.status] }} · v{{ m.version }} · {{ formatDate(m.createdAt) }}</div>
+          </div>
+        </div>
+      </section>
+    </template>
   </div>
 </template>
 
 <style scoped>
+.result-section { margin-bottom: 28px; }
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+.section-count {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #aeb2bb;
+}
 .result-list { display: flex; flex-direction: column; gap: 12px; }
 .result-item { padding: 20px 24px; cursor: pointer; transition: box-shadow 0.15s; }
 .result-item:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
-.result-kind { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 700; margin-bottom: 8px; }
 .result-title { font-size: 16px; font-weight: 700; color: #1f2430; margin: 0 0 6px; }
 .result-meta { font-size: 12.5px; color: #aeb2bb; }
 
