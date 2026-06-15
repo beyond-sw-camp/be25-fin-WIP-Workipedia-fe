@@ -178,7 +178,7 @@ const router = createRouter({
           path: 'dashboard/department',
           name: 'dashboard-department',
           component: () => import('@/views/dashboard/DepartmentAdminDashboardView.vue'),
-          meta: { requiresAuth: true, roles: [ROLES.TEAM_ADMIN] },
+          meta: { requiresAuth: true, roles: [ROLES.TEAM_ADMIN, ROLES.SYSTEM_ADMIN] },
         },
 
         // ── SYSTEM_ADMIN ────────────────────────────────────────────────

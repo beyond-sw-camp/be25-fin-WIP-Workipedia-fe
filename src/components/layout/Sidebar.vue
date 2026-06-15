@@ -122,10 +122,13 @@ const initials = computed(() =>
         <Building2 :size="16" /> 부서 관리자 대시보드
       </RouterLink>
 
-      <!-- SYSTEM_ADMIN: 대시보드 + AI 관리 + 설정 -->
+      <!-- SYSTEM_ADMIN: 부서 대시보드 + 시스템 대시보드 + AI 관리 + 설정 -->
       <template v-else-if="auth.role === ROLES.SYSTEM_ADMIN">
+        <RouterLink to="/dashboard/department" class="nav-item nav-item-secondary">
+          <Building2 :size="16" /> 부서 대시보드
+        </RouterLink>
         <RouterLink to="/dashboard/admin" class="nav-item nav-item-secondary">
-          <ShieldCheck :size="16" /> 대시보드
+          <ShieldCheck :size="16" /> 시스템 대시보드
         </RouterLink>
         <RouterLink to="/admin/ai" class="nav-item nav-item-secondary">
           <Bot :size="16" /> AI 관리

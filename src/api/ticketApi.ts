@@ -2,6 +2,7 @@ import http from './index'
 import type { PageParams, PageResponse } from '@/types/common'
 import type {
   TicketResponse,
+  TicketAnswerResponse,
   CreateTicketRequest,
   TicketStatus,
   TicketAssigneeRequest,
@@ -34,4 +35,19 @@ export function changeTicketStatus(ticketId: number, status: TicketStatus) {
 // 티켓 담당자 배정 (TEAM_ADMIN)
 export function assignTicket(ticketId: number, data: TicketAssigneeRequest) {
   return http.patch<TicketAssigneeResponse>(`/tickets/${ticketId}/assignee`, data)
+}
+
+// 담당 부서 공식 답변 (JSON 전송 / TODO: BE 파일 첨부 스펙 확정 후 multipart 복원)
+export function answerTicket(ticketId: number, content: string, _files: File[] = []) {
+  return http.post<TicketAnswerResponse>(`/tickets/${ticketId}/answers`, { content })
+}
+
+// 최신 답변 조회 (GET /tickets/{id}/answers/latest)
+export function getLatestAnswer(ticketId: number) {
+  return http.get<TicketAnswerResponse>(`/tickets/${ticketId}/answers/latest`)
+}
+
+// 티켓 이관 요청 → COMMON_QUEUE로 이동 (TEAM_ADMIN 전용)
+export function transferTicket(ticketId: number, reason: string) {
+  return http.post<TicketResponse>(`/team/tickets/${ticketId}/transfer`, { reason })
 }
