@@ -21,11 +21,11 @@ const notiStore = useNotificationStore()
 const showNotification = ref(false)
 const showPoint = ref(false)
 
-// 안읽음 알림 배지: 로그인 상태에서 폴링으로 갱신.
+// 안읽음 알림 배지: 로그인 상태에서 SSE 로 실시간 갱신(끊기면 폴링 fallback).
 onMounted(() => {
-  if (auth.isLoggedIn) notiStore.startPolling()
+  if (auth.isLoggedIn) notiStore.start()
 })
-onUnmounted(() => notiStore.stopPolling())
+onUnmounted(() => notiStore.stop())
 
 function toggleNotification() {
   showNotification.value = !showNotification.value
@@ -48,6 +48,8 @@ async function logout() {
   try {
     await logoutApi()
   } finally {
+    notiStore.stop()
+    notiStore.reset()
     auth.clearAuth()
     router.push('/login')
   }
