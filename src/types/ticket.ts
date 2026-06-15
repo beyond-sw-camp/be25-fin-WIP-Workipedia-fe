@@ -3,9 +3,7 @@ export type TicketStatus =
   | 'RECEIVED'
   | 'COMMON_QUEUE'
   | 'ASSIGNED'
-  | 'IN_PROGRESS'
   | 'COMPLETED'
-  | 'REJECTED'
   | 'DELETED'
 
 // BE: ticket.domain.TicketPriority

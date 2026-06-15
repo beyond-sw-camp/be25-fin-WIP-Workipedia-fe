@@ -6,6 +6,7 @@ export interface ManualSummaryResponse {
   manualId: number
   departmentId: number | null
   title: string
+  description?: string
   status: ManualStatus
   sourceUrl: string | null
   version: string | null
@@ -14,7 +15,8 @@ export interface ManualSummaryResponse {
   updatedAt: string
 }
 
-// BE: manual.dto.ManualDetailResponse (상세 = 목록 + content 본문)
+// BE: manual.dto.ManualDetailResponse (상세 = 목록 + content 본문 + fileUrl)
 export interface ManualDetailResponse extends ManualSummaryResponse {
   content: string
+  fileUrl: string | null
 }

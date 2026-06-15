@@ -147,6 +147,16 @@ const router = createRouter({
           name: 'my-points',
           component: () => import('@/views/common/point/PointView.vue'),
         },
+        {
+          path: 'my/tickets',
+          name: 'my-tickets',
+          component: () => import('@/views/common/mypage/MyIssuedTicketsView.vue'),
+        },
+        {
+          path: 'my/tickets/:id',
+          name: 'my-ticket-detail',
+          component: () => import('@/views/common/mypage/MyIssuedTicketDetailView.vue'),
+        },
 
         // 알림
         {
@@ -176,6 +186,12 @@ const router = createRouter({
           path: 'dashboard/admin',
           name: 'dashboard-admin',
           component: () => import('@/views/dashboard/AdminDashboardView.vue'),
+          meta: { requiresAuth: true, roles: [ROLES.SYSTEM_ADMIN] },
+        },
+        {
+          path: 'admin/ai',
+          name: 'admin-ai',
+          component: () => import('@/views/admin/AiAdminView.vue'),
           meta: { requiresAuth: true, roles: [ROLES.SYSTEM_ADMIN] },
         },
         {

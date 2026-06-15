@@ -1,16 +1,28 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ChevronLeft, BookOpen, ExternalLink } from '@lucide/vue'
+import { ChevronLeft, BookOpen, ExternalLink, Calendar, FileDown } from '@lucide/vue'
 import { getManualDetail } from '@/api/manualApi'
+import { useDeptStore } from '@/stores/deptStore'
 import type { ManualDetailResponse } from '@/types/manual'
 
 const router = useRouter()
 const route = useRoute()
+const deptStore = useDeptStore()
 
 const manual = ref<ManualDetailResponse | null>(null)
 const loading = ref(false)
 const error = ref('')
+
+// "v1" / "1.0" / "v1.0" 등 다양한 형식을 화면 표시용 "vN.M"으로 통일한다.
+function fmtVersion(v: string | null | undefined): string | null {
+  if (!v) return null
+  const withDot = v.match(/v?(\d+)\.(\d+)/)
+  if (withDot) return `v${withDot[1]}.${withDot[2]}`
+  const onlyMajor = v.match(/v?(\d+)/)
+  if (onlyMajor) return `v${onlyMajor[1]}.0`
+  return v
+}
 
 function formatDate(iso: string) {
   const d = new Date(iso)
@@ -37,8 +49,9 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="content-inner" style="max-width: 820px;">
-    <button class="btn" style="margin-bottom: 24px;" @click="router.back()">
+  <div class="content-inner">
+
+    <button class="btn" style="margin-bottom: 20px;" @click="router.push('/manuals')">
       <ChevronLeft :size="16" /> 목록으로
     </button>
 
@@ -48,28 +61,43 @@ onMounted(async () => {
     <div v-else-if="manual" class="card manual-wrap">
       <div class="manual-header">
         <div class="manual-header-left">
-          <span class="badge blue"><BookOpen :size="11" /> 매뉴얼</span>
-          <span v-if="manual.version" class="badge gray">v{{ manual.version }}</span>
+          <span :class="['badge', manual.departmentId != null ? 'blue' : 'gray']">
+            <BookOpen :size="11" /> {{ deptStore.getName(manual.departmentId) }}
+          </span>
+          <span v-if="manual.version" class="badge gray">{{ fmtVersion(manual.version) }}</span>
         </div>
-        <a
-          v-if="manual.sourceUrl"
-          class="btn"
-          style="padding: 8px 14px; font-size: 13px; text-decoration: none;"
-          :href="manual.sourceUrl"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <ExternalLink :size="14" /> 원문 보기
-        </a>
+        <div class="header-actions">
+          <a
+            v-if="manual.sourceUrl"
+            class="btn source-btn"
+            style="padding: 8px 14px; font-size: 13px; text-decoration: none;"
+            :href="manual.sourceUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <ExternalLink :size="14" /> 원문 보기
+          </a>
+          <a
+            v-if="manual.fileUrl"
+            class="btn"
+            style="padding: 8px 14px; font-size: 13px; text-decoration: none;"
+            :href="manual.fileUrl"
+            download
+          >
+            <FileDown :size="14" /> 파일 다운로드
+          </a>
+        </div>
       </div>
 
-      <h1 class="manual-title">{{ manual.title }}</h1>
-      <div class="manual-meta">최종 수정 {{ formatDate(manual.updatedAt) }}</div>
+      <h1 class="header-title">{{ manual.title }}</h1>
+      <div class="header-meta"><Calendar :size="13" /> 최종 수정 {{ formatDate(manual.updatedAt) }}</div>
 
-      <hr class="divider" />
-
-      <div class="manual-body">{{ manual.content }}</div>
+      <div class="card content-card">
+        <div class="content-label">매뉴얼 내용</div>
+        <div class="manual-body">{{ manual.content }}</div>
+      </div>
     </div>
+
   </div>
 </template>
 
@@ -77,15 +105,19 @@ onMounted(async () => {
 .manual-wrap { padding: 36px 40px; }
 .manual-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .manual-header-left { display: flex; gap: 8px; }
-.manual-title { font-size: 26px; font-weight: 800; color: #1f2430; margin: 0 0 8px; }
-.manual-meta { font-size: 13.5px; color: #aeb2bb; }
-.divider { border: none; border-top: 1px solid var(--line); margin: 24px 0; }
-/* BE content 는 단일 텍스트 본문. 줄바꿈/공백을 보존해 표시. */
+.header-actions { display: flex; gap: 8px; }
+.source-btn { text-decoration: none; }
+.header-title { font-size: 24px; font-weight: 800; color: #1f2430; margin: 0 0 8px; line-height: 1.3; }
+.header-meta { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #aeb2bb; margin-bottom: 24px; }
+
+/* ── Content Card ── */
+.content-card { padding: 28px 32px; }
+.content-label {
+  font-size: 12.5px; font-weight: 600; color: #aeb2bb;
+  text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px;
+}
 .manual-body {
-  font-size: 15px;
-  color: #404055;
-  line-height: 1.8;
-  white-space: pre-wrap;
-  word-break: break-word;
+  font-size: 15px; color: #404055;
+  line-height: 1.8; white-space: pre-wrap; word-break: break-word;
 }
 </style>

@@ -1,14 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ChevronLeft, Ticket } from '@lucide/vue'
-import { getDepartments } from '@/api/adminApi'
-import type { Department } from '@/api/adminApi'
+import { useDeptStore } from '@/stores/deptStore'
 import http from '@/api/index'
 
 const router = useRouter()
+const deptStore = useDeptStore()
 
-const departments = ref<Department[]>([])
 const title = ref('')
 const category = ref('')
 const targetDeptId = ref<number | null>(null)
@@ -17,15 +16,6 @@ const submitting = ref(false)
 const error = ref('')
 
 const categories = ['IT장비', 'IT시스템', 'HR', '재무', '시설', '총무', '기타']
-
-onMounted(async () => {
-  try {
-    const res = await getDepartments()
-    departments.value = res.data.data
-  } catch {
-    // 부서 목록 로드 실패해도 진행
-  }
-})
 
 async function submit() {
   error.value = ''
@@ -83,7 +73,7 @@ async function submit() {
           <label>담당 부서 <span class="req">*</span></label>
           <select v-model="targetDeptId" class="select-input">
             <option :value="null" disabled>부서 선택</option>
-            <option v-for="d in departments" :key="d.departmentId" :value="d.departmentId">{{ d.name }}</option>
+            <option v-for="d in deptStore.departments" :key="d.departmentId" :value="d.departmentId">{{ d.departmentName }}</option>
           </select>
         </div>
       </div>

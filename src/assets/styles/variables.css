@@ -1,6 +1,6 @@
 :root {
   /* ── 사이드바 ─────────────────────────────────────── */
-  --sidebar-width: 336px;
+  --sidebar-width: 300px;
   --sidebar-grad: linear-gradient(172.7deg, #1a1a2e 1.4%, #16213e 30.5%, #1a1a2e 50%, #0f3460 69.5%, #1a1a2e 84%, #16213e 98.6%);
   --brand-cyan: #2dd6f0;
 

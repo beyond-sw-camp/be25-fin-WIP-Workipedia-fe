@@ -12,9 +12,7 @@ export const TICKET_STATUS_META: Record<TicketStatus, TicketStatusMeta> = {
   RECEIVED: { label: '접수', color: '#aeb2bb', badgeClass: 'gray' },
   COMMON_QUEUE: { label: '공통 접수', color: '#aeb2bb', badgeClass: 'gray' },
   ASSIGNED: { label: '배정됨', color: '#f5c000', badgeClass: '' },
-  IN_PROGRESS: { label: '처리중', color: '#2b7fff', badgeClass: 'blue' },
   COMPLETED: { label: '완료', color: '#00a63e', badgeClass: 'green' },
-  REJECTED: { label: '반려', color: '#ef4444', badgeClass: '' },
   DELETED: { label: '삭제됨', color: '#aeb2bb', badgeClass: 'gray' },
 }
 
@@ -22,7 +20,5 @@ export const TICKET_STATUS_META: Record<TicketStatus, TicketStatusMeta> = {
 export const TICKET_FILTER_STATUSES: TicketStatus[] = [
   'RECEIVED',
   'ASSIGNED',
-  'IN_PROGRESS',
   'COMPLETED',
-  'REJECTED',
 ]

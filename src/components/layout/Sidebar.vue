@@ -7,7 +7,7 @@ import { ROLES } from '@/constants/roles'
 import {
   MessageCircle, FileText, MessagesSquare, Trophy,
   Search, BookOpen, Library, HelpCircle,
-  LayoutDashboard, Building2, ShieldCheck, Settings,
+  LayoutDashboard, Building2, ShieldCheck, Settings, Bot,
   Bell, LogOut, Star,
 } from '@lucide/vue'
 import NotificationPanel from './NotificationPanel.vue'
@@ -21,11 +21,11 @@ const notiStore = useNotificationStore()
 const showNotification = ref(false)
 const showPoint = ref(false)
 
-// 안읽음 알림 배지: 로그인 상태에서 폴링으로 갱신.
+// 안읽음 알림 배지: 로그인 상태에서 SSE 로 실시간 갱신(끊기면 폴링 fallback).
 onMounted(() => {
-  if (auth.isLoggedIn) notiStore.startPolling()
+  if (auth.isLoggedIn) notiStore.start()
 })
-onUnmounted(() => notiStore.stopPolling())
+onUnmounted(() => notiStore.stop())
 
 function toggleNotification() {
   showNotification.value = !showNotification.value
@@ -48,6 +48,8 @@ async function logout() {
   try {
     await logoutApi()
   } finally {
+    notiStore.stop()
+    notiStore.reset()
     auth.clearAuth()
     router.push('/login')
   }
@@ -62,7 +64,7 @@ const initials = computed(() =>
   <aside class="sidebar">
     <!-- 로고 + 알림 -->
     <div class="sidebar-top">
-      <div class="sidebar-logo">
+      <RouterLink to="/knowit" class="sidebar-logo">
         <svg width="30" height="34" viewBox="0 0 56 64" xmlns="http://www.w3.org/2000/svg" class="logo-svg">
           <polygon points="28,2 54,17 28,31 2,17" fill="#bab4ab"/>
           <polygon points="2,17 28,31 28,62 2,48" fill="#9e9890"/>
@@ -70,7 +72,7 @@ const initials = computed(() =>
           <polygon points="28,31 54,17 54,48 28,62" fill="#88817a"/>
         </svg>
         <span class="logo-text">Workipedia</span>
-      </div>
+      </RouterLink>
       <button class="bell-btn" @click="toggleNotification">
         <Bell :size="18" />
         <span v-if="notiStore.unreadCount > 0" class="bell-badge">
@@ -122,13 +124,16 @@ const initials = computed(() =>
         <Building2 :size="16" /> 부서 관리자 대시보드
       </RouterLink>
 
-      <!-- SYSTEM_ADMIN: 관리자 대시보드 + 관리자 설정 -->
+      <!-- SYSTEM_ADMIN: 대시보드 + AI 관리 + 설정 -->
       <template v-else-if="auth.role === ROLES.SYSTEM_ADMIN">
         <RouterLink to="/dashboard/admin" class="nav-item nav-item-secondary">
-          <ShieldCheck :size="16" /> 관리자 대시보드
+          <ShieldCheck :size="16" /> 대시보드
+        </RouterLink>
+        <RouterLink to="/admin/ai" class="nav-item nav-item-secondary">
+          <Bot :size="16" /> AI 관리
         </RouterLink>
         <RouterLink to="/admin/settings" class="nav-item nav-item-secondary">
-          <Settings :size="16" /> 관리자 설정
+          <Settings :size="16" /> 설정
         </RouterLink>
       </template>
     </nav>
@@ -208,6 +213,7 @@ const initials = computed(() =>
   display: flex;
   align-items: center;
   gap: 1.5rem;
+  text-decoration: none;
 }
 
 .logo-svg {
