@@ -2,7 +2,8 @@
 import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Search, MessageCircle, BookOpen } from '@lucide/vue'
-import { searchIntegrated, autocompleteSearch } from '@/api/searchApi'
+import { searchIntegrated, searchWorki, searchManuals, autocompleteSearch } from '@/api/searchApi'
+import BasePagination from '@/components/common/BasePagination.vue'
 import type { WorkiSearchResponse, QuestionStatus } from '@/types/worki'
 import type { ManualSearchResponse } from '@/types/search'
 import type { ManualStatus } from '@/types/manual'
@@ -10,12 +11,17 @@ import type { ManualStatus } from '@/types/manual'
 const router = useRouter()
 const query = ref('')
 
-// 통합 검색 미리보기 크기(도메인별). 더 보려면 각 도메인 목록으로 이동한다.
-const PREVIEW_SIZE = 10
+// 도메인별 한 페이지에 보여줄 건수.
+const PAGE_SIZE = 10
 
 const workiResults = ref<WorkiSearchResponse[]>([])
+const workiPage = ref(1) // 1-based(UI 기준)
+const workiTotalPages = ref(0)
 const workiTotal = ref(0)
+
 const manualResults = ref<ManualSearchResponse[]>([])
+const manualPage = ref(1)
+const manualTotalPages = ref(0)
 const manualTotal = ref(0)
 
 const loading = ref(false)
@@ -24,8 +30,11 @@ const searched = ref(false) // 한 번이라도 검색을 시도했는지
 const suggestions = ref<string[]>([])
 const showSuggestions = ref(false)
 
-// 빠른 타이핑 시 늦게 도착한 응답이 최신 결과를 덮어쓰지 않도록 하는 토큰.
-let seq = 0
+// 빠른 타이핑/연속 클릭 시 늦게 도착한 응답이 최신 결과를 덮어쓰지 않도록 하는 토큰.
+// 새 검색은 두 섹션을 모두 무효화하고, 페이지 이동은 해당 섹션만 무효화한다.
+let searchSeq = 0
+let workiSeq = 0
+let manualSeq = 0
 let suppressNext = false
 
 const workiStatusLabel: Record<QuestionStatus, string> = {
@@ -49,6 +58,7 @@ function formatDate(iso: string) {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
 }
 
+// 새 키워드 검색: 통합검색으로 두 도메인의 1페이지와 총건수를 한 번에 가져온다.
 async function runSearch(keyword: string) {
   // BE는 keyword 2~100자만 허용.
   if (keyword.length < 2) {
@@ -57,21 +67,55 @@ async function runSearch(keyword: string) {
     searched.value = false
     return
   }
-  const mySeq = ++seq
+  const mySeq = ++searchSeq
+  // 이전 키워드의 페이지 이동 응답이 남아 덮어쓰지 않도록 무효화.
+  workiSeq++
+  manualSeq++
   loading.value = true
   error.value = ''
   try {
-    const res = await searchIntegrated(keyword, PREVIEW_SIZE)
-    if (mySeq !== seq) return
+    const res = await searchIntegrated(keyword, PAGE_SIZE)
+    if (mySeq !== searchSeq) return
     workiResults.value = res.data.worki.content
     workiTotal.value = res.data.worki.pageInfo.totalElements
+    workiTotalPages.value = res.data.worki.pageInfo.totalPages
+    workiPage.value = 1
     manualResults.value = res.data.manuals.content
     manualTotal.value = res.data.manuals.pageInfo.totalElements
+    manualTotalPages.value = res.data.manuals.pageInfo.totalPages
+    manualPage.value = 1
     searched.value = true
   } catch {
-    if (mySeq === seq) error.value = '검색에 실패했습니다.'
+    if (mySeq === searchSeq) error.value = '검색에 실패했습니다.'
   } finally {
-    if (mySeq === seq) loading.value = false
+    if (mySeq === searchSeq) loading.value = false
+  }
+}
+
+// 워키 섹션 페이지 이동(검색 API는 page 0-based).
+async function goWorkiPage(p: number) {
+  const mySeq = ++workiSeq
+  try {
+    const res = await searchWorki(query.value.trim(), { page: p - 1, size: PAGE_SIZE })
+    if (mySeq !== workiSeq) return
+    workiResults.value = res.data.content
+    workiTotalPages.value = res.data.pageInfo.totalPages
+    workiPage.value = p
+  } catch {
+    if (mySeq === workiSeq) error.value = '검색에 실패했습니다.'
+  }
+}
+
+async function goManualPage(p: number) {
+  const mySeq = ++manualSeq
+  try {
+    const res = await searchManuals(query.value.trim(), { page: p - 1, size: PAGE_SIZE })
+    if (mySeq !== manualSeq) return
+    manualResults.value = res.data.content
+    manualTotalPages.value = res.data.pageInfo.totalPages
+    manualPage.value = p
+  } catch {
+    if (mySeq === manualSeq) error.value = '검색에 실패했습니다.'
   }
 }
 
@@ -165,7 +209,7 @@ watch(query, () => {
     </div>
     <template v-else>
       <!-- 워키 -->
-      <section v-if="workiResults.length" class="result-section">
+      <section v-if="workiTotal" class="result-section">
         <div class="section-head" style="color: #7c3aed;">
           <MessageCircle :size="16" />
           워키 <span class="section-count">{{ workiTotal }}</span>
@@ -181,10 +225,11 @@ watch(query, () => {
             <div class="result-meta">{{ workiStatusLabel[r.status] }} · 조회 {{ r.viewCount }} · {{ formatDate(r.createdAt) }}</div>
           </div>
         </div>
+        <BasePagination :page="workiPage" :total-pages="workiTotalPages" @change="goWorkiPage" />
       </section>
 
       <!-- 매뉴얼 -->
-      <section v-if="manualResults.length" class="result-section">
+      <section v-if="manualTotal" class="result-section">
         <div class="section-head" style="color: #10b981;">
           <BookOpen :size="16" />
           매뉴얼 <span class="section-count">{{ manualTotal }}</span>
@@ -200,6 +245,7 @@ watch(query, () => {
             <div class="result-meta">{{ manualStatusLabel[m.status] }} · v{{ m.version }} · {{ formatDate(m.createdAt) }}</div>
           </div>
         </div>
+        <BasePagination :page="manualPage" :total-pages="manualTotalPages" @change="goManualPage" />
       </section>
     </template>
   </div>
