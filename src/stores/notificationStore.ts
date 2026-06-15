@@ -23,8 +23,18 @@ export const useNotificationStore = defineStore('notification', () => {
     }
   }
 
-  // --- SSE (실시간) ---
+  // SSE 활성화 여부. BE(/notifications/stream) 준비 전에는 false 로 두어
+  // 실패하는 SSE 핸드셰이크 없이 폴링만 돌린다. 준비되면 .env 에서 true 로 전환.
+  const sseEnabled = import.meta.env.VITE_NOTIFICATION_SSE === 'true'
+
+  // --- 진입점 ---
   function start() {
+    if (sseEnabled) connectStream()
+    else startPolling()
+  }
+
+  // --- SSE (실시간) ---
+  function connectStream() {
     const auth = useAuthStore()
     if (!auth.accessToken || source) return
 
@@ -88,7 +98,7 @@ export const useNotificationStore = defineStore('notification', () => {
     retryTimer = setTimeout(() => {
       retryTimer = null
       retryDelay = Math.min(retryDelay * 2, 30000)
-      start()
+      connectStream()
     }, retryDelay)
   }
 
