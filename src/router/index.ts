@@ -71,6 +71,8 @@ const router = createRouter({
         {
           path: 'worki/:id',
           name: 'worki-detail',
+          // BE 알림 targetUrl이 `/worki/questions/{id}` 형식이라 alias로 동일 화면에 매칭
+          alias: '/worki/questions/:id',
           component: () => import('@/views/common/worki/WikiDetailView.vue'),
         },
 
@@ -155,6 +157,8 @@ const router = createRouter({
         {
           path: 'my/tickets/:id',
           name: 'my-ticket-detail',
+          // BE 알림 targetUrl이 `/me/tickets/{id}` 형식이라 alias로 동일 화면에 매칭
+          alias: '/me/tickets/:id',
           component: () => import('@/views/common/mypage/MyIssuedTicketDetailView.vue'),
         },
 
