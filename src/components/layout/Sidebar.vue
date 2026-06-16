@@ -119,14 +119,14 @@ const initials = computed(() =>
         <LayoutDashboard :size="16" /> 부서 대시보드
       </RouterLink>
 
-      <!-- TEAM_ADMIN: 부서 관리자 대시보드 -->
+      <!-- TEAM_ADMIN: 부서 대시보드 -->
       <RouterLink v-else-if="auth.role === ROLES.TEAM_ADMIN" to="/dashboard/department" class="nav-item nav-item-secondary">
-        <Building2 :size="16" /> 부서 관리자 대시보드
+        <Building2 :size="16" /> 부서 대시보드
       </RouterLink>
 
       <!-- SYSTEM_ADMIN: 부서 대시보드 + 시스템 대시보드 + AI 관리 + 설정 -->
       <template v-else-if="auth.role === ROLES.SYSTEM_ADMIN">
-        <RouterLink to="/dashboard/department" class="nav-item nav-item-secondary">
+        <RouterLink to="/dashboard/team" class="nav-item nav-item-secondary">
           <Building2 :size="16" /> 부서 대시보드
         </RouterLink>
         <RouterLink to="/dashboard/admin" class="nav-item nav-item-secondary">

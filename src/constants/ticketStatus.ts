@@ -8,10 +8,12 @@ export interface TicketStatusMeta {
   badgeClass: '' | 'green' | 'blue' | 'gray'
 }
 
+// 각 상태의 한글 라벨·색상·배지 클래스를 중앙 관리한다.
+// TRANSFERRED: TEAM_ADMIN이 이관 요청한 뒤 SYSTEM_ADMIN이 재배정 전까지의 중간 상태
 export const TICKET_STATUS_META: Record<TicketStatus, TicketStatusMeta> = {
   COMMON_QUEUE: { label: '공통 접수', color: '#aeb2bb', badgeClass: 'gray' },
   ASSIGNED: { label: '배정됨', color: '#f5c000', badgeClass: '' },
-  TRANSFERRED: { label: '이관됨', color: '#2b7fff', badgeClass: 'blue' },
+  TRANSFERRED: { label: '이관됨', color: '#f59e0b', badgeClass: '' },
   COMPLETED: { label: '완료', color: '#00a63e', badgeClass: 'green' },
   DELETED: { label: '삭제됨', color: '#aeb2bb', badgeClass: 'gray' },
 }
@@ -20,5 +22,6 @@ export const TICKET_STATUS_META: Record<TicketStatus, TicketStatusMeta> = {
 export const TICKET_FILTER_STATUSES: TicketStatus[] = [
   'COMMON_QUEUE',
   'ASSIGNED',
+  'TRANSFERRED',
   'COMPLETED',
 ]

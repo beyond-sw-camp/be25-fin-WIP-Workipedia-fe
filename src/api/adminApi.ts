@@ -10,7 +10,7 @@ export function getDepartments() {
   return http.get<Department[]>('/departments')
 }
 
-// ── 대시보드 요약 ──────────────────────────────────────────────
+// ── 관리자 설정 요약 (AdminSettingsView용) ────────────────────
 export interface DashboardSummary {
   totalUserCount: number
   todayLoginCount: number
@@ -18,6 +18,25 @@ export interface DashboardSummary {
 }
 export function getDashboardSummary() {
   return http.get<DashboardSummary>('/admin/settings/summary')
+}
+
+// ── 운영 대시보드 (SYSTEM_ADMIN) ───────────────────────────────
+export interface AdminDashboardSummary {
+  totalUserCount: number
+  monthlyTicketCount: number
+  workiQuestionCount: number
+  knowledgeCount: number
+}
+export interface AdminDashboardTicketStats {
+  monthlyUserGrowth: { month: string; count: number }[]
+  deptTicketCounts: { departmentName: string; count: number }[]
+  recentTickets: { ticketId: number; title: string; departmentName: string; status: string; createdAt: string }[]
+}
+export function getAdminDashboardSummary() {
+  return http.get<AdminDashboardSummary>('/admin/dashboard/summary')
+}
+export function getAdminDashboardTicketStats() {
+  return http.get<AdminDashboardTicketStats>('/admin/dashboard/ticket-statistics')
 }
 
 // ── 사용자 관리 ────────────────────────────────────────────────

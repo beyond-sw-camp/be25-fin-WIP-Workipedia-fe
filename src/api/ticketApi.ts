@@ -37,17 +37,18 @@ export function assignTicket(ticketId: number, data: TicketAssigneeRequest) {
   return http.patch<TicketAssigneeResponse>(`/tickets/${ticketId}/assignee`, data)
 }
 
-// 담당 부서 공식 답변 (JSON 전송 / TODO: BE 파일 첨부 스펙 확정 후 multipart 복원)
-export function answerTicket(ticketId: number, content: string, _files: File[] = []) {
+// 답변 등록 — BE에서 티켓 상태를 COMPLETED로 전환하고 AI 지식화 초안을 생성한다.
+export function answerTicket(ticketId: number, content: string) {
   return http.post<TicketAnswerResponse>(`/tickets/${ticketId}/answers`, { content })
 }
 
-// 최신 답변 조회 (GET /tickets/{id}/answers/latest)
+// 최신 답변 단건 조회 — 처리 완료 티켓 상세 다이얼로그에서 기존 답변 내용을 표시하기 위해 사용한다.
 export function getLatestAnswer(ticketId: number) {
   return http.get<TicketAnswerResponse>(`/tickets/${ticketId}/answers/latest`)
 }
 
-// 티켓 이관 요청 → COMMON_QUEUE로 이동 (TEAM_ADMIN 전용)
+// 이관 요청 — AI 챗봇 배정 티켓이 잘못된 부서로 왔을 때 공통 접수 큐로 돌려보내고
+// SYSTEM_ADMIN이 적합한 부서로 재배정한다.
 export function transferTicket(ticketId: number, reason: string) {
   return http.post<TicketResponse>(`/team/tickets/${ticketId}/transfer`, { reason })
 }

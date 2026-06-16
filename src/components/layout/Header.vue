@@ -32,7 +32,7 @@ const PAGE_META: Record<string, { label: string; icon: object; color: string }> 
   'my-points':           { label: '포인트',                icon: Trophy,          color: '#f59e0b' },
   notifications:         { label: '알림',                  icon: Bell,            color: '#64748b' },
   'dashboard-team':      { label: '부서 대시보드',         icon: LayoutDashboard, color: '#3b82f6' },
-  'dashboard-department':{ label: '부서 관리자 대시보드',  icon: Building2,       color: '#8b5cf6' },
+  'dashboard-department':{ label: '부서 대시보드',         icon: Building2,       color: '#8b5cf6' },
   'dashboard-admin':     { label: '관리자 대시보드',       icon: ShieldCheck,     color: '#ef4444' },
   'admin-settings':      { label: '관리자 설정',           icon: Settings,        color: '#64748b' },
   'admin-ai':            { label: 'AI 관리',               icon: Bot,             color: '#6366f1' },
