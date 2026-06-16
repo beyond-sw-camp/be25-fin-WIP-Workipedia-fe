@@ -2,6 +2,7 @@ import http from './index'
 import type { PageParams, PageResponse } from '@/types/common'
 import type {
   TicketResponse,
+  TicketAnswerResponse,
   CreateTicketRequest,
   TicketStatus,
   TicketAssigneeRequest,

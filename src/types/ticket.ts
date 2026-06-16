@@ -42,6 +42,35 @@ export interface TicketResponse {
   updatedAt: string
 }
 
+// BE: ticket.dto.TicketAnswerCreateRequest
+export interface TicketAnswerRequest {
+  content: string
+  fileKey?: string | null
+}
+
+// BE: ticket.dto.TicketAnswerResponse
+export interface TicketAnswerResponse {
+  answerId: number
+  ticketId: number
+  content: string
+  authorId: number
+  authorNickname: string | null
+  authorDepartmentId: number | null
+  authorDepartmentName: string | null
+  fileKey: string | null
+  fileUrl: string | null
+  fileName: string | null
+  fileContentType: string | null
+  fileSize: number | null
+  answeredAt: string
+}
+
+// BE: ticket.dto.TicketTransferRequestCreateRequest
+export interface TransferRequest {
+  suggestedDepartmentId?: number | null
+  reason: string
+}
+
 // BE: ticket.dto.CreateTicketRequest
 export interface CreateTicketRequest {
   sourceChatbotMessageId?: number | null
