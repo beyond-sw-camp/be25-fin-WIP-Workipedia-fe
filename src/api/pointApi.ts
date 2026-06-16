@@ -8,12 +8,12 @@ import type { EsgResponse, EsgLeaderboardPageResponse } from '@/types/esg'
 
 // 내 포인트 (보유 포인트)
 export function getMyPoint() {
-  return http.get<MyPointResponse>('/points/me')
+  return http.get<MyPointResponse>('/me/points')
 }
 
-// 포인트 변동 이력 (페이징)
-export function getPointHistories(params: PageParams = {}) {
-  return http.get<PageResponse<PointHistoryResponse>>('/points/histories', { params })
+// 포인트 변동 이력 (페이징). type: ALL(기본) | EARN | SPEND
+export function getPointHistories(params: PageParams & { type?: 'ALL' | 'EARN' | 'SPEND' } = {}) {
+  return http.get<PageResponse<PointHistoryResponse>>('/me/point-histories', { params })
 }
 
 // 내 ESG 등급
