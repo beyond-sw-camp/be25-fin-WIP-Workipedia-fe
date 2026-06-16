@@ -43,8 +43,8 @@ onMounted(loadTickets)
       <div class="info-body">
         <p class="info-title">티켓 처리 기한 안내</p>
         <ul class="info-list">
-          <li>발행한 티켓은 <strong>2일(48시간)</strong> 이내에 답변을 받으실 수 있습니다</li>
-          <li>담당 부서가 다른 부서로 이관한 경우 기한이 <strong>2일로 새로 시작</strong>됩니다</li>
+          <li>• 티켓은 담당 부서에 배정된 시점부터 <strong>2일(48시간)</strong> 이내에 답변을 받으실 수 있습니다.</li>
+          <li>• 담당 부서가 변경되어 다른 부서로 재배정되는 경우, <strong>재배정 시점부터 2일(48시간)</strong>의 처리 기한이 다시 적용됩니다.</li>
         </ul>
       </div>
     </div>
