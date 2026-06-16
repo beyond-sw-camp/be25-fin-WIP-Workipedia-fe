@@ -1,50 +1,26 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ChevronLeft, Building2, Info } from '@lucide/vue'
-import { getMyTickets } from '@/api/mypageApi'
-import type { MyTicketResponse } from '@/types/mypage'
+import { useMyIssuedTickets, type MyIssuedTicketTab } from '@/composables/useMyIssuedTickets'
 
 const router = useRouter()
+const {
+  activeTab,
+  loading,
+  error,
+  waitingCount,
+  answeredCount,
+  currentList,
+  setActiveTab,
+  loadTickets,
+} = useMyIssuedTickets()
 
-const waitingTickets = ref<MyTicketResponse[]>([])
-const answeredTickets = ref<MyTicketResponse[]>([])
-const loading = ref(false)
-const activeTab = ref<'waiting' | 'answered'>('waiting')
-const answeredLoaded = ref(false)
-
-async function loadWaiting() {
-  loading.value = true
-  try {
-    const res = await getMyTickets({ status: 'WAITING', page: 0, size: 50 })
-    waitingTickets.value = res.data.content
-  } catch { /* keep empty */ } finally {
-    loading.value = false
-  }
+function switchTab(tab: MyIssuedTicketTab) {
+  setActiveTab(tab)
 }
 
-async function loadAnswered() {
-  if (answeredLoaded.value) return
-  loading.value = true
-  try {
-    const res = await getMyTickets({ status: 'COMPLETED', page: 0, size: 50 })
-    answeredTickets.value = res.data.content
-    answeredLoaded.value = true
-  } catch { /* keep empty */ } finally {
-    loading.value = false
-  }
-}
-
-function switchTab(tab: 'waiting' | 'answered') {
-  activeTab.value = tab
-  if (tab === 'answered') loadAnswered()
-}
-
-const currentList = computed(() =>
-  activeTab.value === 'waiting' ? waitingTickets.value : answeredTickets.value
-)
-
-onMounted(loadWaiting)
+onMounted(loadTickets)
 </script>
 
 <template>
@@ -67,8 +43,8 @@ onMounted(loadWaiting)
       <div class="info-body">
         <p class="info-title">티켓 처리 기한 안내</p>
         <ul class="info-list">
-          <li>발행한 티켓은 <strong>2일(48시간)</strong> 이내에 답변을 받으실 수 있습니다</li>
-          <li>담당 부서가 다른 부서로 이관한 경우 기한이 <strong>2일로 새로 시작</strong>됩니다</li>
+          <li>• 티켓은 담당 부서에 배정된 시점부터 <strong>2일(48시간)</strong> 이내에 답변을 받으실 수 있습니다.</li>
+          <li>• 담당 부서가 변경되어 다른 부서로 재배정되는 경우, <strong>재배정 시점부터 2일(48시간)</strong>의 처리 기한이 다시 적용됩니다.</li>
         </ul>
       </div>
     </div>
@@ -76,15 +52,16 @@ onMounted(loadWaiting)
     <!-- Tabs -->
     <div class="seg" style="margin-bottom: 0;">
       <button :class="{ on: activeTab === 'waiting' }" @click="switchTab('waiting')">
-        처리 전 ({{ waitingTickets.length }})
+        처리 전 ({{ waitingCount }})
       </button>
       <button :class="{ on: activeTab === 'answered' }" @click="switchTab('answered')">
-        처리 완료 ({{ answeredTickets.length }})
+        처리 완료 ({{ answeredCount }})
       </button>
     </div>
 
     <!-- Loading -->
     <div v-if="loading" class="empty-ph" style="height: 200px;">불러오는 중...</div>
+    <div v-else-if="error" class="empty-ph" style="height: 200px;">{{ error }}</div>
 
     <template v-else>
       <div class="ticket-list">
