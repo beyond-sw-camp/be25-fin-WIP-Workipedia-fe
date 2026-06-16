@@ -67,6 +67,7 @@ const filteredUsers = computed(() => {
     )
     .sort((a, b) => new Date(b.lastLoginAt).getTime() - new Date(a.lastLoginAt).getTime())
 })
+// users 탭 최초 진입 시 watch에서 한 번만 호출한다 (loadedTabs 참고).
 async function loadUsers() {
   usersLoading.value = true
   try {
@@ -78,6 +79,7 @@ async function loadUsers() {
     usersLoading.value = false
   }
 }
+// ACTIVE/INACTIVE를 토글한다. API 성공 후 전체 재로드 대신 로컬 배열을 직접 수정해 깜박임을 줄인다.
 async function toggleUserStatus(userId: number, current: 'ACTIVE' | 'INACTIVE') {
   const next = current === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'
   try {
@@ -116,6 +118,8 @@ const uploadedFiles = ref<File[]>([])
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const fileError = ref(false)
 const fileConflict = ref(false)
+// PDF 업로드+매뉴얼 생성 요청이 진행 중인지 추적. 더블클릭·네트워크 재시도로 인한 중복 요청을 차단한다.
+const manualSubmitting = ref(false)
 
 // ── 파일 중복 감지 (SHA-256 콘텐츠 해시 기반 localStorage) ──────
 // 동일 파일을 여러 매뉴얼에 등록하는 것을 막기 위해 SHA-256 콘텐츠 해시를 키로 localStorage에 저장한다.
@@ -216,6 +220,7 @@ function fmtVersion(v: string | null | undefined): string | null {
   const { major, minor } = parseVersion(v)
   return `v${major}.${minor}`
 }
+// 신규 매뉴얼 폼을 초기화한 뒤 폼 DOM으로 스크롤한다. nextTick은 v-if가 DOM을 렌더링한 후 ref가 유효해지는 시점을 보장한다.
 function openManualForm() {
   editingManual.value = { title: '', description: '', category: '인사 관리', departmentId: null }
   uploadedFiles.value = []
@@ -249,6 +254,7 @@ async function openEditManualForm(m: AdminManual) {
     } catch { /* silent */ }
   }
 }
+// 파일 선택 즉시 중복 검사를 실행한다. 저장 버튼을 누르기 전에 사용자에게 피드백을 주기 위함이다.
 async function handleManualFileUpload(e: Event) {
   const files = (e.target as HTMLInputElement).files
   if (files && files.length > 0) {
@@ -260,6 +266,8 @@ async function handleManualFileUpload(e: Event) {
 function fmtDate(dt: string) {
   return dt.replace('T', ' ').slice(0, 19)
 }
+// 매뉴얼 목록을 로드하고 파일 중복 감지용 인메모리 맵을 재구성한다.
+// buildExistingFileMap은 finally에서 호출해 에러 시에도 맵이 초기화되도록 한다.
 async function loadManuals() {
   manualsLoading.value = true
   try {
@@ -296,6 +304,7 @@ async function buildExistingFileMap(manuals: AdminManual[]) {
 }
 async function saveManual() {
   if (!editingManual.value) return
+  if (manualSubmitting.value) return
   if (!editingManual.value.id && uploadedFiles.value.length === 0) {
     fileError.value = true
     return
@@ -305,6 +314,7 @@ async function saveManual() {
     showToast('이미 존재하는 매뉴얼', '동일한 파일이 이미 업로드된 매뉴얼이 있습니다. 기존 매뉴얼을 수정해주세요.', 'error')
     return
   }
+  manualSubmitting.value = true
   try {
     if (editingManual.value.id) {
       // 파일 교체(파일 수 변경) → 메이저 버전 증가, 제목·설명만 수정 → 마이너 버전 증가
@@ -374,6 +384,8 @@ async function saveManual() {
     const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
     console.error('[saveManual]', err)
     showToast('매뉴얼 저장에 실패했습니다.', msg ?? '', 'error')
+  } finally {
+    manualSubmitting.value = false
   }
 }
 const deleteManualId = ref<number | null>(null)
@@ -485,6 +497,7 @@ function selectUser(u: AdminPointUser) {
   selectedUser.value = u
   nextTick(() => deductFormRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
 }
+// 포인트 차감. API 성공 후 전체 재로드 대신 로컬 배열을 직접 수정해 응답성을 높인다.
 async function deductPoints() {
   if (!selectedUser.value || !pointsToDeduct.value || !deductReason.value) {
     showToast('사용자, 포인트, 사유를 모두 입력해주세요.', '', 'error'); return
@@ -730,7 +743,9 @@ onMounted(() => {
           </div>
         </div>
         <div class="btn-row">
-          <button class="btn primary" :disabled="fileConflict" @click="saveManual">저장</button>
+          <button class="btn primary" :disabled="fileConflict || manualSubmitting" @click="saveManual">
+            {{ manualSubmitting ? '저장 중...' : '저장' }}
+          </button>
           <button class="btn" @click="editingManual = null; uploadedFiles = []; fileError = false; fileConflict = false">취소</button>
         </div>
       </div>
