@@ -5,7 +5,7 @@ import { Bot, User, MessageCircle, Ticket, Plus, HelpCircle, Send } from '@lucid
 import SourceCard from '@/components/common/SourceCard.vue'
 import type { Source } from '@/components/common/SourceCard.vue'
 import BaseToast from '@/components/common/BaseToast.vue'
-import { createSession, sendMessage, parseReferences } from '@/api/chatbotApi'
+import { createSession, sendMessage, streamMessage, parseReferences } from '@/api/chatbotApi'
 import type { SourceItem } from '@/api/chatbotApi'
 import { createQuestion } from '@/api/workiApi'
 import { createTicket } from '@/api/ticketApi'
@@ -148,14 +148,13 @@ async function send() {
     }
     const sid = sessionId.value as number
 
-    const res = await sendMessage(sid, q)
-    const { messageId, content, nextAction, referencesJson } = res.data
-    lastMessageId.value = messageId
-    msgs.value = msgs.value.filter(m => m.kind !== 'loading')
-
-    // 요청 모드: AI 응답을 바탕으로 티켓 발행 폼을 연다.
+    // 요청 모드: 답변 본문은 쓰지 않고 messageId만 필요하므로 기존 비스트리밍 호출을 유지한다.
+    // AI 응답을 바탕으로 티켓 발행 폼을 연다.
     // (BE는 별도 draftTicket을 내려주지 않으므로 사용자 입력을 초안으로 사용)
     if (mode.value === 'request') {
+      const res = await sendMessage(sid, q)
+      lastMessageId.value = res.data.messageId
+      msgs.value = msgs.value.filter(m => m.kind !== 'loading')
       ticketTitle.value = ''
       ticketContent.value = q
       ticketError.value = ''
@@ -163,16 +162,41 @@ async function send() {
       return
     }
 
-    // 질문 모드: 답변 + 참조 문서 + 후속 액션 버튼 렌더링
-    msgs.value.push({ kind: 'answer', text: content })
-    // 참조 문서는 nextAction과 무관하게 출처가 1개 이상이면 항상 표시한다.
-    // (AI SUCCESS 응답은 action=null로 내려와 nextAction이 SHOW_SOURCES가 아니기 때문)
-    const sources = mapReferences(parseReferences(referencesJson))
-    if (sources.length > 0) {
-      msgs.value.push({ kind: 'sources', sources })
-    }
-    msgs.value.push({ kind: 'actions', userText: q, nextAction: nextAction ?? undefined })
-    scroll()
+    // 질문 모드: 토큰을 받아 타자치듯 답변을 출력하고(token), done으로 최종 확정한다.
+    // 첫 token 도착 시 로딩 버블을 빈 답변 버블로 교체한 뒤, 인덱스로 reactive 배열을 갱신한다.
+    let answerIdx = -1
+    await streamMessage(sid, q, {
+      onToken: (chunk) => {
+        if (answerIdx === -1) {
+          msgs.value = msgs.value.filter(m => m.kind !== 'loading')
+          msgs.value.push({ kind: 'answer', text: '' })
+          answerIdx = msgs.value.length - 1
+        }
+        const a = msgs.value[answerIdx]!
+        a.text = (a.text ?? '') + chunk
+        scroll()
+      },
+      onDone: (saved) => {
+        lastMessageId.value = saved.messageId
+        msgs.value = msgs.value.filter(m => m.kind !== 'loading')
+        // 누적된 token과 최종 content가 다를 수 있어 done.content를 확정값으로 덮어쓴다.
+        // token이 한 번도 안 온 경우(fallback 등)에도 여기서 답변 버블을 만든다.
+        if (answerIdx === -1) {
+          msgs.value.push({ kind: 'answer', text: saved.content })
+          answerIdx = msgs.value.length - 1
+        } else {
+          msgs.value[answerIdx]!.text = saved.content
+        }
+        // 참조 문서는 nextAction과 무관하게 출처가 1개 이상이면 항상 표시한다.
+        // (AI SUCCESS 응답은 action=null로 내려와 nextAction이 SHOW_SOURCES가 아니기 때문)
+        const sources = mapReferences(parseReferences(saved.referencesJson))
+        if (sources.length > 0) {
+          msgs.value.push({ kind: 'sources', sources })
+        }
+        msgs.value.push({ kind: 'actions', userText: q, nextAction: saved.nextAction ?? undefined })
+        scroll()
+      },
+    })
   } catch {
     msgs.value = msgs.value.filter(m => m.kind !== 'loading')
   } finally {

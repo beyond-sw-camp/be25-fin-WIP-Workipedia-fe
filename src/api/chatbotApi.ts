@@ -1,4 +1,5 @@
 import http from './index'
+import { useAuthStore } from '@/stores/authStore'
 
 // 챗봇 컨트롤러(ChatbotController)는 ApiResponse 래퍼 없이 DTO를 직접 반환한다 (BE 컨벤션).
 // 따라서 http 제네릭에 DTO를 바로 넣고, res.data 가 곧 결과다.
@@ -50,6 +51,96 @@ export function sendMessage(sessionId: number, question: string) {
     `/chatbot/sessions/${sessionId}/messages`,
     { question },
   )
+}
+
+// ── 스트리밍(타자 효과) ─────────────────────────────────────────────
+// BE: POST /chatbot/sessions/{sessionId}/messages/stream (produces text/event-stream)
+//   event: token / data: {"content":"..."}        ← 토큰 조각 (반복)
+//   event: done  / data: <ChatbotMessageResponse> ← 최종 확정값 (1회)
+//
+// 네이티브 EventSource 는 GET 전용이라 요청 body·Authorization 헤더를 못 보낸다.
+// 이 엔드포인트는 POST(+JSON body)+Bearer 인증이므로 fetch + ReadableStream 으로 직접 파싱한다.
+export interface ChatbotStreamToken {
+  content: string
+}
+
+export interface StreamHandlers {
+  onToken: (content: string) => void          // token 이벤트마다 호출 (글자 출력용)
+  onDone: (message: ChatbotMessageResponse) => void  // done 이벤트 1회 (최종 확정값)
+  onError?: (err: unknown) => void
+}
+
+export async function streamMessage(
+  sessionId: number,
+  question: string,
+  handlers: StreamHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
+  const auth = useAuthStore()
+  const res = await fetch(
+    `${import.meta.env.VITE_API_BASE_URL}/chatbot/sessions/${sessionId}/messages/stream`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        ...(auth.accessToken ? { Authorization: `Bearer ${auth.accessToken}` } : {}),
+      },
+      body: JSON.stringify({ question }),
+      credentials: 'include',
+      signal,
+    },
+  )
+  if (!res.ok || !res.body) {
+    throw new Error(`챗봇 스트림 요청 실패: ${res.status}`)
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  // SSE 프레임은 빈 줄(\n\n)로 구분되고, 각 프레임은 event:/data: 라인으로 구성된다.
+  // CRLF(\r\n) 로 올 수도 있어 LF 로 정규화한 뒤 처리한다.
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
+
+    let sep: number
+    while ((sep = buffer.indexOf('\n\n')) !== -1) {
+      const frame = buffer.slice(0, sep)
+      buffer = buffer.slice(sep + 2)
+      dispatchFrame(frame, handlers)
+    }
+  }
+}
+
+// SSE 프레임 1건을 파싱해 token/done 핸들러로 분기한다.
+function dispatchFrame(frame: string, handlers: StreamHandlers) {
+  let event = 'message'
+  const dataLines: string[] = []
+  for (const line of frame.split('\n')) {
+    if (line.startsWith(':')) continue // 주석/heartbeat 무시
+    if (line.startsWith('event:')) event = line.slice(6).trim()
+    else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''))
+  }
+  if (dataLines.length === 0) return
+  const data = dataLines.join('\n')
+
+  if (event === 'token') {
+    try {
+      const { content } = JSON.parse(data) as ChatbotStreamToken
+      if (content) handlers.onToken(content)
+    } catch {
+      /* 깨진 토큰 프레임은 무시 */
+    }
+  } else if (event === 'done') {
+    try {
+      handlers.onDone(JSON.parse(data) as ChatbotMessageResponse)
+    } catch (e) {
+      handlers.onError?.(e)
+    }
+  }
 }
 
 // referencesJson(문자열)을 SourceItem[] 로 파싱한다. null/파싱 실패 시 빈 배열.
