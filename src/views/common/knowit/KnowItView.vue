@@ -5,8 +5,8 @@ import { Bot, User, MessageCircle, Ticket, Plus, HelpCircle, Send } from '@lucid
 import SourceCard from '@/components/common/SourceCard.vue'
 import type { Source } from '@/components/common/SourceCard.vue'
 import BaseToast from '@/components/common/BaseToast.vue'
-import { createSession, sendMessage } from '@/api/chatbotApi'
-import type { ApiReference } from '@/api/chatbotApi'
+import { createSession, sendMessage, parseReferences } from '@/api/chatbotApi'
+import type { SourceItem } from '@/api/chatbotApi'
 import { createQuestion } from '@/api/workiApi'
 import { createTicket } from '@/api/ticketApi'
 
@@ -62,20 +62,38 @@ function scroll() {
   })
 }
 
-// BE에서 content snippet 필드 추가 시 body에 반영
-function mapReferences(refs: ApiReference[]): Source[] {
-  const typeConfig: Record<string, { label: string; cls: Source['cls'] }> = {
-    MANUAL: { label: '매뉴얼',    cls: 'green' },
-    TICKET: { label: '티켓 답변', cls: 'blue'  },
-    CHAT:   { label: '채팅 답변', cls: 'gray'  },
-  }
-  return refs.map(r => {
-    const cfg = typeConfig[r.type] ?? { label: r.type, cls: 'gray' as const }
-    return { type: cfg.label, cls: cfg.cls, meta: r.title, link: '문서에서 보기', url: r.url }
-  })
+// source_type → 표시 라벨/색상 + 내부 상세 경로 prefix
+const SOURCE_TYPE_CONFIG: Record<string, { label: string; cls: Source['cls']; route?: string }> = {
+  MANUAL:            { label: '매뉴얼',    cls: 'green', route: '/manuals' },
+  MANUAL_KNOWLEDGE:  { label: '매뉴얼',    cls: 'green', route: '/manuals' },
+  WORKI:             { label: '워키 답변', cls: 'blue',  route: '/worki' },
+  TICKET:            { label: '티켓 답변', cls: 'blue',  route: '/tickets' },
+  KNOWLEDGE_DATA:    { label: '지식 문서', cls: 'green', route: '/knowledge' },
+  CHAT:              { label: '채팅 답변', cls: 'gray' },
 }
 
-function selectMode(m: 'question' | 'request') {
+// AI 서버가 내려준 SourceItem[](snake_case) 을 SourceCard 표시용 Source[] 로 변환한다.
+// 같은 문서의 여러 chunk가 올 수 있으므로 source_type+source_id 기준으로 중복 제거한다.
+// link가 null이면 source_type 기반 내부 상세 경로로 대체한다.
+function mapReferences(refs: SourceItem[]): Source[] {
+  const seen = new Set<string>()
+  const result: Source[] = []
+  for (const r of refs) {
+    const key = `${r.source_type}:${r.source_id}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const cfg = SOURCE_TYPE_CONFIG[r.source_type] ?? { label: r.source_type, cls: 'gray' as const }
+    const url = r.link ?? (cfg.route ? `${cfg.route}/${r.source_id}` : undefined)
+    result.push({ type: cfg.label, cls: cfg.cls, meta: r.title, link: '문서에서 보기', url })
+  }
+  return result
+}
+
+// 질문/요청 모드를 선택하는 즉시 챗봇 세션을 생성한다.
+// 세션은 UI에 노출하지 않고 sessionId만 보관해 이후 메시지 전송에 재사용한다.
+// 생성 실패 시 모드 선택을 취소하고 안내한다.
+async function selectMode(m: 'question' | 'request') {
+  if (loading.value) return
   mode.value = m
   msgs.value = [
     { kind: 'user', text: m === 'question' ? '질문' : '요청' },
@@ -88,6 +106,17 @@ function selectMode(m: 'question' | 'request') {
     },
   ]
   scroll()
+
+  loading.value = true
+  try {
+    const s = await createSession()
+    sessionId.value = s.data.sessionId
+  } catch {
+    changeMode()
+    showToast('챗봇 세션을 시작하지 못했습니다.', '잠시 후 다시 시도해주세요.')
+  } finally {
+    loading.value = false
+  }
 }
 
 function changeMode() {
@@ -112,33 +141,37 @@ async function send() {
   scroll()
 
   try {
+    // 세션은 모드 선택 시 생성되지만, 누락된 경우(생성 실패 등)를 대비해 지연 생성한다.
     if (!sessionId.value) {
       const s = await createSession()
-      sessionId.value = s.data.data.sessionId
+      sessionId.value = s.data.sessionId
     }
     const sid = sessionId.value as number
 
+    const res = await sendMessage(sid, q)
+    const { messageId, content, nextAction, referencesJson } = res.data
+    lastMessageId.value = messageId
+    msgs.value = msgs.value.filter(m => m.kind !== 'loading')
+
+    // 요청 모드: AI 응답을 바탕으로 티켓 발행 폼을 연다.
+    // (BE는 별도 draftTicket을 내려주지 않으므로 사용자 입력을 초안으로 사용)
     if (mode.value === 'request') {
-      const res = await sendMessage(sid, q)
-      const { messageId, draftTicket } = res.data.data
-      lastMessageId.value = messageId
-      msgs.value = msgs.value.filter(m => m.kind !== 'loading')
-      ticketTitle.value = draftTicket?.title ?? ''
-      ticketContent.value = draftTicket?.content ?? q
+      ticketTitle.value = ''
+      ticketContent.value = q
       ticketError.value = ''
       showTicketDialog.value = true
       return
     }
 
-    const res = await sendMessage(sid, q)
-    const { messageId, answer, references, nextAction, draftQuestion, draftTicket } = res.data.data
-    lastMessageId.value = messageId
-    msgs.value = msgs.value.filter(m => m.kind !== 'loading')
-    msgs.value.push({ kind: 'answer', text: answer })
-    if (nextAction === 'SHOW_SOURCES') {
-      msgs.value.push({ kind: 'sources', sources: mapReferences(references) })
+    // 질문 모드: 답변 + 참조 문서 + 후속 액션 버튼 렌더링
+    msgs.value.push({ kind: 'answer', text: content })
+    // 참조 문서는 nextAction과 무관하게 출처가 1개 이상이면 항상 표시한다.
+    // (AI SUCCESS 응답은 action=null로 내려와 nextAction이 SHOW_SOURCES가 아니기 때문)
+    const sources = mapReferences(parseReferences(referencesJson))
+    if (sources.length > 0) {
+      msgs.value.push({ kind: 'sources', sources })
     }
-    msgs.value.push({ kind: 'actions', userText: q, nextAction, draftQuestion, draftTicket })
+    msgs.value.push({ kind: 'actions', userText: q, nextAction: nextAction ?? undefined })
     scroll()
   } catch {
     msgs.value = msgs.value.filter(m => m.kind !== 'loading')
