@@ -21,6 +21,7 @@ const PAGE_META: Record<string, { label: string; icon: object; color: string }> 
   manuals:               { label: '매뉴얼',                icon: BookOpen,        color: '#10b981' },
   'manual-detail':       { label: '매뉴얼 상세',           icon: BookOpen,        color: '#10b981' },
   knowledge:             { label: '지식화 게시판',         icon: Library,         color: '#3b82f6' },
+  'knowledge-dept':      { label: '지식화 게시판',         icon: Library,         color: '#3b82f6' },
   'knowledge-detail':    { label: '지식화 상세',           icon: Library,         color: '#3b82f6' },
   faq:                   { label: 'FAQ',                   icon: HelpCircle,      color: '#64748b' },
   tickets:               { label: '내 티켓',              icon: FileText,        color: '#ef4444' },

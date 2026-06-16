@@ -22,6 +22,7 @@ export interface KnowledgeDataResponse {
   question: string
   answer: string
   approvedBy?: number
+  answererNickname?: string
   approvedAt: string
   createdAt: string
   updatedAt: string
