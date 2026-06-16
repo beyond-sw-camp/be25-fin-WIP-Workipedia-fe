@@ -1,14 +1,17 @@
 ﻿<script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { Library, Search, Building2, ChevronRight } from '@lucide/vue'
+import { ref, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import { ChevronLeft, Library, Clock } from '@lucide/vue'
 import type { KnowledgeDataResponse } from '@/types/knowledge'
 // TODO: BE /knowledge-data 완성 후 주석 해제하고 mock 블록 제거
 // import { getKnowledgeList } from '@/api/knowledgeApi'
 
 const router = useRouter()
-const query = ref('')
-const allItems = ref<KnowledgeDataResponse[]>([])
+const route = useRoute()
+const deptId = Number(route.params.deptId)
+
+const items = ref<KnowledgeDataResponse[]>([])
+const deptName = ref('')
 const loading = ref(true)
 
 const MOCK: KnowledgeDataResponse[] = [
@@ -22,131 +25,97 @@ const MOCK: KnowledgeDataResponse[] = [
   { knowledgeDataId: 8, departmentId: 40, departmentName: '총무팀', question: '사무용품이 필요한데 어떻게 신청하나요?', answer: '매월 15일까지 팀 단위로 총무팀 포털의 소모품 신청 게시판에 수량을 기재해 제출하면 익월 초에 지급됩니다. 긴급 소요는 총무팀에 직접 문의하세요.', approvedAt: '2026-06-10T09:30:00', createdAt: '2026-06-08T11:00:00', updatedAt: '2026-06-10T09:30:00' },
 ]
 
-interface DeptGroup {
-  departmentId: number
-  departmentName: string
-  count: number
-  lastUpdated: string
-}
-
 onMounted(() => {
-  // TODO: BE 완성 후 아래 두 줄을 getKnowledgeList() API 호출로 교체
-  allItems.value = MOCK
+  // TODO: BE 완성 후 getKnowledgeList() 호출로 교체
+  const deptItems = MOCK.filter(i => i.departmentId === deptId)
+  items.value = deptItems.sort((a, b) => b.approvedAt.localeCompare(a.approvedAt))
+  if (deptItems.length > 0) deptName.value = deptItems[0].departmentName ?? `부서 #${deptId}`
   loading.value = false
 })
 
-const deptGroups = computed<DeptGroup[]>(() => {
-  const map = new Map<number, DeptGroup>()
-  for (const item of allItems.value) {
-    const entry = map.get(item.departmentId)
-    if (entry) {
-      entry.count++
-      if (item.approvedAt > entry.lastUpdated) entry.lastUpdated = item.approvedAt
-    } else {
-      map.set(item.departmentId, {
-        departmentId: item.departmentId,
-        departmentName: item.departmentName ?? `부서 #${item.departmentId}`,
-        count: 1,
-        lastUpdated: item.approvedAt,
-      })
-    }
-  }
-  return Array.from(map.values()).sort((a, b) =>
-    a.departmentName.localeCompare(b.departmentName, 'ko'),
-  )
-})
+function daysSince(iso: string) {
+  return Math.floor((Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24))
+}
 
-const filtered = computed(() =>
-  query.value.trim()
-    ? deptGroups.value.filter(d => d.departmentName.includes(query.value.trim()))
-    : deptGroups.value,
-)
+function ageBadgeClass(days: number) {
+  if (days <= 7) return 'green'
+  if (days <= 30) return 'blue'
+  return ''
+}
+
+function ageBadgeStyle(days: number) {
+  if (days <= 30) return {}
+  if (days <= 90) return { background: '#fff4e5', color: '#e25c1e', borderColor: '#fcd4b0' }
+  return { background: '#fff0f0', color: '#e03131', borderColor: '#ffc0c0' }
+}
 
 function formatDate(iso: string) {
   return iso.slice(0, 10).replace(/-/g, '.')
+}
+
+function truncate(text: string, max = 120) {
+  return text.length > max ? text.slice(0, max) + '…' : text
 }
 </script>
 
 <template>
   <div class="content-inner">
     <div class="page-head">
+      <button class="btn" style="margin-bottom: 12px;" @click="router.push('/knowledge')">
+        <ChevronLeft :size="16" /> 부서 목록
+      </button>
       <h1 class="page-title">
         <Library :size="28" color="#2b7fff" />
-        지식화 게시판
+        {{ deptName || '...' }}
       </h1>
-      <p class="page-sub">티켓 답변에서 축적된 조직 지식을 부서별로 탐색합니다</p>
-    </div>
-
-    <div class="card summary-card">
-      <div class="summary-item">
-        <div class="summary-value">{{ deptGroups.length }}</div>
-        <div class="summary-label">전체 부서</div>
-      </div>
-      <div class="summary-divider" />
-      <div class="summary-item">
-        <div class="summary-value">{{ allItems.length }}</div>
-        <div class="summary-label">전체 지식 건수</div>
-      </div>
-    </div>
-
-    <div class="search-bar" style="max-width: 400px; margin-bottom: 24px;">
-      <Search :size="16" />
-      <input v-model="query" placeholder="부서명으로 검색" />
+      <p class="page-sub">{{ items.length }}건의 지식화 문서</p>
     </div>
 
     <div v-if="loading" class="empty-ph" style="height: 200px;">불러오는 중...</div>
 
-    <div v-else-if="filtered.length === 0" class="empty-ph" style="height: 200px;">
-      {{ query ? '검색 결과가 없습니다' : '등록된 지식이 없습니다' }}
+    <div v-else-if="items.length === 0" class="empty-ph" style="height: 200px;">
+      이 부서에 등록된 지식이 없습니다
     </div>
 
-    <div v-else class="dept-grid">
+    <div v-else class="item-list">
       <div
-        v-for="dept in filtered"
-        :key="dept.departmentId"
-        class="card dept-card"
-        @click="router.push(`/knowledge/dept/${dept.departmentId}`)"
+        v-for="item in items"
+        :key="item.knowledgeDataId"
+        class="card item-card"
+        @click="router.push(`/knowledge/${item.knowledgeDataId}`)"
       >
-        <div class="dept-top">
-          <Building2 :size="20" color="#2b7fff" />
-          <span class="badge blue">{{ dept.count }}건</span>
+        <div class="item-top">
+          <h3 class="item-question">{{ item.question }}</h3>
+          <span
+            class="badge"
+            :class="ageBadgeClass(daysSince(item.approvedAt))"
+            :style="ageBadgeStyle(daysSince(item.approvedAt))"
+          >
+            <Clock :size="11" />
+            {{ daysSince(item.approvedAt) }}일 전
+          </span>
         </div>
-        <div class="dept-name">{{ dept.departmentName }}</div>
-        <div class="dept-footer">
-          <span class="dept-date">최근 업데이트 {{ formatDate(dept.lastUpdated) }}</span>
-          <ChevronRight :size="14" color="#aeb2bb" />
-        </div>
+        <p class="item-preview">{{ truncate(item.answer) }}</p>
+        <div class="item-date">{{ formatDate(item.approvedAt) }}</div>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.summary-card {
-  display: flex;
-  align-items: center;
-  padding: 20px 28px;
-  margin-bottom: 20px;
-  max-width: 300px;
-}
-.summary-item { display: flex; flex-direction: column; align-items: center; flex: 1; }
-.summary-value { font-size: 26px; font-weight: 900; color: #2b7fff; }
-.summary-label { font-size: 12.5px; color: #aeb2bb; margin-top: 2px; }
-.summary-divider { width: 1px; height: 40px; background: var(--line); margin: 0 20px; }
-
-.dept-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-.dept-card {
-  padding: 22px 24px;
+.item-list { display: flex; flex-direction: column; gap: 12px; }
+.item-card {
+  padding: 20px 24px;
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  transition: box-shadow 0.15s, transform 0.15s;
+  gap: 8px;
+  transition: box-shadow 0.15s;
 }
-.dept-card:hover { box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1); transform: translateY(-2px); }
+.item-card:hover { box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1); }
 
-.dept-top { display: flex; align-items: center; justify-content: space-between; }
-.dept-name { font-size: 16px; font-weight: 700; color: #1f2430; }
-.dept-footer { display: flex; align-items: center; justify-content: space-between; }
-.dept-date { font-size: 12px; color: #aeb2bb; }
+.item-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.item-question { font-size: 15px; font-weight: 700; color: #1f2430; margin: 0; flex: 1; line-height: 1.4; }
+.item-preview { font-size: 13.5px; color: #717182; line-height: 1.6; margin: 0; }
+.item-date { font-size: 12px; color: #aeb2bb; }
 </style>

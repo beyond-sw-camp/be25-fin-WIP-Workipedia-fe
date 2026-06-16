@@ -105,14 +105,21 @@ const router = createRouter({
           component: () => import('@/views/common/manual/ManualDetailView.vue'),
         },
 
-        // 지식화 후보
+        // 지식화 게시판 — 부서 카드 목록
         {
           path: 'knowledge',
           name: 'knowledge',
           component: () => import('@/views/common/knowledge/KnowledgeListView.vue'),
         },
+        // 부서별 지식 목록 ('dept' 리터럴로 /:id 와 충돌 없음)
         {
-          path: 'knowledge/:id',
+          path: 'knowledge/dept/:deptId',
+          name: 'knowledge-dept',
+          component: () => import('@/views/common/knowledge/KnowledgeDeptView.vue'),
+        },
+        // 지식 상세 (숫자 id)
+        {
+          path: 'knowledge/:id(\\d+)',
           name: 'knowledge-detail',
           component: () => import('@/views/common/knowledge/KnowledgeDetailView.vue'),
         },
