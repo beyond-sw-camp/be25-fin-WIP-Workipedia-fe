@@ -1,5 +1,7 @@
 import http from './index'
 import type { ApiResponse } from './index'
+import type { TicketResponse } from '@/types/ticket'
+import type { PageResponse, PageParams } from '@/types/common'
 
 // ── 공통 부서 목록 (non-admin views에서 사용) ──────────────────
 export interface Department {
@@ -18,25 +20,6 @@ export interface DashboardSummary {
 }
 export function getDashboardSummary() {
   return http.get<DashboardSummary>('/admin/settings/summary')
-}
-
-// ── 운영 대시보드 (SYSTEM_ADMIN) ───────────────────────────────
-export interface AdminDashboardSummary {
-  totalUserCount: number
-  monthlyTicketCount: number
-  workiQuestionCount: number
-  knowledgeCount: number
-}
-export interface AdminDashboardTicketStats {
-  monthlyUserGrowth: { month: string; count: number }[]
-  deptTicketCounts: { departmentName: string; count: number }[]
-  recentTickets: { ticketId: number; title: string; departmentName: string; status: string; createdAt: string }[]
-}
-export function getAdminDashboardSummary() {
-  return http.get<AdminDashboardSummary>('/admin/dashboard/summary')
-}
-export function getAdminDashboardTicketStats() {
-  return http.get<AdminDashboardTicketStats>('/admin/dashboard/ticket-statistics')
 }
 
 // ── 사용자 관리 ────────────────────────────────────────────────
@@ -128,6 +111,68 @@ export function getAdminPoints() {
 }
 export function deductAdminPoints(employeeId: string, body: { amount: number; reason: string }) {
   return http.patch<ApiResponse<null>>(`/admin/points/${employeeId}/deduct`, body)
+}
+
+// ── 운영 대시보드 차트 (SYSTEM_ADMIN) ─────────────────────────
+export interface MonthlyTicketTrend {
+  month: string
+  ticketCount: number
+}
+export interface MonthlyAutoAssignRate {
+  month: string
+  totalTicketCount: number
+  autoAssignedTicketCount: number
+  autoAssignmentRate: number
+}
+export interface DeptTicketStatus {
+  departmentId: number
+  departmentName: string
+  totalTicketCount: number
+  assignedTicketCount: number
+  completedTicketCount: number
+}
+export interface DeptAutoAssignRate {
+  departmentId: number
+  departmentName: string
+  autoAssignmentRate: number
+}
+
+// BE 래퍼: { months: number, points: T[] }
+export interface MonthlyChartResponse<T> {
+  months: number
+  points: T[]
+}
+// BE 래퍼: { departments: T[] }
+export interface DeptChartResponse<T> {
+  departments: T[]
+}
+
+export function getMonthlyTicketTrend(months = 6) {
+  return http.get<MonthlyChartResponse<MonthlyTicketTrend>>('/admin/dashboard/monthly-ticket-trend', { params: { months } })
+}
+export function getMonthlyAutoAssignRate(months = 6) {
+  return http.get<MonthlyChartResponse<MonthlyAutoAssignRate>>('/admin/dashboard/monthly-auto-assignment-rate', { params: { months } })
+}
+export function getDeptTicketStatus() {
+  return http.get<DeptChartResponse<DeptTicketStatus>>('/admin/dashboard/department-ticket-status')
+}
+export function getDeptAutoAssignRate() {
+  return http.get<DeptChartResponse<DeptAutoAssignRate>>('/admin/dashboard/department-auto-assignment-rate')
+}
+
+// ── 공통 접수 큐 (SYSTEM_ADMIN) ────────────────────────────────
+// commonQueueReason: ROUTING_FAILED/ASSIGNMENT_EXPIRED → 자동 배정 실패, TRANSFER_REQUESTED → 팀 관리자 이관
+export function getCommonQueueTickets(params: PageParams = {}) {
+  return http.get<PageResponse<TicketResponse>>('/admin/common-queue/tickets', { params })
+}
+export interface CommonQueueAssignResponse {
+  ticketId: number
+  status: string
+  assignedDepartmentId: number
+  assignedDepartmentName: string
+}
+export function assignCommonQueueTicket(ticketId: number, body: { departmentId: number }) {
+  return http.patch<CommonQueueAssignResponse>(`/admin/common-queue/tickets/${ticketId}/department`, body)
 }
 
 // ── 채팅 정책 ──────────────────────────────────────────────────
