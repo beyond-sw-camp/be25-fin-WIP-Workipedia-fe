@@ -7,7 +7,6 @@ import type {
   TicketStatus,
   TicketAssigneeRequest,
   TicketAssigneeResponse,
-  TicketAnswerResponse,
 } from '@/types/ticket'
 
 // 티켓 컨트롤러는 DTO를 직접 반환한다 (ApiResponse 래퍼 없음).
