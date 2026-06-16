@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ChevronLeft, BookOpen, ExternalLink, Calendar, FileDown } from '@lucide/vue'
+import { ChevronLeft, BookOpen, ExternalLink, Calendar, FileDown, FileText, Maximize2 } from '@lucide/vue'
 import { getManualDetail } from '@/api/manualApi'
 import { useDeptStore } from '@/stores/deptStore'
 import type { ManualDetailResponse } from '@/types/manual'
@@ -23,6 +23,14 @@ function fmtVersion(v: string | null | undefined): string | null {
   if (onlyMajor) return `v${onlyMajor[1]}.0`
   return v
 }
+
+// presigned URL 은 쿼리스트링(?X-Amz-...)이 붙으므로 경로 부분만 떼어 확장자를 본다.
+const isPdf = computed(() => {
+  const url = manual.value?.fileUrl
+  if (!url) return false
+  const path = url.split(/[?#]/)[0] ?? url
+  return /\.pdf$/i.test(path)
+})
 
 function formatDate(iso: string) {
   const d = new Date(iso)
@@ -92,9 +100,31 @@ onMounted(async () => {
       <h1 class="header-title">{{ manual.title }}</h1>
       <div class="header-meta"><Calendar :size="13" /> 최종 수정 {{ formatDate(manual.updatedAt) }}</div>
 
-      <div class="card content-card">
+      <div v-if="!(manual.fileUrl && isPdf)" class="card content-card">
         <div class="content-label">매뉴얼 내용</div>
         <div class="manual-body">{{ manual.content }}</div>
+      </div>
+
+      <div v-else class="card content-card pdf-card">
+        <div class="pdf-bar">
+          <div class="content-label" style="margin-bottom: 0;">
+            <FileText :size="13" style="vertical-align: -2px;" /> PDF 미리보기
+          </div>
+          <a
+            class="btn"
+            style="padding: 6px 12px; font-size: 12.5px; text-decoration: none;"
+            :href="manual.fileUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <Maximize2 :size="13" /> 새 탭에서 보기
+          </a>
+        </div>
+        <iframe
+          class="pdf-frame"
+          :src="manual.fileUrl"
+          title="매뉴얼 PDF 미리보기"
+        ></iframe>
       </div>
     </div>
 
@@ -119,5 +149,16 @@ onMounted(async () => {
 .manual-body {
   font-size: 15px; color: #404055;
   line-height: 1.8; white-space: pre-wrap; word-break: break-word;
+}
+
+/* ── PDF Preview ── */
+.pdf-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px;
+}
+.pdf-frame {
+  width: 100%; height: 720px;
+  border: 1px solid #e6e8ec; border-radius: 8px;
+  background: #f7f8fa;
 }
 </style>
