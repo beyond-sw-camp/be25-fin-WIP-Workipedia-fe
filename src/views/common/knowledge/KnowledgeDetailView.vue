@@ -1,131 +1,139 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ChevronLeft, Library, BookMarked } from '@lucide/vue'
+import { ChevronLeft, Clock, AlertTriangle } from '@lucide/vue'
+import { useKnowledgeStore } from '@/stores/useKnowledgeStore'
+import { getKnowledgeDetail } from '@/api/knowledgeApi'
+import type { KnowledgeDataResponse } from '@/types/knowledge'
 
 const router = useRouter()
 const route = useRoute()
+const id = Number(route.params.id)
 
-const article = ref({
-  id: Number(route.params.id),
-  title: '연차 사용 기준 완벽 정리',
-  team: '인사팀',
-  author: '박이화',
-  date: '2025.05.10',
-  tags: ['HR', '연차'],
-  views: 842,
-  saved: 130,
-  sections: [
-    {
-      heading: '연차 신청 기한',
-      body: '연차는 사용 예정일 기준 72시간(3일) 전까지 HR 시스템에서 신청해야 합니다. 긴급한 경우 팀장 구두 승인 후 당일 등록이 가능합니다.',
-    },
-    {
-      heading: '잔여 연차 확인 방법',
-      body: 'HR 시스템 → 나의 휴가 → 잔여 연차 메뉴에서 확인할 수 있습니다. 연말 기준 최대 10일까지 이월됩니다.',
-    },
-    {
-      heading: '반차 신청',
-      body: "오전(~13시) / 오후(13시~)로 구분됩니다. 신청 절차는 연차와 동일하며 HR 시스템에서 '반차'를 선택하면 됩니다.",
-    },
-  ],
-  sources: [
-    { kind: '티켓 답변', ref: '#TICKET-4520' },
-    { kind: '워키', ref: '#WORKI-12' },
-  ],
-})
+const knowledgeStore = useKnowledgeStore()
+// store에 없는 항목(size 상한 초과 등)을 위한 단건 조회 fallback 결과
+const fetchedItem = ref<KnowledgeDataResponse | null>(null)
+const fallbackLoading = ref(false)
 
-const isSaved = ref(false)
+// store 목록에서 먼저 찾고, 없으면 onMounted에서 단건 API로 보완한다.
+const item = computed(() =>
+  knowledgeStore.items.find(m => m.knowledgeDataId === id) ?? fetchedItem.value
+)
 
-function toggleSave() {
-  isSaved.value = !isSaved.value
-  if (isSaved.value) article.value.saved++
-  else article.value.saved--
+function daysSince(iso: string) {
+  return Math.floor((Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24))
 }
+
+const elapsed = computed(() => (item.value ? daysSince(item.value.approvedAt) : 0))
+const isStale = computed(() => elapsed.value > 90)
+
+function elapsedStyle(days: number) {
+  if (days <= 7) return { color: '#00a63e' }
+  if (days <= 30) return { color: '#2b7fff' }
+  if (days <= 90) return { color: '#e25c1e' }
+  return { color: '#e03131' }
+}
+
+function formatDate(iso: string) {
+  return iso.slice(0, 10).replace(/-/g, '.')
+}
+
+onMounted(async () => {
+  await knowledgeStore.load()
+  // 목록 로드 후에도 없으면 단건 API로 재조회한다. (직접 URL 진입 또는 size 한도 초과 항목)
+  if (!item.value) {
+    fallbackLoading.value = true
+    try {
+      const res = await getKnowledgeDetail(id)
+      fetchedItem.value = res.data
+    } catch {
+      // 단건 조회도 실패하면 not-found 화면 표시
+    } finally {
+      fallbackLoading.value = false
+    }
+  }
+})
 </script>
 
 <template>
-  <div class="content-inner" style="max-width: 820px;">
-    <button class="btn" style="margin-bottom: 24px;" @click="router.back()">
+  <div class="content-inner" style="max-width: 860px;">
+    <button class="btn" style="margin-bottom: 20px;" @click="router.back()">
       <ChevronLeft :size="16" /> 목록으로
     </button>
 
-    <div class="card article-wrap">
-      <div class="article-header">
-        <div class="header-left">
-          <span class="badge blue"><Library :size="11" /> 지식 베이스</span>
-          <span class="badge gray">{{ article.team }}</span>
-          <span v-for="t in article.tags" :key="t" class="chip" style="padding: 3px 10px; font-size: 12px;">{{ t }}</span>
-        </div>
-        <button class="save-btn" :class="{ saved: isSaved }" @click="toggleSave">
-          <BookMarked :size="16" />
-          {{ isSaved ? '저장됨' : '저장' }} {{ article.saved }}
-        </button>
+    <div v-if="knowledgeStore.loading || fallbackLoading || (!knowledgeStore.loaded && !knowledgeStore.error)" class="empty-ph" style="height: 240px;">불러오는 중...</div>
+    <div v-else-if="!item" class="empty-ph" style="height: 240px;">문서를 불러올 수 없습니다</div>
+
+    <template v-else>
+      <div class="detail-badges">
+        <span class="badge gray">{{ item.departmentName ?? '알 수 없는 부서' }}</span>
+        <span class="badge" :style="elapsedStyle(elapsed)">
+          <Clock :size="11" /> {{ elapsed }}일 경과
+        </span>
       </div>
 
-      <h1 class="article-title">{{ article.title }}</h1>
-      <div class="article-meta">{{ article.author }} · {{ article.date }} · 조회 {{ article.views }}</div>
-
-      <hr class="divider" />
-
-      <div class="article-body">
-        <div v-for="(s, i) in article.sections" :key="i" class="section">
-          <h2 class="section-heading">{{ s.heading }}</h2>
-          <p class="section-body">{{ s.body }}</p>
-        </div>
+      <div v-if="isStale" class="stale-banner">
+        <AlertTriangle :size="16" />
+        이 문서는 작성된 지 {{ elapsed }}일이 지났습니다. 내용이 현재와 다를 수 있습니다.
       </div>
 
-      <div class="sources-wrap">
-        <h4 class="sources-title">출처</h4>
-        <div class="sources-list">
-          <span v-for="s in article.sources" :key="s.ref" class="source-chip">
-            {{ s.kind }} {{ s.ref }}
-          </span>
+      <div class="card section-card">
+        <div class="section-label">질문</div>
+        <p class="section-text">{{ item.question }}</p>
+      </div>
+
+      <div class="card section-card">
+        <div class="section-label">답변</div>
+        <p class="section-text">{{ item.answer }}</p>
+      </div>
+
+      <div class="card meta-card">
+        <div class="meta-row">
+          <span class="meta-key">발행일</span>
+          <span class="meta-val">{{ formatDate(item.approvedAt) }}</span>
+        </div>
+        <div v-if="item.answererNickname" class="meta-row">
+          <span class="meta-key">답변자</span>
+          <span class="meta-val">{{ item.answererNickname }}</span>
+        </div>
+        <div class="meta-row">
+          <span class="meta-key">정보 경과</span>
+          <span class="meta-val" :style="elapsedStyle(elapsed)">{{ elapsed }}일</span>
         </div>
       </div>
-    </div>
+    </template>
   </div>
 </template>
 
 <style scoped>
-.article-wrap { padding: 36px 40px; }
-.article-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
-.header-left { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.save-btn {
-  display: inline-flex;
+.detail-badges { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
+
+.stale-banner {
+  display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
+  gap: 8px;
+  padding: 12px 16px;
   border-radius: 10px;
-  border: 1px solid var(--line);
-  background: #fff;
-  color: #717182;
+  background: #fff4e5;
+  border: 1px solid #fcd4b0;
+  color: #e25c1e;
   font-size: 13.5px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  margin-bottom: 14px;
 }
-.save-btn:hover { background: #f5f6f8; }
-.save-btn.saved { background: #eff6ff; border-color: #2b7fff; color: #2b7fff; }
 
-.article-title { font-size: 26px; font-weight: 800; color: #1f2430; margin: 0 0 8px; }
-.article-meta { font-size: 13.5px; color: #aeb2bb; }
-.divider { border: none; border-top: 1px solid var(--line); margin: 24px 0; }
-.article-body { display: flex; flex-direction: column; gap: 28px; margin-bottom: 32px; }
-.section-heading { font-size: 17px; font-weight: 700; color: #1f2430; margin: 0 0 8px; }
-.section-body { font-size: 15px; color: #404055; line-height: 1.75; margin: 0; }
-
-.sources-wrap { border-top: 1px solid var(--line); padding-top: 20px; }
-.sources-title { font-size: 13px; color: #aeb2bb; font-weight: 600; margin: 0 0 10px; }
-.sources-list { display: flex; gap: 8px; flex-wrap: wrap; }
-.source-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 5px 12px;
-  border-radius: 99px;
-  border: 1px solid var(--line);
-  background: #f7f8fa;
-  font-size: 12.5px;
-  color: #717182;
+.section-card { padding: 24px 28px; margin-bottom: 14px; }
+.section-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #aeb2bb;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 12px;
 }
+.section-text { font-size: 15px; color: #1f2430; line-height: 1.75; margin: 0; white-space: pre-wrap; }
+
+.meta-card { padding: 20px 28px; display: flex; flex-direction: column; gap: 12px; }
+.meta-row { display: flex; align-items: center; gap: 16px; }
+.meta-key { font-size: 13px; color: #aeb2bb; width: 72px; }
+.meta-val { font-size: 14px; font-weight: 600; color: #1f2430; }
 </style>

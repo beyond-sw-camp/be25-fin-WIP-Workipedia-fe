@@ -9,6 +9,7 @@ import {
   getTeamKnowledgeCandidates, approveKnowledgeCandidate, rejectKnowledgeCandidate,
   getKnowledgeTrend, getChatbotTicketTrend,
 } from '@/api/knowledgeApi'
+import { useKnowledgeStore } from '@/stores/useKnowledgeStore'
 import { useAuthStore } from '@/stores/authStore'
 import { ROLES } from '@/constants/roles'
 import type { TicketResponse, TicketAnswerResponse } from '@/types/ticket'
@@ -17,6 +18,7 @@ import BaseToast from '@/components/common/BaseToast.vue'
 import LineChart from '@/components/common/LineChart.vue'
 
 const auth = useAuthStore()
+const knowledgeStore = useKnowledgeStore()
 
 // 토스트
 const toastVisible = ref(false)
@@ -132,7 +134,7 @@ async function loadTickets() {
     doneTickets.value = done
     myDoneTickets.value = done.filter(t => t.assigneeId === auth.userId)
   } catch {
-    loadError.value = '티켓 목록을 불러오지 못했습니다.'
+    loadError.value = '티켓을 불러올 수 없습니다.'
   } finally {
     loading.value = false
   }
@@ -147,6 +149,7 @@ async function loadKnowledge() {
     knowledgeQueue.value = res.data.content
   } catch {
     knowledgeQueue.value = []
+    showToast('지식화 후보 목록을 불러올 수 없습니다', '', 'error')
   } finally {
     kLoading.value = false
   }
@@ -165,7 +168,9 @@ async function loadCharts() {
     knowledgeChartLabels.value = knowledgeRes.data.points.map(p => toMonthLabel(p.month))
     chatbotChartData.value = chatbotRes.data.points.map(p => p.count)
     chatbotChartLabels.value = chatbotRes.data.points.map(p => toMonthLabel(p.month))
-  } catch { /* 실패 시 초기값 유지 */ }
+  } catch {
+    // 차트 API 응답 실패 시 빈 데이터 유지
+  }
 }
 
 // 지식화 승인 큐와 차트는 TEAM_ADMIN만 사용하는 기능이다.
@@ -299,22 +304,24 @@ async function submitTransfer() {
 }
 
 // ── 지식화 승인/반려 ─────────────────────────────────────────
-// question·answer를 함께 전송하는 이유: TEAM_ADMIN이 승인 전에 AI 초안을 수정할 수 있고,
-// 수정된 내용이 item.answer에 반영된 상태로 승인 API에 전달되어 게시판에 등록된다.
-// 승인 성공 후 loadCharts()를 호출해 지식화 건수 추이 차트를 즉시 반영한다.
+// 승인 API 성공 시 응답으로 받은 KnowledgeDataResponse를 스토어에 push해 게시판에 즉시 반영한다.
+// 차트는 현재 월(마지막 데이터 포인트)을 +1 증가시킨다.
 async function approveKnowledge(item: KnowledgeTicketCandidateResponse) {
   try {
-    await approveKnowledgeCandidate(item.ticketId, item.question, item.answer)
+    const res = await approveKnowledgeCandidate(item.ticketId, item.question, item.answer)
     knowledgeQueue.value = knowledgeQueue.value.filter(k => k.ticketId !== item.ticketId)
-    await loadCharts()
+    knowledgeStore.push(res.data)
+    const lastVal = knowledgeChartData.value.at(-1)
+    if (lastVal !== undefined) {
+      knowledgeChartData.value = [...knowledgeChartData.value.slice(0, -1), lastVal + 1]
+    }
     showToast('지식화가 승인되었습니다', '지식화 게시판에 등록되었습니다', 'success')
   } catch {
-    showToast('승인에 실패했습니다', '', 'error')
+    showToast('승인에 실패했습니다. 다시 시도해주세요.', '', 'error')
   }
 }
 
-// rejectTicketId를 API 성공 후 null로 설정해 다이얼로그를 닫는다.
-// await 전에 닫으면 실패 시 재시도 UI가 사라지므로 성공 후 순서대로 처리한다.
+// 반려 성공 후 다이얼로그를 닫는다. 실패 시 다이얼로그 유지로 재시도를 허용한다.
 async function confirmReject() {
   if (rejectTicketId.value === null) return
   const id = rejectTicketId.value
@@ -324,7 +331,7 @@ async function confirmReject() {
     knowledgeQueue.value = knowledgeQueue.value.filter(k => k.ticketId !== id)
     showToast('지식화가 반려되었습니다', '', 'success')
   } catch {
-    showToast('반려에 실패했습니다', '', 'error')
+    showToast('반려에 실패했습니다. 다시 시도해주세요.', '', 'error')
   }
 }
 

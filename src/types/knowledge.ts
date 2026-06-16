@@ -1,4 +1,4 @@
-// BE: admin.team.knowledge.dto.KnowledgeTicketCandidateResponse
+﻿// BE: admin.team.knowledge.dto.KnowledgeTicketCandidateResponse
 // 답변 완료 티켓을 기반으로 AI가 생성한 지식화 후보. TEAM_ADMIN 승인 대기 상태.
 export interface KnowledgeTicketCandidateResponse {
   ticketId: number
@@ -22,6 +22,7 @@ export interface KnowledgeDataResponse {
   question: string
   answer: string
   approvedBy?: number
+  answererNickname?: string
   approvedAt: string
   createdAt: string
   updatedAt: string
