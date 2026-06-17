@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { BookOpen, Search, Clock, FileText, ChevronRight } from '@lucide/vue'
-import { getManuals } from '@/api/manualApi'
+import { getManuals, type ManualSortType } from '@/api/manualApi'
 import { useDeptStore } from '@/stores/deptStore'
 import type { ManualSummaryResponse } from '@/types/manual'
 
 const router = useRouter()
 const deptStore = useDeptStore()
 const query = ref('')
-const activeTab = ref<'recent' | 'all'>('recent')
+type ManualTab = 'recent' | 'all'
+
+const activeTab = ref<ManualTab>('recent')
 
 // 한 페이지에 표시할 항목 수. BE PageRequest의 size 파라미터로 전달된다.
 const PAGE_SIZE = 10
@@ -18,6 +20,11 @@ const page = ref(1)
 const totalPages = ref(0)
 const loading = ref(false)
 const error = ref('')
+
+const sortTypeByTab: Record<ManualTab, ManualSortType> = {
+  recent: 'RECENTLY_UPDATED',
+  all: 'RECENTLY_CREATED',
+}
 
 // BE가 반환하는 버전 문자열은 "v1", "1.0", "v1.0" 등 형식이 일정하지 않다.
 // 화면에 표시할 때 "vN.M"으로 통일해 일관된 UX를 제공한다.
@@ -36,17 +43,6 @@ function formatDate(iso: string) {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
 }
 
-// 1시간 미만 → "방금 전", 24시간 미만 → "N시간 전", 7일 미만 → "N일 전", 그 이상 → 날짜 형식으로 표시한다.
-function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime()
-  const h = Math.floor(diff / 3_600_000)
-  const day = Math.floor(diff / 86_400_000)
-  if (h < 1) return '방금 전'
-  if (h < 24) return `${h}시간 전`
-  if (day < 7) return `${day}일 전`
-  return formatDate(iso)
-}
-
 // 검색은 현재 페이지에 로드된 10개 안에서만 클라이언트 사이드로 필터링한다.
 // 검색어가 있으면 페이지네이션을 숨겨 혼란을 줄인다 (템플릿의 v-if 조건과 연동).
 const filtered = computed(() => {
@@ -55,16 +51,8 @@ const filtered = computed(() => {
   return manuals.value.filter((m) => m.title.toLowerCase().includes(q.toLowerCase()))
 })
 
-// API가 최신순 고정이므로 1페이지 상위 6개가 전체 기준 가장 최근 매뉴얼이다.
-// manuals는 현재 페이지 데이터를 담으므로, 전체 탭에서 페이지를 이동하면 stale해진다.
-// 아래 watch에서 최근 탭 진입 시 page !== 1이면 1페이지를 재요청해 항상 최신 데이터를 보장한다.
+// 최근 업데이트 탭은 수정일 기준 정렬 결과 중 상위 6개를 표시한다.
 const recentManuals = computed(() => filtered.value.slice(0, 6))
-
-// 최근 업데이트 탭은 항상 1페이지(가장 최신) 데이터를 기준으로 한다.
-// 전체 탭에서 2페이지 이상 이동한 뒤 최근 탭으로 돌아오면 오래된 항목이 표시되는 것을 방지한다.
-watch(activeTab, (tab) => {
-  if (tab === 'recent' && page.value !== 1) fetchPage(1)
-})
 
 // 현재 페이지 기준으로 최대 5개의 버튼을 표시한다.
 // Math.min(page-2, totalPages-4)로 마지막 페이지 근처에서도 5개를 유지하고,
@@ -81,7 +69,11 @@ async function fetchPage(pageNum: number) {
   loading.value = true
   error.value = ''
   try {
-    const res = await getManuals({ page: pageNum, size: PAGE_SIZE })
+    const res = await getManuals({
+      page: pageNum,
+      size: PAGE_SIZE,
+      sortType: sortTypeByTab[activeTab.value],
+    })
     manuals.value = res.data.content
     totalPages.value = res.data.pageInfo.totalPages
     page.value = pageNum
@@ -90,6 +82,13 @@ async function fetchPage(pageNum: number) {
   } finally {
     loading.value = false
   }
+}
+
+function switchTab(tab: ManualTab) {
+  if (activeTab.value === tab) return
+  activeTab.value = tab
+  query.value = ''
+  fetchPage(1)
 }
 
 onMounted(() => fetchPage(1))
@@ -102,9 +101,9 @@ onMounted(() => fetchPage(1))
     <div class="page-head">
       <h1 class="page-title">
         <BookOpen :size="28" color="#10b981" />
-        문서 / 매뉴얼
+        매뉴얼
       </h1>
-      <p class="page-sub">사내 매뉴얼과 최근 업데이트 내역을 확인하세요</p>
+      <p class="page-sub">사내 전체 매뉴얼과 최근 업데이트 내역을 확인하세요</p>
     </div>
 
     <!-- Search -->
@@ -115,11 +114,11 @@ onMounted(() => fetchPage(1))
 
     <!-- Tabs -->
     <div class="seg" style="margin-bottom: 24px;">
-      <button :class="{ on: activeTab === 'recent' }" @click="activeTab = 'recent'">
+      <button :class="{ on: activeTab === 'recent' }" @click="switchTab('recent')">
         <Clock :size="14" /> 최근 업데이트
       </button>
-      <button :class="{ on: activeTab === 'all' }" @click="activeTab = 'all'">
-        <FileText :size="14" /> 전체 매뉴얼
+      <button :class="{ on: activeTab === 'all' }" @click="switchTab('all')">
+        <FileText :size="14" /> 전체
       </button>
     </div>
 
@@ -138,19 +137,17 @@ onMounted(() => fetchPage(1))
           class="card manual-row"
           @click="router.push(`/manuals/${m.manualId}`)"
         >
-          <div class="rc-top">
-            <div class="rc-icon"><BookOpen :size="20" color="#10b981" /></div>
-            <div class="rc-badges">
-              <span :class="['badge', m.departmentId != null ? 'solid-blue' : 'gray']">{{ deptStore.getName(m.departmentId) }}</span>
-              <span v-if="m.version" class="badge gray">{{ fmtVersion(m.version) }}</span>
+          <div class="manual-icon"><BookOpen :size="18" color="#10b981" /></div>
+          <div class="manual-info">
+            <div class="manual-title">{{ m.title }}</div>
+            <div v-if="m.description" class="manual-desc line-clamp-1">{{ m.description }}</div>
+            <div class="manual-meta">
+              <span :class="m.departmentId != null ? 'dept-tag' : 'dept-tag dept-common'">{{ deptStore.getName(m.departmentId) }}</span>
+              <span v-if="m.version">{{ fmtVersion(m.version) }}</span>
+              <span>최종 수정 {{ formatDate(m.updatedAt) }}</span>
             </div>
           </div>
-          <div class="rc-title">{{ m.title }}</div>
-          <div v-if="m.description" class="rc-desc line-clamp-2">{{ m.description }}</div>
-          <div class="rc-date">
-            <Clock :size="12" />
-            {{ timeAgo(m.updatedAt) }}
-          </div>
+          <ChevronRight :size="18" color="#aeb2bb" />
         </div>
       </div>
     </template>
@@ -201,27 +198,7 @@ onMounted(() => fetchPage(1))
 /* ── Tabs icon alignment ── */
 .seg button { display: flex; align-items: center; gap: 6px; }
 
-/* ── Recent Grid ── */
-.recent-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-
-.recent-card {
-  display: flex; flex-direction: column; gap: 12px;
-  padding: 20px 22px; cursor: pointer; transition: box-shadow 0.15s;
-}
-.recent-card:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
-
-.rc-top { display: flex; align-items: center; justify-content: space-between; }
-.rc-badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-.rc-icon {
-  width: 40px; height: 40px; border-radius: 10px;
-  background: #ecfdf5;
-  display: flex; align-items: center; justify-content: center;
-}
-.rc-title { font-size: 15px; font-weight: 700; color: #1f2430; line-height: 1.4; }
-.rc-desc { font-size: 12.5px; color: #7a8fa8; line-height: 1.5; }
-.rc-date { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: #aeb2bb; }
-
-/* ── All List ── */
+/* ── Manual List ── */
 .manual-list { display: flex; flex-direction: column; gap: 12px; }
 .manual-row {
   display: flex; align-items: center; gap: 16px;
