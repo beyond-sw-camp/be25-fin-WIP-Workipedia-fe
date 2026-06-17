@@ -5,7 +5,7 @@ import {
   MessageCircle, FileText, MessagesSquare, Trophy,
   Search, BookOpen, Library, HelpCircle,
   LayoutDashboard, Building2, ShieldCheck, Settings, Bot,
-  Bell, User,
+  User,
 } from '@lucide/vue'
 
 const route = useRoute()
@@ -31,7 +31,6 @@ const PAGE_META: Record<string, { label: string; icon: object; color: string }> 
   'my-tickets':          { label: '내 발행 티켓',          icon: FileText,        color: '#ef4444' },
   'my-ticket-detail':    { label: '내 발행 티켓',          icon: FileText,        color: '#ef4444' },
   'my-points':           { label: '포인트',                icon: Trophy,          color: '#f59e0b' },
-  notifications:         { label: '알림',                  icon: Bell,            color: '#64748b' },
   'dashboard-team':      { label: '부서 대시보드',         icon: LayoutDashboard, color: '#3b82f6' },
   'dashboard-department':{ label: '부서 대시보드',         icon: Building2,       color: '#8b5cf6' },
   'dashboard-admin':     { label: '시스템 대시보드',       icon: ShieldCheck,     color: '#ef4444' },
