@@ -362,7 +362,7 @@ function saveEditDraft(ticketId: number) {
         <TrendingUp :size="28" color="#7c3aed" />
         부서 대시보드
       </h1>
-      <p class="page-sub">우리 부서의 티켓을 처리하고 지식화를 관리하세요</p>
+      <p class="page-sub">우리 부서의 티켓을 처리하고 지식화를 관리하세요.</p>
     </div>
 
     <!-- 차트 (TEAM_ADMIN 전용 — API가 TEAM_ADMIN 스코프) -->

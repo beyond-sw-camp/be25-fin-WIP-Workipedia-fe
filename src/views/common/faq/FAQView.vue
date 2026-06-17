@@ -125,7 +125,7 @@ const systemFAQs = [
         <HelpCircle :size="28" color="#f5c000" />
         자주 찾는 항목
       </h1>
-      <p class="page-sub">인기 콘텐츠와 플랫폼 사용법을 확인하세요</p>
+      <p class="page-sub">인기 콘텐츠와 플랫폼 사용법을 확인하세요.</p>
     </div>
 
     <!-- Tabs -->

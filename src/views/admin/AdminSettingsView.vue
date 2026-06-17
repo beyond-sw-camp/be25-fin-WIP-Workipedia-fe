@@ -630,7 +630,7 @@ onMounted(() => {
         <Settings :size="28" color="#1f2430" />
         설정
       </h1>
-      <p class="page-sub">시스템 설정과 사용자를 관리하세요</p>
+      <p class="page-sub">시스템 설정과 사용자를 관리하세요.</p>
     </div>
 
     <!-- Stats -->

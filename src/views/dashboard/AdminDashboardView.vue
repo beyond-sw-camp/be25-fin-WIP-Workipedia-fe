@@ -188,7 +188,7 @@ onMounted(async () => {
           <ShieldCheck :size="28" color="#ef4444" />
           시스템 대시보드
         </h1>
-        <p class="page-sub">워키 플랫폼의 전반적인 현황을 모니터링하고 관리하세요</p>
+        <p class="page-sub">워키 플랫폼의 전반적인 현황을 모니터링하고 관리하세요.</p>
       </div>
       <div v-if="!loading && !error" class="kpi-grid">
         <div class="card kpi-card">
