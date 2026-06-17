@@ -1,106 +1,492 @@
 <script setup lang="ts">
-import { BarChart2, Users, Ticket } from '@lucide/vue'
+import { ref, computed, onMounted } from 'vue'
+import { ShieldCheck, AlertCircle, Users, Ticket, FileText } from '@lucide/vue'
 import LineChart from '@/components/common/LineChart.vue'
 import BarChart from '@/components/common/BarChart.vue'
+import BaseToast from '@/components/common/BaseToast.vue'
+import {
+  getDashboardSummary,
+  getMonthlyTicketTrend,
+  getMonthlyAutoAssignRate,
+  getDeptTicketStatus,
+  getDeptAutoAssignRate,
+  getCommonQueueTickets,
+  assignCommonQueueTicket,
+  getAdminDepartments,
+} from '@/api/adminApi'
+import type {
+  DashboardSummary,
+  MonthlyTicketTrend,
+  MonthlyAutoAssignRate,
+  DeptTicketStatus,
+  DeptAutoAssignRate,
+  AdminDepartment,
+} from '@/api/adminApi'
+import type { TicketResponse } from '@/types/ticket'
 
-const kpis = [
-  { label: '전체 사용자', value: '1,284', unit: '명', color: '#2b7fff' },
-  { label: '이번 달 티켓', value: '847', unit: '건', color: '#ff6900' },
-  { label: '워키 질문', value: '213', unit: '개', color: '#7c3aed' },
-  { label: '지식 베이스', value: '532', unit: '건', color: '#00a63e' },
-]
-
-const monthlyUsers = [980, 1020, 1085, 1120, 1198, 1284]
-const monthLabels = ['1월', '2월', '3월', '4월', '5월', '6월']
-
-const deptTickets = [
-  { label: '개발1팀', v: 142 },
-  { label: '마케팅', v: 98 },
-  { label: '인사팀', v: 87 },
-  { label: 'IT지원', v: 75 },
-  { label: '재무팀', v: 64 },
-]
-
-const recentTickets = [
-  { id: 301, title: 'VPN 오류 보고', dept: 'IT지원팀', status: '처리중', created: '2025.05.22' },
-  { id: 302, title: '신규 입사자 계정 생성', dept: '인사팀', status: '완료', created: '2025.05.21' },
-  { id: 303, title: '법인카드 한도 검토', dept: '재무팀', status: '접수중', created: '2025.05.22' },
-]
-
-const statusBadge: Record<string, string> = {
-  '접수중': 'gray',
-  '처리중': 'blue',
-  '완료': 'green',
+// ── 토스트 ───────────────────────────────────────────────────
+const toastVisible = ref(false)
+const toastTitle = ref('')
+const toastSub = ref('')
+const toastType = ref<'success' | 'error'>('success')
+function showToast(title: string, sub = '', type: 'success' | 'error' = 'success') {
+  toastTitle.value = title; toastSub.value = sub; toastType.value = type; toastVisible.value = true
 }
+
+// ── 로딩/에러 ────────────────────────────────────────────────
+const loading = ref(false)
+const error = ref('')
+
+// ── 요약 KPI ─────────────────────────────────────────────────
+const summary = ref<DashboardSummary | null>(null)
+
+// ── 차트 1: 월별 AI 자동 배정률 추이 ─────────────────────────
+const autoAssignRates = ref<MonthlyAutoAssignRate[]>([])
+const autoAssignValues = computed(() => autoAssignRates.value.map(r => r.autoAssignmentRate))
+// '2026-01' → '1월' 형식으로 변환해 x축 가독성을 높인다
+const autoAssignLabels = computed(() => autoAssignRates.value.map(r => `${Number(r.month.slice(5))}월`))
+
+// ── 차트 2: 월별 티켓 수 추이 ────────────────────────────────
+const ticketTrends = ref<MonthlyTicketTrend[]>([])
+const ticketTrendValues = computed(() => ticketTrends.value.map(t => t.ticketCount))
+const ticketTrendLabels = computed(() => ticketTrends.value.map(t => `${Number(t.month.slice(5))}월`))
+
+// ── 차트 3: 부서별 AI 자동 배정률 (정렬 가능 바차트, 상위 5개) ──
+type SortOrder = 'high' | 'low'
+const deptAutoAssignRates = ref<DeptAutoAssignRate[]>([])
+const deptAutoSort = ref<SortOrder>('high')
+const deptAutoBarData = computed(() => {
+  const raw = deptAutoAssignRates.value.map(d => ({ label: d.departmentName, v: d.autoAssignmentRate }))
+  return [...raw].sort((a, b) => deptAutoSort.value === 'high' ? b.v - a.v : a.v - b.v).slice(0, 5)
+})
+
+// ── 차트 4: 부서별 티켓 처리 현황 (정렬 가능 누적 바) ─────────
+type StatusSortOrder = 'assigned-high' | 'assigned-low' | 'completed-high' | 'completed-low'
+const deptTicketStatuses = ref<DeptTicketStatus[]>([])
+const deptStatusSort = ref<StatusSortOrder>('assigned-high')
+const sortedDeptStatus = computed(() => {
+  return [...deptTicketStatuses.value].sort((a, b) => {
+    switch (deptStatusSort.value) {
+      case 'assigned-high':  return b.assignedTicketCount - a.assignedTicketCount
+      case 'assigned-low':   return a.assignedTicketCount - b.assignedTicketCount
+      case 'completed-high': return b.completedTicketCount - a.completedTicketCount
+      case 'completed-low':  return a.completedTicketCount - b.completedTicketCount
+      default: return 0
+    }
+  }).slice(0, 5)
+})
+
+// ── 차트 4: 스택 바 hover 상태 ───────────────────────────────
+const hoveredStatusId = ref<number | null>(null)
+
+// ── 공통 접수 큐 ─────────────────────────────────────────────
+const queueTickets = ref<TicketResponse[]>([])
+const queueLoading = ref(false)
+const queueError = ref(false)
+const queueHasNext = ref(false)
+// /admin/common-queue/tickets는 BasePageRequest 기반 1-based 페이지네이션 (Spring Pageable 0-based와 다름)
+const queuePage = ref(1)
+const queueLoadingMore = ref(false)
+const selectedDept = ref<Record<number, number>>({})
+const assigning = ref<Set<number>>(new Set())
+
+// ── 부서 목록 (배정 select 드롭다운) ─────────────────────────
+const departments = ref<AdminDepartment[]>([])
+
+// BE TicketStatus에 TRANSFERRED 값이 없음. 이관된 티켓도 status=COMMON_QUEUE로 들어오고
+// commonQueueReason=TRANSFER_REQUESTED 로 자동 배정 실패(ROUTING_FAILED/ASSIGNMENT_EXPIRED)와 구분
+function entryReasonLabel(ticket: TicketResponse) {
+  return ticket.commonQueueReason === 'TRANSFER_REQUESTED' ? '팀 관리자 이관' : '자동 배정 실패'
+}
+
+function formatDate(iso: string) {
+  return iso.slice(0, 10).replace(/-/g, '.')
+}
+
+async function loadQueue(page: number, append: boolean) {
+  if (append) queueLoadingMore.value = true
+  else { queueLoading.value = true; queueError.value = false }
+  try {
+    const res = await getCommonQueueTickets({ page, size: 10 })
+    queueTickets.value = append
+      ? [...queueTickets.value, ...res.data.content]
+      : res.data.content
+    queueHasNext.value = res.data.pageInfo.hasNext
+    queuePage.value = page
+  } catch {
+    if (append) showToast('더 보기 로딩에 실패했습니다. 다시 시도해주세요.', '', 'error')
+    else queueError.value = true
+  } finally {
+    if (append) queueLoadingMore.value = false
+    else queueLoading.value = false
+  }
+}
+
+async function handleAssign(ticket: TicketResponse) {
+  const deptId = selectedDept.value[ticket.ticketId]
+  if (!deptId) { showToast('담당 부서를 선택해주세요.', '', 'error'); return }
+
+  assigning.value = new Set([...assigning.value, ticket.ticketId])
+  try {
+    await assignCommonQueueTicket(ticket.ticketId, { departmentId: deptId })
+    queueTickets.value = queueTickets.value.filter(t => t.ticketId !== ticket.ticketId)
+    delete selectedDept.value[ticket.ticketId] // 큐에서 제거된 티켓의 선택 상태 정리 (stale key 방지)
+    const deptName = departments.value.find(d => d.departmentId === deptId)?.departmentName ?? '해당 부서'
+    showToast(`${deptName}에 티켓이 배정되었습니다.`)
+  } catch {
+    showToast('배정에 실패했습니다. 다시 시도해주세요.', '', 'error')
+  } finally {
+    assigning.value = new Set([...assigning.value].filter(id => id !== ticket.ticketId))
+  }
+}
+
+onMounted(async () => {
+  loading.value = true
+  error.value = ''
+  try {
+    const [sumRes, trendRes, rateRes, deptStatusRes, deptRateRes] = await Promise.all([
+      getDashboardSummary(),
+      getMonthlyTicketTrend(6),
+      getMonthlyAutoAssignRate(6),
+      getDeptTicketStatus(),
+      getDeptAutoAssignRate(),
+    ])
+    summary.value = sumRes.data
+    ticketTrends.value = trendRes.data.points
+    autoAssignRates.value = rateRes.data.points
+    deptTicketStatuses.value = deptStatusRes.data.departments
+    deptAutoAssignRates.value = deptRateRes.data.departments
+  } catch {
+    error.value = '대시보드 데이터를 불러오지 못했습니다.'
+  } finally {
+    loading.value = false
+  }
+
+  // 부서 목록과 공통 접수 큐는 항상 BE에서 로드
+  try {
+    const deptRes = await getAdminDepartments()
+    departments.value = deptRes.data
+  } catch {
+    // 배정 드롭다운 공백 허용
+  }
+  loadQueue(1, false)
+})
 </script>
 
 <template>
   <div class="content-inner">
-    <div class="page-head">
-      <h1 class="page-title">
-        <BarChart2 :size="28" color="#1f2430" />
-        시스템 대시보드
-      </h1>
-      <p class="page-sub">플랫폼 전체 현황</p>
-    </div>
-
-    <div class="kpi-grid">
-      <div v-for="k in kpis" :key="k.label" class="card kpi-card">
-        <div class="kpi-value" :style="{ color: k.color }">{{ k.value }}<small>{{ k.unit }}</small></div>
-        <div class="kpi-label">{{ k.label }}</div>
+    <!-- 헤더 + KPI 카드를 한 행에 배치 -->
+    <div class="header-kpi-row">
+      <div class="page-head" style="margin-bottom:0;">
+        <h1 class="page-title">
+          <ShieldCheck :size="28" color="#ef4444" />
+          시스템 대시보드
+        </h1>
+        <p class="page-sub">워키 플랫폼의 전반적인 현황을 모니터링하고 관리하세요</p>
+      </div>
+      <div v-if="!loading && !error" class="kpi-grid">
+        <div class="card kpi-card">
+          <div class="kpi-icon" style="background:#eff6ff;"><Users :size="20" color="#2b7fff" /></div>
+          <div class="kpi-value" style="color:#2b7fff;">{{ summary?.totalUserCount.toLocaleString() }}<small>명</small></div>
+          <div class="kpi-label">전체 사용자</div>
+        </div>
+        <div class="card kpi-card">
+          <div class="kpi-icon" style="background:#fff7ed;"><Ticket :size="20" color="#f97316" /></div>
+          <div class="kpi-value" style="color:#f97316;">{{ summary?.todayLoginCount.toLocaleString() }}<small>명</small></div>
+          <div class="kpi-label">오늘 로그인</div>
+        </div>
+        <div class="card kpi-card">
+          <div class="kpi-icon" style="background:#f0fdf4;"><FileText :size="20" color="#00a63e" /></div>
+          <div class="kpi-value" style="color:#00a63e;">{{ summary?.totalDocumentCount.toLocaleString() }}<small>건</small></div>
+          <div class="kpi-label">전체 문서</div>
+        </div>
       </div>
     </div>
 
-    <div class="charts-row">
-      <div class="card chart-card">
-        <h3 class="chart-title"><Users :size="16" /> 월별 사용자 증가</h3>
-        <LineChart :data="monthlyUsers" :labels="monthLabels" color="#2b7fff" />
-      </div>
-      <div class="card chart-card">
-        <h3 class="chart-title"><Ticket :size="16" /> 부서별 티켓</h3>
-        <BarChart :data="deptTickets" color="#2b7fff" />
-      </div>
-    </div>
+    <div v-if="loading" class="empty-ph" style="height: 200px;">불러오는 중...</div>
+    <div v-else-if="error" class="empty-ph" style="height: 200px;">{{ error }}</div>
 
-    <div class="card" style="padding: 24px 28px;">
-      <h3 class="chart-title" style="margin-bottom: 16px;"><Ticket :size="16" /> 최근 티켓</h3>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>제목</th>
-            <th>부서</th>
-            <th>상태</th>
-            <th>등록일</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="t in recentTickets" :key="t.id">
-            <td style="color: #aeb2bb;">{{ t.id }}</td>
-            <td style="font-weight: 600;">{{ t.title }}</td>
-            <td><span class="badge gray">{{ t.dept }}</span></td>
-            <td><span class="badge" :class="statusBadge[t.status]">{{ t.status }}</span></td>
-            <td style="color: #aeb2bb;">{{ t.created }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <template v-else>
+      <!-- ── 차트 2×2 그리드 ── -->
+      <div class="charts-grid">
+        <!-- 차트 1: 월별 AI 자동 배정률 추이 -->
+        <div class="card chart-card">
+          <h3 class="chart-title">챗봇 자동 배정 성공률 추이</h3>
+          <p class="chart-sub">월별 AI 자동 배정 성공률</p>
+          <LineChart :data="autoAssignValues" :labels="autoAssignLabels" color="#10b981" tooltipLabel="성공률 (%)" :fixedMax="100" />
+        </div>
+
+        <!-- 차트 2: 월별 티켓 수 추이 -->
+        <div class="card chart-card">
+          <h3 class="chart-title">전체 티켓 추이</h3>
+          <p class="chart-sub">월별 전체 티켓 발행 수</p>
+          <LineChart :data="ticketTrendValues" :labels="ticketTrendLabels" color="#f97316" tooltipLabel="티켓 수" />
+        </div>
+
+        <!-- 차트 3: 부서별 AI 자동 배정률 -->
+        <div class="card chart-card">
+          <div class="chart-title-row">
+            <div>
+              <h3 class="chart-title">부서별 챗봇 자동 배정 성공률</h3>
+              <p class="chart-sub">각 부서의 AI 자동 배정 성공률</p>
+            </div>
+            <select v-model="deptAutoSort" class="sort-select">
+              <option value="high">높은 순</option>
+              <option value="low">낮은 순</option>
+            </select>
+          </div>
+          <BarChart :data="deptAutoBarData" color="#8b5cf6" tooltipLabel="성공률 (%)" :fixedMax="100" />
+        </div>
+
+        <!-- 차트 4: 부서별 티켓 처리 현황 (누적 바) -->
+        <div class="card chart-card">
+          <div class="chart-title-row">
+            <div>
+              <h3 class="chart-title">부서별 티켓 처리 현황</h3>
+              <p class="chart-sub">부서별 처리 중 / 완료 현황</p>
+            </div>
+            <select v-model="deptStatusSort" class="sort-select">
+              <option value="assigned-high">처리 전 높은 순</option>
+              <option value="assigned-low">처리 전 낮은 순</option>
+              <option value="completed-high">완료 높은 순</option>
+              <option value="completed-low">완료 낮은 순</option>
+            </select>
+          </div>
+
+          <div v-if="sortedDeptStatus.length === 0" class="empty-ph" style="height:120px;">데이터가 없습니다</div>
+          <div v-else class="stacked-list">
+            <div
+              v-for="dept in sortedDeptStatus"
+              :key="dept.departmentId"
+              class="stacked-row"
+              @mouseenter="hoveredStatusId = dept.departmentId"
+              @mouseleave="hoveredStatusId = null"
+            >
+              <span class="stacked-label">{{ dept.departmentName }}</span>
+              <div class="stacked-track">
+                <div
+                  class="stacked-seg assigned"
+                  :style="{ width: `${Math.min(100, (dept.assignedTicketCount / (dept.totalTicketCount || 1)) * 100)}%` }"
+                />
+                <div
+                  class="stacked-seg completed"
+                  :style="{ width: `${Math.min(100, (dept.completedTicketCount / (dept.totalTicketCount || 1)) * 100)}%` }"
+                />
+                <!-- hover 툴팁 -->
+                <div v-if="hoveredStatusId === dept.departmentId" class="status-tooltip">
+                  <div class="status-tooltip-row">
+                    <span class="legend-dot assigned" />처리 전
+                    <strong>{{ dept.assignedTicketCount }}건</strong>
+                  </div>
+                  <div class="status-tooltip-row">
+                    <span class="legend-dot completed" />완료
+                    <strong>{{ dept.completedTicketCount }}건</strong>
+                  </div>
+                </div>
+              </div>
+              <span class="stacked-summary">{{ dept.completedTicketCount }}/{{ dept.totalTicketCount }}건 완료</span>
+            </div>
+            <div class="stacked-legend">
+              <span><span class="legend-dot assigned" />처리 전</span>
+              <span><span class="legend-dot completed" />완료</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 공통 접수 큐 ── -->
+      <div class="card" style="padding: 24px 28px;">
+        <div class="queue-header">
+          <div>
+            <h3 class="chart-title" style="margin-bottom: 4px;">
+              <AlertCircle :size="18" color="#f97316" /> 공통 접수 티켓
+            </h3>
+            <p class="queue-desc">자동 배정에 실패했거나 부서 관리자가 이관한 티켓을 처리하세요</p>
+          </div>
+          <span class="badge gray queue-count">
+            {{ queueLoading ? '...' : `${queueTickets.length}건` }}
+          </span>
+        </div>
+
+        <div v-if="queueLoading" class="empty-ph" style="height:120px;">불러오는 중...</div>
+        <div v-else-if="queueError" class="empty-ph" style="height:120px;color:#e03131;">
+          공통 접수 큐를 불러오지 못했습니다.
+          <button class="btn" style="margin-top:8px;" @click="loadQueue(1, false)">다시 시도</button>
+        </div>
+        <div v-else-if="queueTickets.length === 0" class="empty-ph" style="height:120px;">공통 접수 티켓이 없습니다</div>
+        <div v-else class="queue-list">
+          <div v-for="ticket in queueTickets" :key="ticket.ticketId" class="queue-item">
+            <div class="queue-item-top">
+              <div class="queue-item-title-row">
+                <span class="queue-title">{{ ticket.title }}</span>
+                <span class="badge" :class="ticket.commonQueueReason === 'TRANSFER_REQUESTED' ? 'gray' : 'red'">
+                  {{ entryReasonLabel(ticket) }}
+                </span>
+              </div>
+              <span class="queue-time">접수: {{ formatDate(ticket.createdAt) }}</span>
+            </div>
+
+            <p class="ticket-content">{{ ticket.content }}</p>
+
+            <div v-if="ticket.commonQueueReason === 'TRANSFER_REQUESTED' && ticket.transferReason" class="transfer-reason">
+              <p class="transfer-label">이관 사유</p>
+              <p class="transfer-text">{{ ticket.transferReason }}</p>
+            </div>
+
+            <div class="queue-assign-row">
+              <select v-model="selectedDept[ticket.ticketId]" class="dept-select">
+                <option :value="undefined" disabled>담당 부서 선택</option>
+                <option
+                  v-for="dept in departments"
+                  :key="dept.departmentId"
+                  :value="dept.departmentId"
+                >
+                  {{ dept.departmentName }}
+                </option>
+              </select>
+              <button
+                class="btn btn-primary"
+                :disabled="assigning.has(ticket.ticketId)"
+                @click="handleAssign(ticket)"
+              >
+                {{ assigning.has(ticket.ticketId) ? '배정 중...' : '배정' }}
+              </button>
+            </div>
+          </div>
+
+          <div v-if="queueHasNext" style="text-align:center; padding: 8px 0;">
+            <button class="btn" :disabled="queueLoadingMore" @click="loadQueue(queuePage + 1, true)">
+              {{ queueLoadingMore ? '불러오는 중...' : '더 보기' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </template>
   </div>
+
+  <BaseToast v-model="toastVisible" :title="toastTitle" :sub="toastSub" :type="toastType" />
 </template>
 
 <style scoped>
-.kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
-.kpi-card { padding: 22px 20px; }
-.kpi-value { font-size: 28px; font-weight: 900; line-height: 1; margin-bottom: 6px; }
-.kpi-value small { font-size: 14px; font-weight: 600; margin-left: 2px; }
-.kpi-label { font-size: 13px; color: #aeb2bb; }
+/* 헤더 + KPI 한 행 레이아웃 */
+.header-kpi-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 20px;
+}
 
-.charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
-.chart-card { padding: 22px 24px; }
-.chart-title { display: flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 700; color: #1f2430; margin: 0 0 16px; }
+/* KPI */
+.kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; flex-shrink: 0; }
+.kpi-card { padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; min-width: 130px; }
+.kpi-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+.kpi-value { font-size: 24px; font-weight: 900; line-height: 1; }
+.kpi-value small { font-size: 13px; font-weight: 600; margin-left: 2px; }
+.kpi-label { font-size: 12px; color: #aeb2bb; }
 
-.data-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-.data-table th { text-align: left; color: #aeb2bb; font-size: 12.5px; font-weight: 600; padding: 0 0 12px; border-bottom: 1px solid var(--line); }
-.data-table td { padding: 12px 0; border-bottom: 1px solid var(--line); color: #1f2430; }
-.data-table tr:last-child td { border-bottom: none; }
+/* 차트 그리드 */
+.charts-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 20px; }
+.chart-card { padding: 22px 24px; display: flex; flex-direction: column; }
+.chart-title { font-size: 14.5px; font-weight: 700; color: #1f2430; margin: 0; }
+.chart-sub { font-size: 12px; color: #aeb2bb; margin: 4px 0 14px; }
+.chart-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.chart-title-row .chart-title { margin-bottom: 0; }
+.chart-title-row .chart-sub { margin-bottom: 0; }
+
+.sort-select {
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: #1f2430;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* 누적 바 차트 — 각 행 100%, 부서명 왼쪽, 완료수 오른쪽 */
+.stacked-list { display: flex; flex-direction: column; flex: 1; justify-content: space-between; }
+.stacked-row { display: grid; grid-template-columns: 68px 1fr 90px; align-items: center; gap: 8px; }
+.stacked-label { font-size: 12.5px; font-weight: 600; color: #1f2430; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stacked-track { height: 26px; border-radius: 6px; display: flex; overflow: hidden; position: relative; }
+.stacked-seg { height: 100%; transition: width 0.3s; min-width: 0; overflow: hidden; }
+
+.status-tooltip {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.10);
+  z-index: 30;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  white-space: nowrap;
+}
+.status-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: #1f2430;
+}
+.status-tooltip-row strong { margin-left: auto; font-weight: 700; padding-left: 12px; }
+.stacked-seg.assigned { background: #1e40af; }
+.stacked-seg.completed { background: #f97316; }
+.stacked-summary { font-size: 11.5px; color: #64748b; white-space: nowrap; text-align: right; }
+.stacked-legend { display: flex; gap: 14px; margin-top: 8px; padding-left: 76px; font-size: 12px; color: #64748b; }
+.stacked-legend span { display: flex; align-items: center; gap: 5px; }
+.legend-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex-shrink: 0; }
+.legend-dot.assigned { background: #1e40af; }
+.legend-dot.completed { background: #f97316; }
+
+/* 공통 접수 큐 */
+.queue-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
+.queue-desc { font-size: 13px; color: #aeb2bb; margin: 4px 0 0; }
+.queue-count { font-size: 14px; font-weight: 700; padding: 4px 12px; }
+
+.queue-list { display: flex; flex-direction: column; gap: 12px; max-height: 450px; overflow-y: auto; }
+.queue-item { border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.queue-item-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.queue-item-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.queue-title { font-size: 14px; font-weight: 600; color: #1f2430; }
+.queue-time { font-size: 12px; color: #aeb2bb; white-space: nowrap; flex-shrink: 0; }
+
+.ticket-content {
+  font-size: 13.5px;
+  color: #475569;
+  line-height: 1.6;
+  margin: 0;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border-radius: 8px;
+  max-height: 80px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.transfer-reason { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 10px 14px; }
+.transfer-label { font-size: 11.5px; color: #aeb2bb; margin: 0 0 4px; }
+.transfer-text { font-size: 13.5px; color: #1f2430; margin: 0; }
+
+.queue-assign-row { display: flex; gap: 8px; align-items: center; }
+.dept-select {
+  flex: 1;
+  font-size: 13.5px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: #1f2430;
+}
+
+.badge.red { background: #fff0f0; color: #e03131; border-color: #ffc0c0; }
 </style>
