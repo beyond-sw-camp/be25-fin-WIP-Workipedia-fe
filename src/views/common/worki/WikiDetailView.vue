@@ -1,10 +1,18 @@
 <script setup lang="ts">
+// 워키 질문 상세 페이지.
+// 삭제는 SYSTEM_ADMIN 전용(작성자 -100P 차감), 수정은 작성자 본인 + 답변 없을 때만 허용한다.
+// 수정은 페이지 이동 없이 카드 내에서 입력 필드로 전환하는 인라인 편집 방식으로 구현한다.
+// 삭제 전 BaseModal 공통 모달로 확인 단계를 거친다.
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ChevronLeft, CheckCircle2, MessageCircle, ThumbsUp, Trash2 } from '@lucide/vue'
-import { getQuestionDetail, createAnswer, acceptAnswer, likeQuestion, unlikeQuestion, deleteQuestionAsAdmin } from '@/api/workiApi'
+import { ChevronLeft, CheckCircle2, MessageCircle, ThumbsUp, Trash2, Pencil } from '@lucide/vue'
+import {
+  getQuestionDetail, createAnswer, acceptAnswer,
+  likeQuestion, unlikeQuestion, deleteQuestionAsAdmin, updateQuestion,
+} from '@/api/workiApi'
 import { useAuthStore } from '@/stores/authStore'
 import { ROLES } from '@/constants/roles'
+import BaseModal from '@/components/common/BaseModal.vue'
 import type { AxiosError } from 'axios'
 import type { QuestionDetailResponse, AnswerResponse, QuestionStatus } from '@/types/worki'
 
@@ -79,6 +87,7 @@ async function toggleLike() {
   }
 }
 
+// ANSWERED 상태만 "해결됨" 배지로 표시한다. TICKETED/DELETED 등은 미해결과 동일하게 처리.
 function isSolved(status: QuestionStatus) {
   return status === 'ANSWERED'
 }
@@ -91,22 +100,72 @@ const canAccept = computed(
     question.value.acceptedAnswerId == null,
 )
 
-// 관리자(팀/시스템)만 질문 삭제 가능
-const isAdmin = computed(
-  () => auth.role === ROLES.TEAM_ADMIN || auth.role === ROLES.SYSTEM_ADMIN,
+// 삭제 권한: SYSTEM_ADMIN 전용 (답변 유무 무관, 작성자 -100P 차감 API 호출)
+const isSystemAdmin = computed(() => auth.role === ROLES.SYSTEM_ADMIN)
+const canDelete = computed(() => isSystemAdmin.value)
+
+// 수정 권한: 질문 작성자 본인 + 아직 답변이 없을 때만 허용
+const canEdit = computed(
+  () => !!question.value && question.value.authorId === auth.userId && answers.value.length === 0,
 )
+
+// 삭제 확인 모달 상태
+const showDeleteModal = ref(false)
 const deleting = ref(false)
 
-async function deleteQuestion() {
+function openDeleteModal() {
+  showDeleteModal.value = true
+}
+
+// 관리자 삭제: BE에서 작성자 -100P 자동 차감
+async function confirmDelete() {
   if (deleting.value) return
-  if (!window.confirm('이 질문을 삭제하시겠습니까? 되돌릴 수 없습니다.')) return
+  showDeleteModal.value = false
   deleting.value = true
   try {
     await deleteQuestionAsAdmin(questionId)
     router.push('/worki')
   } catch {
-    window.alert('질문 삭제에 실패했습니다.')
+    error.value = '질문 삭제에 실패했습니다.'
     deleting.value = false
+  }
+}
+
+// 인라인 수정 — 수정 버튼 클릭 시 제목·본문을 편집 가능한 입력 필드로 전환한다.
+// 저장 성공 시 로컬 상태를 즉시 갱신해 재조회 없이 UI를 업데이트한다.
+const editing = ref(false)
+const editTitle = ref('')
+const editBody = ref('')
+const editError = ref('')
+const saving = ref(false)
+
+function startEdit() {
+  editTitle.value = question.value!.title
+  editBody.value = question.value!.content
+  editError.value = ''
+  editing.value = true
+}
+
+function cancelEdit() {
+  editing.value = false
+  editError.value = ''
+}
+
+async function saveEdit() {
+  editError.value = ''
+  if (!editTitle.value.trim()) { editError.value = '제목을 입력해 주세요.'; return }
+  if (!editBody.value.trim()) { editError.value = '내용을 입력해 주세요.'; return }
+  if (saving.value) return
+  saving.value = true
+  try {
+    await updateQuestion(questionId, { title: editTitle.value.trim(), content: editBody.value.trim() })
+    question.value!.title = editTitle.value.trim()
+    question.value!.content = editBody.value.trim()
+    editing.value = false
+  } catch {
+    editError.value = '질문 수정에 실패했습니다.'
+  } finally {
+    saving.value = false
   }
 }
 
@@ -136,6 +195,8 @@ function formatAuthor(nickname?: string | null, department?: string | null) {
   return department ? `${department} · ${nickname}` : nickname
 }
 
+// 질문 상세와 답변 목록을 한 번의 API 호출로 가져온다.
+// 답변 채택 후에도 재호출해 채택 상태와 acceptedAnswerId를 최신화한다.
 async function load() {
   loading.value = true
   error.value = ''
@@ -199,21 +260,40 @@ async function submitAnswer() {
             {{ formatDate(question.createdAt) }} · {{ formatAuthor(question.authorNickname, question.authorDepartmentName) }}
           </span>
         </div>
-        <h2 class="q-title">{{ question.title }}</h2>
-        <p class="q-body">{{ question.content }}</p>
-        <div class="q-footer">
-          <button
-            v-if="isAdmin"
-            class="delete-btn"
-            :disabled="deleting"
-            @click="deleteQuestion"
-          >
-            <Trash2 :size="15" /> {{ deleting ? '삭제 중...' : '삭제' }}
-          </button>
-          <button class="like-btn" :class="{ liked }" :disabled="likePending" @click="toggleLike">
-            <ThumbsUp :size="15" /> 좋아요 {{ likeCount }}
-          </button>
-        </div>
+        <!-- 수정 모드: 제목·본문을 입력 필드로 전환 -->
+        <template v-if="editing">
+          <input v-model="editTitle" class="edit-title-input" placeholder="질문 제목" />
+          <textarea v-model="editBody" class="edit-body-input" rows="6" placeholder="질문 내용" />
+          <div v-if="editError" class="edit-err">{{ editError }}</div>
+          <div class="q-footer">
+            <button class="btn" @click="cancelEdit">취소</button>
+            <button class="btn primary" :disabled="saving" @click="saveEdit">
+              {{ saving ? '저장 중...' : '수정 완료' }}
+            </button>
+          </div>
+        </template>
+
+        <!-- 읽기 모드 -->
+        <template v-else>
+          <h2 class="q-title">{{ question.title }}</h2>
+          <p class="q-body">{{ question.content }}</p>
+          <div class="q-footer">
+            <button
+              v-if="canDelete"
+              class="delete-btn"
+              :disabled="deleting"
+              @click="openDeleteModal"
+            >
+              <Trash2 :size="15" /> {{ deleting ? '삭제 중...' : '삭제' }}
+            </button>
+            <button v-if="canEdit" class="edit-btn" @click="startEdit">
+              <Pencil :size="15" /> 수정
+            </button>
+            <button class="like-btn" :class="{ liked }" :disabled="likePending" @click="toggleLike">
+              <ThumbsUp :size="15" /> 좋아요 {{ likeCount }}
+            </button>
+          </div>
+        </template>
       </div>
 
       <h3 class="ans-head">답변 {{ answers.length }}개</h3>
@@ -270,6 +350,16 @@ async function submitAnswer() {
         </div>
       </div>
     </template>
+
+    <!-- 삭제 확인 모달 -->
+    <BaseModal
+      v-model="showDeleteModal"
+      title="질문 삭제"
+      :message="'이 질문을 삭제하시겠습니까?\n작성자에게 100포인트가 차감됩니다.'"
+      confirm-label="삭제"
+      :danger="true"
+      @confirm="confirmDelete"
+    />
   </div>
 </template>
 
@@ -295,6 +385,21 @@ async function submitAnswer() {
 }
 .delete-btn:hover:not(:disabled) { background: #fff0f0; border-color: #e7000b; }
 .delete-btn:disabled { opacity: 0.6; cursor: default; }
+.edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #2b7fff;
+  background: #fff;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.edit-btn:hover { background: #eff6ff; border-color: #2b7fff; }
 .like-btn {
   display: inline-flex;
   align-items: center;
@@ -323,6 +428,41 @@ async function submitAnswer() {
 .ans-author-dept { font-weight: 500; font-size: 12px; color: #7c3aed; background: #f3f0ff; padding: 1px 9px; border-radius: 999px; }
 .accepted-badge { display: inline-flex; align-items: center; gap: 6px; color: #00a63e; font-size: 13px; font-weight: 700; }
 .ans-body { font-size: 15px; color: #1f2430; line-height: 1.7; margin: 0; white-space: pre-wrap; }
+
+/* ── 인라인 수정 ── */
+.edit-title-input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 20px;
+  font-weight: 800;
+  color: #1f2430;
+  outline: none;
+  font-family: inherit;
+  background: #fff;
+  box-sizing: border-box;
+  margin-bottom: 12px;
+  transition: border-color 0.15s;
+}
+.edit-title-input:focus { border-color: #7c3aed; }
+.edit-body-input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 15px;
+  color: #404055;
+  line-height: 1.7;
+  outline: none;
+  font-family: inherit;
+  background: #fff;
+  box-sizing: border-box;
+  resize: vertical;
+  transition: border-color 0.15s;
+}
+.edit-body-input:focus { border-color: #7c3aed; }
+.edit-err { font-size: 13px; color: #ef4444; font-weight: 500; margin-top: 6px; }
 
 .ans-write { padding: 24px 28px; }
 .ans-textarea {

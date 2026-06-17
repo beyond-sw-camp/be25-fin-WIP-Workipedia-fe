@@ -42,7 +42,7 @@ export function getQuestionDetail(questionId: number) {
   return http.get<QuestionDetailResponse>(`/worki/questions/${questionId}`)
 }
 
-// 관리자 질문 삭제 (TEAM_ADMIN / SYSTEM_ADMIN, soft delete)
+// 시스템 관리자 질문 삭제 — 답변 유무 무관, 작성자 -100P 차감 (soft delete)
 export function deleteQuestionAsAdmin(questionId: number) {
   return http.delete<AdminWorkiQuestionDeleteResponse>(`/admin/worki/questions/${questionId}`)
 }
