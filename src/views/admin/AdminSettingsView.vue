@@ -297,6 +297,10 @@ function buildExistingFileMap(manuals: AdminManual[]) {
 async function saveManual() {
   if (!editingManual.value) return
   if (manualSubmitting.value) return
+  if (!editingManual.value.title.trim()) {
+    showToast('매뉴얼 제목을 입력해주세요.', '', 'error')
+    return
+  }
   if (!editingManual.value.id && uploadedFiles.value.length === 0) {
     fileError.value = true
     return
@@ -320,7 +324,9 @@ async function saveManual() {
         formData.append('title', editingManual.value.title)
         formData.append('description', editingManual.value.description)
         formData.append('version', nextVer)
-        formData.append('file', uploadedFiles.value[0]!)
+        for (const file of uploadedFiles.value) {
+          formData.append('file', file)
+        }
         if (editingManual.value.departmentId != null) {
           formData.append('departmentId', String(editingManual.value.departmentId))
         }
@@ -892,11 +898,11 @@ onMounted(() => {
         </button>
       </div>
 
-      <div v-if="knowledgeLoading" class="empty-ph" style="height:180px;">
+      <div v-if="knowledgeLoading && knowledgeItems.length === 0" class="empty-ph" style="height:180px;">
         <div class="loading-spinner" />
         불러오는 중...
       </div>
-      <div v-else-if="knowledgeItems.length === 0" class="empty-ph" style="height:180px;">
+      <div v-else-if="!knowledgeLoading && knowledgeItems.length === 0" class="empty-ph" style="height:180px;">
         {{ knowledgeTab === 'inactive' ? '비활성 수기 지식이 없습니다.' : '등록된 수기 지식이 없습니다.' }}
       </div>
       <div v-else class="item-list">

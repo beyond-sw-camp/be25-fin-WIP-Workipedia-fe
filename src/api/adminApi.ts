@@ -64,10 +64,10 @@ export function getAdminManuals() {
   return http.get<AdminManualPage>('/admin/manuals')
 }
 export function createAdminManual(formData: FormData) {
-  return http.post<AdminManual>('/admin/manuals/pdf', formData)
+  return http.post<AdminManual>('/admin/manuals', formData)
 }
 export function updateAdminManual(manualId: number, formData: FormData) {
-  return http.patch<ApiResponse<AdminManual>>(`/admin/manuals/${manualId}/pdf`, formData)
+  return http.put<AdminManual>(`/admin/manuals/${manualId}`, formData)
 }
 export function updateAdminManualMeta(manualId: number, body: { title?: string; version?: string; departmentId?: number | null }) {
   return http.patch<ApiResponse<AdminManual>>(`/admin/manuals/${manualId}`, body)
@@ -193,7 +193,7 @@ export interface AdminDirectData {
   directDataId: number
   title: string
   content: string
-  category: string
+  category: string | null
   isActive: boolean
   createdBy: number | null
   updatedBy: number | null
