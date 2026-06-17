@@ -169,13 +169,6 @@ const router = createRouter({
           component: () => import('@/views/common/mypage/MyIssuedTicketDetailView.vue'),
         },
 
-        // 알림
-        {
-          path: 'notifications',
-          name: 'notifications',
-          component: () => import('@/views/common/notification/NotificationView.vue'),
-        },
-
         // ── USER / SYSTEM_ADMIN 공통 ─────────────────────────────────────
         // SYSTEM_ADMIN도 부서 소속 구성원이므로 팀 대시보드 열람이 필요하다.
         // 단, 지식화 승인 큐와 차트는 TEAM_ADMIN 전용 API를 사용하므로 뷰 내에서 role로 분기한다.
