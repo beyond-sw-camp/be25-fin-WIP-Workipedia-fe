@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { Bot, User, MessageCircle, Ticket, Plus, HelpCircle, Send } from '@lucide/vue'
+import { Bot, User, MessageCircle, Ticket, Plus, HelpCircle, Send, X } from '@lucide/vue'
 import SourceCard from '@/components/common/SourceCard.vue'
 import type { Source } from '@/components/common/SourceCard.vue'
 import BaseToast from '@/components/common/BaseToast.vue'
@@ -360,11 +360,14 @@ async function submitTicket() {
       </div>
     </div>
 
-    <!-- 도움말 버튼 -->
+    <!-- 도움말 버튼 — ?tab=usage 쿼리로 FAQ 시스템 사용법 탭을 직접 연다 -->
     <div class="help-row">
-      <button class="help-btn" @click="router.push('/faq')">
-        <HelpCircle :size="36" />
-      </button>
+      <div class="help-wrap">
+        <span class="help-tooltip">사용법이 궁금해요</span>
+        <button class="help-btn" @click="router.push('/faq?tab=usage')">
+          <HelpCircle :size="36" />
+        </button>
+      </div>
     </div>
 
     <!-- 입력 영역 -->
@@ -424,9 +427,12 @@ async function submitTicket() {
 
   <!-- 티켓 발행 다이얼로그 -->
   <Teleport to="body">
-    <div v-if="showTicketDialog" class="dialog-overlay" @click.self="showTicketDialog = false">
+    <div v-if="showTicketDialog" class="dialog-overlay">
       <div class="dialog dialog--wide">
         <div class="dialog-header">
+          <button class="dialog-close" aria-label="닫기" @click="showTicketDialog = false">
+            <X :size="18" />
+          </button>
           <h3>티켓 발행</h3>
           <p>노잇이 자동으로 담당 부서를 추천해드립니다.</p>
         </div>
@@ -585,8 +591,25 @@ async function submitTicket() {
 
 /* ── 도움말 버튼 ── */
 .help-row { display: flex; justify-content: flex-end; padding: 4px 2%; }
+.help-wrap { position: relative; display: inline-flex; }
 .help-btn { background: none; border: none; color: #717182; cursor: pointer; padding: 6px; transition: color 0.15s; }
 .help-btn:hover { color: #1f2430; }
+.help-tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  background: #1f2430;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.help-wrap:hover .help-tooltip { opacity: 1; }
 
 /* ── 입력 영역 ── */
 .composer-area { border-top: 1px solid #eceef2; padding: 16px 2%; background: #fff; }
@@ -620,7 +643,15 @@ async function submitTicket() {
   box-shadow: 0 20px 60px rgba(0,0,0,.2);
 }
 .dialog--wide { max-width: 600px; }
-.dialog-header { padding: 24px 24px 0; }
+.dialog-header { position: relative; padding: 24px 24px 0; }
+.dialog-close {
+  position: absolute; top: 16px; right: 16px;
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border: none; border-radius: 8px;
+  background: transparent; color: #717182; cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.dialog-close:hover { background: #f3f4f6; color: #1f2430; }
 .dialog-header h3 { font-size: 17px; font-weight: 700; color: #1f2430; margin: 0 0 4px; }
 .dialog-header p { font-size: 13px; color: #717182; margin: 0; }
 .dialog-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; }

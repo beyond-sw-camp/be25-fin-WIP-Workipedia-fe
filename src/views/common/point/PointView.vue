@@ -84,7 +84,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="content-inner" style="max-width: 760px;">
+  <div class="content-inner">
     <div class="page-head">
       <h1 class="page-title">
         <Trophy :size="28" color="#f5c000" />

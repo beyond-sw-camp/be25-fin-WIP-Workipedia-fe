@@ -57,6 +57,7 @@ const deptAutoAssignRates = ref<DeptAutoAssignRate[]>([])
 const deptAutoSort = ref<SortOrder>('high')
 const deptAutoBarData = computed(() => {
   const raw = deptAutoAssignRates.value.map(d => ({ label: d.departmentName, v: d.autoAssignmentRate }))
+  // 차트 가독성을 위해 정렬 후 상위 5개만 표시한다.
   return [...raw].sort((a, b) => deptAutoSort.value === 'high' ? b.v - a.v : a.v - b.v).slice(0, 5)
 })
 
@@ -65,6 +66,7 @@ type StatusSortOrder = 'assigned-high' | 'assigned-low' | 'completed-high' | 'co
 const deptTicketStatuses = ref<DeptTicketStatus[]>([])
 const deptStatusSort = ref<StatusSortOrder>('assigned-high')
 const sortedDeptStatus = computed(() => {
+  // 차트 가독성을 위해 정렬 후 상위 5개만 표시한다.
   return [...deptTicketStatuses.value].sort((a, b) => {
     switch (deptStatusSort.value) {
       case 'assigned-high':  return b.assignedTicketCount - a.assignedTicketCount
@@ -88,6 +90,8 @@ const queueHasNext = ref(false)
 const queuePage = ref(1)
 const queueLoadingMore = ref(false)
 const selectedDept = ref<Record<number, number>>({})
+// 배정 중인 ticketId를 Set으로 관리해 여러 티켓 동시 배정 시 각 버튼이 독립적으로 로딩 상태를 갖는다.
+// Vue 3는 Set 직접 변이를 감지하지 못하므로 매번 새 Set으로 교체한다.
 const assigning = ref<Set<number>>(new Set())
 
 // ── 부서 목록 (배정 select 드롭다운) ─────────────────────────
@@ -122,6 +126,8 @@ async function loadQueue(page: number, append: boolean) {
   }
 }
 
+// 배정 성공 시 재조회 없이 해당 티켓을 큐에서 즉시 제거(낙관적 업데이트).
+// API가 성공했으므로 BE 상태도 이미 변경됐기 때문에 재조회 없는 제거가 안전하다.
 async function handleAssign(ticket: TicketResponse) {
   const deptId = selectedDept.value[ticket.ticketId]
   if (!deptId) { showToast('담당 부서를 선택해주세요.', '', 'error'); return }

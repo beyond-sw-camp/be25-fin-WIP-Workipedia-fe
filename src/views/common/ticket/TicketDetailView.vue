@@ -21,6 +21,8 @@ function formatDateTime(iso: string) {
 
 onMounted(async () => {
   const id = Number(route.params.id)
+  // route.params.id가 없거나 비정수 문자열인 경우 Number()는 NaN/Infinity를 반환한다.
+  // Number.isFinite로 유효한 정수 ID인지 확인해 잘못된 URL 진입을 차단한다.
   if (!Number.isFinite(id)) {
     error.value = '잘못된 접근입니다.'
     return
@@ -38,7 +40,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="content-inner" style="max-width: 820px;">
+  <div class="content-inner">
     <button class="btn" style="margin-bottom: 20px;" @click="router.back()">
       <ChevronLeft :size="16" /> 목록으로
     </button>
