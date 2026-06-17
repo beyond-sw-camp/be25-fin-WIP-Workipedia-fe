@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
+import { isAxiosError } from 'axios'
 import { Bot } from '@lucide/vue'
 import {
   getAiPromptSettings, updateAiPromptSettings,
   getAiTools, createAiTool, updateAiTool,
   editRoutingPromptInstruction,
-  type AiTool, type CreateAiToolRequest,
+  type AiTool, type ToolType, type HttpMethod,
 } from '@/api/aiAdminApi'
 import { getAdminDepartments, type AdminDepartment } from '@/api/adminApi'
 
@@ -132,16 +133,22 @@ const tools = ref<AiTool[]>([])
 const toolFilter = ref('전체')
 const toolModalOpen = ref(false)
 const toolSaving = ref(false)
-const toolForm = ref<CreateAiToolRequest>({
+const toolForm = ref({
   name: '',
   description: '',
-  endpoint: '',
-  method: 'GET',
-  toolType: 'HTTP_API',
-  parametersSchema: '',
+  toolType: 'HTTP_API' as ToolType,
+  endpointUrl: '',
+  httpMethod: 'GET' as HttpMethod,
+  datasourceKey: '',
+  queryTemplate: '',
+  timeoutMs: 5000,
+  maxResultCount: 100,
 })
+// parametersSchema 는 BE가 JSON 문자열로 요구하므로 저장 전 JSON 형식만 검증한다.
+const toolParamsText = ref('')
 
 const TOOL_TYPE_LABEL: Record<string, string> = { HTTP_API: 'HTTP API', DB_QUERY: 'DB Query' }
+const APPROVAL_LABEL: Record<string, string> = { DRAFT: '검토 전', APPROVED: '승인', REJECTED: '반려' }
 
 const filteredTools = computed(() => {
   if (toolFilter.value === '전체') return tools.value
@@ -152,7 +159,7 @@ const filteredTools = computed(() => {
 async function loadTools() {
   try {
     const res = await getAiTools()
-    tools.value = res.data
+    tools.value = res.data.content
   } catch { }
 }
 
@@ -166,20 +173,94 @@ async function toggleTool(tool: AiTool) {
 }
 
 function resetToolForm() {
-  toolForm.value = { name: '', description: '', endpoint: '', method: 'GET', toolType: 'HTTP_API', parametersSchema: '' }
+  toolForm.value = {
+    name: '',
+    description: '',
+    toolType: 'HTTP_API',
+    endpointUrl: '',
+    httpMethod: 'GET',
+    datasourceKey: '',
+    queryTemplate: '',
+    timeoutMs: 5000,
+    maxResultCount: 100,
+  }
+  toolParamsText.value = ''
+}
+
+function readApiErrorMessage(error: unknown) {
+  if (!isAxiosError(error)) return null
+  const data = error.response?.data
+  if (data && typeof data === 'object' && 'message' in data && typeof data.message === 'string') {
+    return data.message
+  }
+  return null
+}
+
+function isHttpEndpoint(value: string) {
+  try {
+    const url = new URL(value)
+    return (url.protocol === 'http:' || url.protocol === 'https:') && !!url.hostname
+  } catch {
+    return false
+  }
 }
 
 async function saveTool() {
   if (toolSaving.value) return
+
+  const endpointUrl = toolForm.value.endpointUrl.trim()
+  const datasourceKey = toolForm.value.datasourceKey.trim()
+  const queryTemplate = toolForm.value.queryTemplate.trim()
+  if (toolForm.value.toolType === 'HTTP_API' && !isHttpEndpoint(endpointUrl)) {
+    showSaved('Endpoint URL은 http:// 또는 https:// 로 시작하는 전체 URL이어야 합니다.')
+    return
+  }
+  if (toolForm.value.toolType === 'DB_QUERY' && (!datasourceKey || !queryTemplate)) {
+    showSaved('DB Query Tool은 datasourceKey와 queryTemplate이 필요합니다.')
+    return
+  }
+
+  // BE는 parametersSchema를 JSON 문자열로 받고 @NotBlank로 검증한다.
+  const parametersSchema = toolParamsText.value.trim() || '{}'
+  if (parametersSchema) {
+    try {
+      JSON.parse(parametersSchema)
+    } catch {
+      showSaved('Parameters JSON 형식이 올바르지 않습니다.')
+      return
+    }
+  }
+
   toolSaving.value = true
   try {
-    const res = await createAiTool(toolForm.value)
-    tools.value.push(res.data)
+    const commonPayload = {
+      name: toolForm.value.name.trim(),
+      description: toolForm.value.description.trim(),
+      parametersSchema,
+      timeoutMs: toolForm.value.timeoutMs,
+      maxResultCount: toolForm.value.maxResultCount,
+    }
+    const res = await createAiTool(toolForm.value.toolType === 'HTTP_API'
+      ? {
+          ...commonPayload,
+          toolType: 'HTTP_API',
+          endpointUrl,
+          httpMethod: toolForm.value.httpMethod,
+          authType: 'NONE',
+        }
+      : {
+          ...commonPayload,
+          toolType: 'DB_QUERY',
+          datasourceKey,
+          queryTemplate,
+          authType: 'NONE',
+        })
+    tools.value.unshift(res.data)
     toolModalOpen.value = false
     resetToolForm()
     showSaved('Tool을 등록했습니다.')
-  } catch {
-    showSaved('등록에 실패했습니다.')
+  } catch (error) {
+    showSaved(readApiErrorMessage(error) ?? '등록에 실패했습니다.')
   } finally {
     toolSaving.value = false
   }
@@ -337,10 +418,9 @@ onMounted(() => {
               <thead>
                 <tr>
                   <th>Tool 이름 / 설명</th>
-                  <th>Endpoint</th>
-                  <th>Method</th>
                   <th>유형</th>
-                  <th>상태</th>
+                  <th>승인 상태</th>
+                  <th>등록일</th>
                   <th>활성</th>
                 </tr>
               </thead>
@@ -350,10 +430,13 @@ onMounted(() => {
                     <strong>{{ tool.name }}</strong>
                     <small>{{ tool.description }}</small>
                   </td>
-                  <td><code>{{ tool.endpoint }}</code></td>
-                  <td><span class="method">{{ tool.method }}</span></td>
                   <td>{{ TOOL_TYPE_LABEL[tool.toolType] ?? tool.toolType }}</td>
-                  <td><span class="badge badge--green">{{ tool.status }}</span></td>
+                  <td>
+                    <span :class="['badge', tool.approvalStatus === 'APPROVED' ? 'badge--green' : tool.approvalStatus === 'REJECTED' ? 'badge--gray' : 'badge--amber']">
+                      {{ APPROVAL_LABEL[tool.approvalStatus] ?? tool.approvalStatus }}
+                    </span>
+                  </td>
+                  <td>{{ tool.createdAt?.slice(0, 10) }}</td>
                   <td>
                     <label class="toggle">
                       <input :checked="tool.active" type="checkbox" @change="toggleTool(tool)" />
@@ -362,7 +445,7 @@ onMounted(() => {
                   </td>
                 </tr>
                 <tr v-if="filteredTools.length === 0">
-                  <td colspan="6" style="text-align: center; color: #b0b8c1; padding: 28px;">등록된 Tool이 없습니다.</td>
+                  <td colspan="5" style="text-align: center; color: #b0b8c1; padding: 28px;">등록된 Tool이 없습니다.</td>
                 </tr>
               </tbody>
             </table>
@@ -418,7 +501,7 @@ onMounted(() => {
     </div>
 
     <!-- ── API Tool 등록 모달 ── -->
-    <div v-if="toolModalOpen" class="modal-backdrop" @click.self="toolModalOpen = false">
+    <div v-if="toolModalOpen" class="modal-backdrop">
       <div class="modal">
         <div class="modal-header">
           <h2>API Tool 등록</h2>
@@ -433,24 +516,35 @@ onMounted(() => {
               <option value="DB_QUERY">DB Query</option>
             </select>
           </label>
-          <label>HTTP Method
-            <select v-model="toolForm.method">
+          <label v-if="toolForm.toolType === 'HTTP_API'">HTTP Method
+            <select v-model="toolForm.httpMethod">
               <option>GET</option>
               <option>POST</option>
               <option>PUT</option>
+              <option>PATCH</option>
               <option>DELETE</option>
             </select>
           </label>
+          <label v-else>Datasource Key
+            <input v-model="toolForm.datasourceKey" placeholder="예: workipediaReadonly" />
+          </label>
         </div>
-        <label>Endpoint URL<input v-model="toolForm.endpoint" placeholder="https://internal-api.example.com/v1/..." /></label>
+        <label v-if="toolForm.toolType === 'HTTP_API'">Endpoint URL<input v-model="toolForm.endpointUrl" placeholder="https://internal-api.example.com/v1/..." /></label>
+        <label v-else>Query Template
+          <textarea
+            v-model="toolForm.queryTemplate"
+            class="code-input"
+            placeholder="SELECT name FROM employee_vacations WHERE employee_id = :employeeId LIMIT 1"
+          ></textarea>
+        </label>
         <label>Parameters JSON Schema
-          <textarea v-model="toolForm.parametersSchema" class="code-input" placeholder='{"type":"object","properties":{}}'></textarea>
+          <textarea v-model="toolParamsText" class="code-input" placeholder='{"type":"object","properties":{}}'></textarea>
         </label>
         <div class="modal-actions">
           <button class="button button--secondary" @click="toolModalOpen = false; resetToolForm()">취소</button>
           <button
             class="button button--primary"
-            :disabled="!toolForm.name || !toolForm.endpoint || toolSaving"
+            :disabled="!toolForm.name.trim() || !toolForm.description.trim() || (toolForm.toolType === 'HTTP_API' ? !toolForm.endpointUrl.trim() : !toolForm.datasourceKey.trim() || !toolForm.queryTemplate.trim()) || toolSaving"
             @click="saveTool"
           >
             {{ toolSaving ? '등록 중...' : '등록' }}
@@ -520,7 +614,10 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
 .segmented { display: inline-flex; padding: 3px; border: 1px solid #d7dce1; border-radius: 6px; background: #fff; }
 .segmented button { min-height: 28px; padding: 5px 11px; border: 0; border-radius: 4px; background: transparent; color: #6c7782; font-size: 11px; cursor: pointer; }
 .segmented button.active { background: #eaf2ff; color: #1759a8; font-weight: 700; }
-.editable-table { min-width: 840px; }
+.editable-table { min-width: 640px; }
+/* Tool 표는 컨테이너보다 넓어지면 활성 토글 칸이 잘리므로 가로 스크롤 허용 */
+.table-wrap:has(.editable-table) { overflow-x: auto; }
+.editable-table th:last-child, .editable-table td:last-child { width: 72px; padding-right: 18px; white-space: nowrap; }
 .prompt-excerpt { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-width: 360px; color: #53606d; }
 .inline-note { margin: 14px 0; padding: 10px 12px; border-left: 3px solid #75a1cf; background: #f3f7fb; color: #687683; font-size: 11px; line-height: 1.55; }
 .routing-note { margin-top: 14px; }
