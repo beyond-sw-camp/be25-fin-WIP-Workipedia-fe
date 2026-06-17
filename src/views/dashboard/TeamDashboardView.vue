@@ -218,7 +218,7 @@ function closeDetail() {
         <Ticket :size="28" color="#2b7fff" />
         부서 대시보드
       </h1>
-      <p class="page-sub">우리 부서의 티켓을 확인하고 처리하세요</p>
+      <p class="page-sub">우리 부서의 티켓을 확인하고 처리하세요.</p>
     </div>
 
     <div v-if="loading" class="empty-ph" style="height: 200px;">불러오는 중...</div>

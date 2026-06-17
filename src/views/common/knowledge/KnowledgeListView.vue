@@ -60,17 +60,17 @@ function formatDate(iso: string) {
           <Library :size="28" color="#2b7fff" />
           지식화 게시판
         </h1>
-        <p class="page-sub">티켓 답변에서 축적된 조직 지식을 부서별로 탐색합니다</p>
+        <p class="page-sub">티켓 답변에서 축적된 지식을 부서별로 탐색합니다.</p>
       </div>
       <div class="card summary-card">
         <div class="summary-item">
           <div class="summary-value">{{ deptGroups.length }}</div>
-          <div class="summary-label">전체 부서</div>
+          <div class="summary-label">부서 수</div>
         </div>
         <div class="summary-divider" />
         <div class="summary-item">
           <div class="summary-value">{{ allItems.length }}</div>
-          <div class="summary-label">전체 지식 건수</div>
+          <div class="summary-label">지식화 건수</div>
         </div>
       </div>
     </div>
@@ -82,7 +82,7 @@ function formatDate(iso: string) {
     <template v-else>
     <div class="search-bar" style="margin-bottom: 24px;">
       <Search :size="16" />
-      <input v-model="query" placeholder="부서명으로 검색" />
+      <input v-model="query" placeholder="부서명 검색" />
     </div>
 
     <div v-if="filtered.length === 0" class="empty-ph" style="height: 200px;">

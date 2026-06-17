@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Search, MessageCircle, CheckCircle2, Clock } from '@lucide/vue'
+import { Search, FileText, CheckCircle2, Clock } from '@lucide/vue'
 import { getQuestions, searchQuestions, autocompleteQuestions } from '@/api/workiApi'
 import type { QuestionStatus } from '@/types/worki'
 
@@ -177,10 +177,10 @@ const filtered = computed(() => {
   <div class="content-inner">
     <div class="page-head">
       <h1 class="page-title">
-        <MessageCircle :size="28" color="#7c3aed" />
-        워키
+        <FileText :size="28" color="#7c3aed" />
+        워키 게시판
       </h1>
-      <p class="page-sub">팀원의 질문에 답하고 조직 지식을 쌓아요</p>
+      <p class="page-sub">사내 구성원의 궁금증을 해결하고 조직의 지식을 쌓아보세요.</p>
     </div>
 
     <div class="toolbar">

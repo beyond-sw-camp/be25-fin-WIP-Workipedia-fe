@@ -11,7 +11,7 @@ import {
 const route = useRoute()
 
 const PAGE_META: Record<string, { label: string; icon: object; color: string }> = {
-  knowit:                { label: '노잇 (Know-it)',        icon: MessageCircle,   color: '#f97316' },
+  knowit:                { label: '노잇 (Know-it)',        icon: MessageCircle,   color: '#2b7fff' },
   worki:                 { label: '워키 게시판',           icon: FileText,        color: '#8b5cf6' },
   'worki-new':           { label: '워키 작성',             icon: FileText,        color: '#8b5cf6' },
   'worki-detail':        { label: '워키 상세',             icon: FileText,        color: '#8b5cf6' },
@@ -23,7 +23,7 @@ const PAGE_META: Record<string, { label: string; icon: object; color: string }> 
   knowledge:             { label: '지식화 게시판',         icon: Library,         color: '#3b82f6' },
   'knowledge-dept':      { label: '지식화 게시판',         icon: Library,         color: '#3b82f6' },
   'knowledge-detail':    { label: '지식화 상세',           icon: Library,         color: '#3b82f6' },
-  faq:                   { label: 'FAQ',                   icon: HelpCircle,      color: '#64748b' },
+  faq:                   { label: 'FAQ',                   icon: HelpCircle,      color: '#f5c000' },
   tickets:               { label: '내 티켓',              icon: FileText,        color: '#ef4444' },
   'ticket-new':          { label: '티켓 생성',             icon: FileText,        color: '#ef4444' },
   'ticket-detail':       { label: '티켓 상세',             icon: FileText,        color: '#ef4444' },
@@ -35,7 +35,7 @@ const PAGE_META: Record<string, { label: string; icon: object; color: string }> 
   'dashboard-team':      { label: '부서 대시보드',         icon: LayoutDashboard, color: '#3b82f6' },
   'dashboard-department':{ label: '부서 대시보드',         icon: Building2,       color: '#8b5cf6' },
   'dashboard-admin':     { label: '시스템 대시보드',       icon: ShieldCheck,     color: '#ef4444' },
-  'admin-settings':      { label: '관리자 설정',           icon: Settings,        color: '#64748b' },
+  'admin-settings':      { label: '설정',           icon: Settings,        color: '#64748b' },
   'admin-ai':            { label: 'AI 관리',               icon: Bot,             color: '#6366f1' },
 }
 
