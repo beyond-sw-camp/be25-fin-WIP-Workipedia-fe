@@ -187,3 +187,37 @@ export function getChatPolicy() {
 export function updateChatPolicy(body: ChatPolicy) {
   return http.patch<ChatPolicy>('/admin/flash-chat/policy', body)
 }
+
+// ── 수기 지식 관리 ──────────────────────────────────────────────
+export interface AdminDirectData {
+  directDataId: number
+  title: string
+  content: string
+  category: string
+  isActive: boolean
+  createdBy: number | null
+  updatedBy: number | null
+  createdAt: string
+  updatedAt: string
+  deletedAt: string | null
+}
+// page: 1-based (BasePageRequest 기반, 기본값 1)
+export interface DirectDataParams {
+  isActive?: boolean
+  category?: string
+  keyword?: string
+  page?: number
+  size?: number
+}
+export function getAdminDirectData(params: DirectDataParams = {}) {
+  return http.get<PageResponse<AdminDirectData>>('/admin/direct-data', { params })
+}
+export function createAdminDirectData(body: { title: string; content: string; category?: string; isActive?: boolean }) {
+  return http.post<AdminDirectData>('/admin/direct-data', body)
+}
+export function updateAdminDirectData(id: number, body: { title: string; content: string; category?: string; isActive?: boolean }) {
+  return http.put<AdminDirectData>(`/admin/direct-data/${id}`, body)
+}
+export function deleteAdminDirectData(id: number) {
+  return http.delete<void>(`/admin/direct-data/${id}`)
+}
