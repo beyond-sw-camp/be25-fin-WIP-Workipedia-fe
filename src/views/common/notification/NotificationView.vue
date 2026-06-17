@@ -24,6 +24,8 @@ const error = ref('')
 
 type Kind = 'ticket' | 'worki' | 'point' | 'system'
 
+// NotificationType → 아이콘/색상 카테고리 매핑.
+// 새로운 NotificationType이 BE에 추가되면 여기에 case를 추가하면 된다.
 function kindOf(type: NotificationType): Kind {
   switch (type) {
     case 'WORKI_ANSWER_CREATED':
@@ -83,6 +85,8 @@ function loadMore() {
   fetchPage(page.value + 1, true)
 }
 
+// 클릭 시 읽음 처리 후 targetUrl로 이동한다. 읽음 API 실패는 무시하고 이동은 항상 진행해
+// 사용자 흐름이 끊기지 않게 한다. notiStore.decrement()로 헤더 배지를 즉시 갱신한다.
 async function onClick(n: NotificationResponse) {
   if (!n.readAt) {
     try {
@@ -96,6 +100,8 @@ async function onClick(n: NotificationResponse) {
   if (n.targetUrl) router.push(n.targetUrl)
 }
 
+// 낙관적 업데이트: API 성공 전 로컬 목록 전체에 readAt을 먼저 채운다.
+// notiStore.reset()으로 전역 배지를 0으로 초기화한다.
 async function markAllRead() {
   try {
     await markAllNotificationsRead()
@@ -110,6 +116,7 @@ async function markAllRead() {
 }
 
 async function remove(n: NotificationResponse, e: Event) {
+  // 부모(.noti-item)의 onClick이 실행되지 않도록 이벤트 전파를 차단한다.
   e.stopPropagation()
   try {
     await deleteNotification(n.notificationId)
@@ -125,7 +132,7 @@ onMounted(() => fetchPage(0, false))
 </script>
 
 <template>
-  <div class="content-inner" style="max-width: 760px;">
+  <div class="content-inner">
     <div class="page-head">
       <div style="display: flex; align-items: center; justify-content: space-between;">
         <div>

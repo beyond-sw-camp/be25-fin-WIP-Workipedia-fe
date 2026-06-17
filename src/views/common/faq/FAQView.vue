@@ -19,6 +19,8 @@ function formatDate(iso: string) {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
 }
 
+// 세 섹션을 순차 요청하면 최대 3× RTT가 걸리므로 Promise.all로 병렬 요청한다.
+// 하나라도 실패하면 전체 에러 배너를 표시한다.
 onMounted(async () => {
   loading.value = true
   error.value = ''
@@ -40,7 +42,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="content-inner" style="max-width: 920px;">
+  <div class="content-inner">
     <div class="page-head">
       <h1 class="page-title">
         <HelpCircle :size="28" color="#f5c000" />

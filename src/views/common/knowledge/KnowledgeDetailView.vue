@@ -25,8 +25,10 @@ function daysSince(iso: string) {
 }
 
 const elapsed = computed(() => (item.value ? daysSince(item.value.approvedAt) : 0))
+// 90일 경과 시 '내용이 오래됐을 수 있다'는 배너를 표시해 독자에게 신뢰도를 경고한다.
 const isStale = computed(() => elapsed.value > 90)
 
+// 경과일에 따라 초록→파랑→주황→빨강 순으로 색을 강조해 정보 신선도를 직관적으로 표현한다.
 function elapsedStyle(days: number) {
   if (days <= 7) return { color: '#00a63e' }
   if (days <= 30) return { color: '#2b7fff' }
@@ -56,7 +58,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="content-inner" style="max-width: 860px;">
+  <div class="content-inner">
     <button class="btn" style="margin-bottom: 20px;" @click="router.back()">
       <ChevronLeft :size="16" /> 목록으로
     </button>

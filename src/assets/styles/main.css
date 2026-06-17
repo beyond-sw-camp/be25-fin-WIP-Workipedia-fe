@@ -14,6 +14,13 @@
   background-clip: padding-box;
 }
 
+/* ── 전역 폰트 스케일 ─────────────────────────────────────── */
+/* rem 단위를 사용하는 모든 요소(사이드바·헤더 포함)가 이 값에 비례해 축소된다.
+   다른 파일의 rem 값은 건드리지 않고 이 한 줄만 수정하면 전체 스케일이 바뀐다. */
+html {
+  font-size: 80%;
+}
+
 /* ── 기본 폰트 ────────────────────────────────────────────── */
 body {
   font-family: 'Inter', -apple-system, system-ui, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
@@ -38,7 +45,7 @@ body {
   gap: 5px;
   padding: 4px 10px;
   border-radius: 99px;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 600;
   background: var(--bg-soft);
   color: var(--muted-2);
@@ -67,7 +74,7 @@ body {
   border-radius: 12px;
   border: 1px solid var(--line);
   background: var(--bg);
-  font-size: 14.5px;
+  font-size: 0.906rem;
   font-weight: 600;
   color: var(--ink);
   cursor: pointer;
@@ -87,16 +94,19 @@ body {
 .btn:disabled { background: #d1d5db; border-color: #d1d5db; color: #9ca3af; cursor: not-allowed; transform: none; }
 
 /* ── Content layout ──────────────────────────────────────── */
+/* 페이지 콘텐츠 컨테이너. 너비 80%로 좌우 여백을 확보하고 중앙 정렬한다.
+   각 뷰 파일의 인라인 max-width 오버라이드를 제거하고 여기서 일괄 관리한다. */
 .content-inner {
-  max-width: 1180px;
+  width: 80%;
+  max-width: 1400px;
   margin: 0 auto;
-  padding: 40px 44px 80px;
+  padding: 2.5rem 2.75rem 5rem;
 }
 
 /* ── Page header ─────────────────────────────────────────── */
 .page-head { margin-bottom: 28px; }
 .page-title {
-  font-size: 32px;
+  font-size: 2rem;
   font-weight: 800;
   color: var(--ink);
   display: flex;
@@ -104,7 +114,7 @@ body {
   gap: 10px;
   letter-spacing: -0.5px;
 }
-.page-sub { color: var(--muted); font-size: 15px; margin-top: 6px; }
+.page-sub { color: var(--muted); font-size: 0.9375rem; margin-top: 6px; }
 
 /* ── Segmented control ───────────────────────────────────── */
 .seg {
@@ -125,7 +135,7 @@ body {
   border: none;
   background: none;
   color: var(--muted-2);
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
@@ -146,7 +156,7 @@ body {
   border-radius: 10px;
   border: 1px solid var(--line);
   background: var(--bg);
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--ink);
   cursor: pointer;
@@ -172,7 +182,7 @@ body {
   border: none;
   background: transparent;
   outline: none;
-  font-size: 15px;
+  font-size: 0.9375rem;
   color: var(--ink);
   font-family: inherit;
 }
@@ -183,7 +193,7 @@ body {
   border: 1px dashed #d7dae0;
   border-radius: 12px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 0.8125rem;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -212,7 +222,7 @@ body {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 700;
 }
 
@@ -235,7 +245,7 @@ body {
 }
 .auth-label {
   font-weight: 700;
-  font-size: 15px;
+  font-size: 0.9375rem;
   margin-bottom: 8px;
   display: block;
   color: #1f2937;
@@ -246,7 +256,7 @@ body {
   border-radius: 12px;
   border: 1px solid #d6dae1;
   background: #fff;
-  font-size: 15.5px;
+  font-size: 0.969rem;
   outline: none;
   margin-bottom: 20px;
   font-family: inherit;
