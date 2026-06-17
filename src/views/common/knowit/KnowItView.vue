@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { Bot, User, MessageCircle, Ticket, Plus, HelpCircle, Send } from '@lucide/vue'
+import { Bot, User, MessageCircle, Ticket, Plus, HelpCircle, Send, X } from '@lucide/vue'
 import SourceCard from '@/components/common/SourceCard.vue'
 import type { Source } from '@/components/common/SourceCard.vue'
 import BaseToast from '@/components/common/BaseToast.vue'
@@ -424,9 +424,12 @@ async function submitTicket() {
 
   <!-- 티켓 발행 다이얼로그 -->
   <Teleport to="body">
-    <div v-if="showTicketDialog" class="dialog-overlay" @click.self="showTicketDialog = false">
+    <div v-if="showTicketDialog" class="dialog-overlay">
       <div class="dialog dialog--wide">
         <div class="dialog-header">
+          <button class="dialog-close" aria-label="닫기" @click="showTicketDialog = false">
+            <X :size="18" />
+          </button>
           <h3>티켓 발행</h3>
           <p>노잇이 자동으로 담당 부서를 추천해드립니다.</p>
         </div>
@@ -604,7 +607,15 @@ async function submitTicket() {
   box-shadow: 0 20px 60px rgba(0,0,0,.2);
 }
 .dialog--wide { max-width: 600px; }
-.dialog-header { padding: 24px 24px 0; }
+.dialog-header { position: relative; padding: 24px 24px 0; }
+.dialog-close {
+  position: absolute; top: 16px; right: 16px;
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border: none; border-radius: 8px;
+  background: transparent; color: #717182; cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.dialog-close:hover { background: #f3f4f6; color: #1f2430; }
 .dialog-header h3 { font-size: 17px; font-weight: 700; color: #1f2430; margin: 0 0 4px; }
 .dialog-header p { font-size: 13px; color: #717182; margin: 0; }
 .dialog-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; }
