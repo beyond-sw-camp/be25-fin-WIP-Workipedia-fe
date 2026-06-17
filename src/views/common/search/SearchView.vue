@@ -172,14 +172,14 @@ watch(query, () => {
         <Search :size="28" color="#1f2430" />
         통합 검색
       </h1>
-      <p class="page-sub">워키 질문과 매뉴얼을 키워드로 검색하세요 (2자 이상)</p>
+      <p class="page-sub">워키 질문과 매뉴얼을 키워드로 검색해보세요. (2자 이상)</p>
     </div>
 
     <div class="search-bar" style="max-width: 620px; margin-bottom: 24px; position: relative;">
       <Search :size="18" />
       <input
         v-model="query"
-        placeholder="검색어를 입력하세요"
+        placeholder="키워드 입력"
         autofocus
         @focus="showSuggestions = suggestions.length > 0"
         @blur="hideSuggestionsSoon"

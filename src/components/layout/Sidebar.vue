@@ -83,6 +83,8 @@ const initials = computed(() =>
 
     <!-- 메인 메뉴 -->
     <nav class="sidebar-nav">
+      <!-- 커뮤니케이션 섹션 -->
+      <div class="nav-section-label">커뮤니케이션</div>
       <RouterLink to="/knowit" class="nav-item">
         <MessageCircle :size="16" /> 노잇 (Know-it)
       </RouterLink>
@@ -111,24 +113,21 @@ const initials = computed(() =>
         <HelpCircle :size="16" /> FAQ
       </RouterLink>
 
-      <!-- 관리 섹션 (모든 역할) -->
-      <div class="nav-section-label">관리</div>
-
-      <!-- USER: 부서 대시보드 -->
+      <!-- 운영 섹션 -->
+      <div class="nav-section-label">운영</div>
       <RouterLink v-if="auth.role === ROLES.USER" to="/dashboard/team" class="nav-item nav-item-secondary">
         <LayoutDashboard :size="16" /> 부서 대시보드
       </RouterLink>
-
-      <!-- TEAM_ADMIN: 부서 대시보드 -->
       <RouterLink v-else-if="auth.role === ROLES.TEAM_ADMIN" to="/dashboard/department" class="nav-item nav-item-secondary">
         <Building2 :size="16" /> 부서 대시보드
       </RouterLink>
+      <RouterLink v-else-if="auth.role === ROLES.SYSTEM_ADMIN" to="/dashboard/team" class="nav-item nav-item-secondary">
+        <Building2 :size="16" /> 부서 대시보드
+      </RouterLink>
 
-      <!-- SYSTEM_ADMIN: 부서 대시보드 + 시스템 대시보드 + AI 관리 + 설정 -->
-      <template v-else-if="auth.role === ROLES.SYSTEM_ADMIN">
-        <RouterLink to="/dashboard/team" class="nav-item nav-item-secondary">
-          <Building2 :size="16" /> 부서 대시보드
-        </RouterLink>
+      <!-- 관리 섹션 -->
+      <template v-if="auth.role === ROLES.SYSTEM_ADMIN">
+        <div class="nav-section-label">관리</div>
         <RouterLink to="/dashboard/admin" class="nav-item nav-item-secondary">
           <ShieldCheck :size="16" /> 시스템 대시보드
         </RouterLink>
@@ -310,7 +309,7 @@ const initials = computed(() =>
 .nav-section-label {
   font-size: 0.68rem;
   font-weight: 600;
-  color: rgba(148, 163, 184, 0.45);
+  color: rgba(255, 255, 255, 0.68);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   padding: 0.85rem 1.1rem 0.3rem;

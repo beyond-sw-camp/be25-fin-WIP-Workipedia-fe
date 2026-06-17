@@ -64,10 +64,10 @@ onMounted(async () => {
         <Trophy :size="28" color="#f5c000" />
         리더보드
       </h1>
-      <p class="page-sub">워키에서 가장 활발하게 지식을 공유하는 분들입니다</p>
+      <p class="page-sub">조직의 지식 축적에 가장 크게 기여하고 있는 분들입니다.</p>
       <div class="update-notice">
         <RefreshCw :size="12" />
-        매주 월요일 자정, 지난 한 주간의 활동이 집계되어 순위가 새롭게 업데이트됩니다
+        매주 월요일 자정, 지난 주 활동 내역을 반영하여 리더보드가 새롭게 업데이트됩니다
       </div>
     </div>
 
@@ -156,7 +156,8 @@ onMounted(async () => {
           <div v-else class="my-rank-empty">아직 ESG 점수가 없습니다. 워키에서 답변을 달아보세요!</div>
         </div>
 
-        <!-- 환경 영향: 내 ESG 점수 기반으로 절감 시간·전력·탄소를 공식으로 환산해 표시 -->
+        <!--
+        환경 영향: 내 ESG 점수 기반으로 절감 시간·전력·탄소를 공식으로 환산해 표시
         <div class="card env-card">
           <div class="env-head">
             <TrendingUp :size="17" color="#00a63e" />
@@ -191,6 +192,7 @@ onMounted(async () => {
             <p>전기 절감 <code>{{ savedKWh.toFixed(3) }}kWh</code> × 배출계수 {{ EMISSION_FACTOR }} = <code>{{ co2Saved.toFixed(3) }}kgCO₂eq</code></p>
           </div>
         </div>
+        -->
 
         <!-- 북극 회복도: topRankers ESG 합산 → 플랫폼 전체 기여 수치 표시 -->
         <div class="card arctic-card">
@@ -201,7 +203,7 @@ onMounted(async () => {
             <div class="arctic-text">
               <h3 class="arctic-title">북극이 더 건강해지고 있어요!</h3>
               <p class="arctic-desc">
-                전체 사용자들의 ESG 포인트: <strong style="color:#00a63e;">{{ totalEsgScore.toLocaleString() }}점</strong>
+                전체 사용자들의 ESG 점수: <strong style="color:#00a63e;">{{ totalEsgScore.toLocaleString() }}점</strong>
               </p>
             </div>
           </div>

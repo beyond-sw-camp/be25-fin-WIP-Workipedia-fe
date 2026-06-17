@@ -103,13 +103,13 @@ onMounted(() => fetchPage(1))
         <BookOpen :size="28" color="#10b981" />
         매뉴얼
       </h1>
-      <p class="page-sub">사내 전체 매뉴얼과 최근 업데이트 내역을 확인하세요</p>
+      <p class="page-sub">사내 전체 매뉴얼과 최근 업데이트 내역을 확인하세요.</p>
     </div>
 
     <!-- Search -->
     <div class="search-bar" style="margin-bottom: 24px;">
       <Search :size="16" />
-      <input v-model="query" placeholder="매뉴얼 검색..." />
+      <input v-model="query" placeholder="매뉴얼 검색" />
     </div>
 
     <!-- Tabs -->

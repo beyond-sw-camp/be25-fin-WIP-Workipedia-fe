@@ -290,8 +290,8 @@ async function submitTicket() {
             </button>
           </div>
           <div class="welcome-hints">
-            <p><strong class="hint-q">질문:</strong> 사내 위키, 문서, FAQ를 검색해 답변을 찾아드려요</p>
-            <p><strong class="hint-r">요청:</strong> 담당 부서에 티켓을 발행해 처리를 요청해요</p>
+            <p><strong class="hint-q">질문:</strong> 사내 매뉴얼, 워키, FAQ를 검색하여 답변을 제공해요</p>
+            <p><strong class="hint-r">요청:</strong> 담당 부서에 티켓을 발행하여 업무 처리를 요청해요</p>
           </div>
         </div>
 
@@ -507,8 +507,24 @@ async function submitTicket() {
 .btn-mode:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-question { background: #2b7fff; color: #fff; }
 .btn-request { background: #8b5cf6; color: #fff; }
-.welcome-hints { display: flex; flex-direction: column; gap: 6px; }
-.welcome-hints p { font-size: 14px; color: #717182; margin: 0; }
+.welcome-hints {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  text-align: left;
+}
+.welcome-hints p {
+  display: flex;
+  align-items: baseline;
+  font-size: 14px;
+  color: #717182;
+  margin: 0;
+}
+.welcome-hints strong {
+  width: 38px;
+  flex-shrink: 0;
+}
 .hint-q { color: #2b7fff; }
 .hint-r { color: #8b5cf6; }
 

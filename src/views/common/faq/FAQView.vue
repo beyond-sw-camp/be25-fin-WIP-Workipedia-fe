@@ -46,7 +46,7 @@ onMounted(async () => {
         <HelpCircle :size="28" color="#f5c000" />
         자주 찾는 항목
       </h1>
-      <p class="page-sub">많이 보는 워키와 매뉴얼을 한눈에 확인하세요</p>
+      <p class="page-sub">많이 보는 워키와 매뉴얼을 한눈에 확인하세요.</p>
     </div>
 
     <div v-if="loading" class="empty-ph" style="height: 240px;">불러오는 중...</div>
