@@ -336,11 +336,12 @@ async function submitTicket() {
           </div>
 
           <!-- 액션 버튼 -->
+          <!-- 노잇이 답변하지 못한 경우에도 사용자가 워키 질문 등록 / 티켓 발송 중 선택할 수 있도록 두 버튼을 항상 함께 노출한다. -->
           <div v-else-if="m.kind === 'actions'" class="msg-actions">
-            <button v-if="m.nextAction !== 'CREATE_TICKET'" class="btn btn--outline" @click="openWorkyDialog(m.draftQuestion)">
+            <button class="btn btn--outline" @click="openWorkyDialog(m.draftQuestion)">
               <Plus :size="13" /> 워키에 질문 등록하기
             </button>
-            <button v-if="m.nextAction !== 'CREATE_WORKI'" class="btn btn--outline btn--purple" @click="openTicketDialog(m.userText ?? '', m.draftTicket)">
+            <button class="btn btn--outline btn--purple" @click="openTicketDialog(m.userText ?? '', m.draftTicket)">
               <Ticket :size="13" /> 담당 부서에 문의하기
             </button>
           </div>
