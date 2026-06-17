@@ -360,11 +360,14 @@ async function submitTicket() {
       </div>
     </div>
 
-    <!-- 도움말 버튼 -->
+    <!-- 도움말 버튼 — ?tab=usage 쿼리로 FAQ 시스템 사용법 탭을 직접 연다 -->
     <div class="help-row">
-      <button class="help-btn" @click="router.push('/faq')">
-        <HelpCircle :size="36" />
-      </button>
+      <div class="help-wrap">
+        <span class="help-tooltip">사용법이 궁금해요</span>
+        <button class="help-btn" @click="router.push('/faq?tab=usage')">
+          <HelpCircle :size="36" />
+        </button>
+      </div>
     </div>
 
     <!-- 입력 영역 -->
@@ -572,8 +575,25 @@ async function submitTicket() {
 
 /* ── 도움말 버튼 ── */
 .help-row { display: flex; justify-content: flex-end; padding: 4px 2%; }
+.help-wrap { position: relative; display: inline-flex; }
 .help-btn { background: none; border: none; color: #717182; cursor: pointer; padding: 6px; transition: color 0.15s; }
 .help-btn:hover { color: #1f2430; }
+.help-tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  background: #1f2430;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.help-wrap:hover .help-tooltip { opacity: 1; }
 
 /* ── 입력 영역 ── */
 .composer-area { border-top: 1px solid #eceef2; padding: 16px 2%; background: #fff; }
