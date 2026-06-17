@@ -20,10 +20,13 @@ function showToast(title: string, sub = '', type: 'success' | 'error' = 'success
   toastVisible.value = true
 }
 
-// BE는 ASSIGNED 상태 티켓 하나로 내려주므로 FE에서 assigneeId로 구분
-// - assigneeId === null        → 아직 담당자 없음 → 부서 공용 큐 (deptTickets)
-// - assigneeId === 내 userId   → 내가 담당 중      → 내 답장 티켓 (myTickets)
-// - status === COMPLETED       → 처리 완료          → 처리 완료 (doneTickets)
+// ASSIGNED·COMPLETED를 병렬로 가져와 FE에서 assigneeId 기준으로 3개 버킷으로 분리한다.
+// - deptTickets : ASSIGNED 중 assigneeId === null  (부서 배정, 담당자 미지정)
+// - myTickets   : ASSIGNED 중 assigneeId === 내 userId (내가 담당 중)
+//                 + 답변 완료(COMPLETED) 시 submitAnswer에서 수동 추가
+//                 (assigneeId=null 티켓에 답변해도 BE가 assigneeId를 갱신하지 않아
+//                  reload 후 filter에서 누락되므로 수동 보완이 필요하다)
+// - doneTickets : COMPLETED 전체 (최근 1개월, updatedAt 기준)
 const deptTickets = ref<TicketResponse[]>([])
 const myTickets = ref<TicketResponse[]>([])
 const doneTickets = ref<TicketResponse[]>([])
@@ -160,6 +163,12 @@ async function submitAnswer() {
     closeAnswer()
     showToast('답변이 등록되었습니다', '티켓이 내 답장 티켓으로 이동되었습니다', 'success')
     await loadAll()
+    // loadAll()의 myTickets는 ASSIGNED 상태 기준이라 답변 완료(COMPLETED) 티켓이 포함되지 않는다.
+    // 방금 답변한 티켓을 doneTickets에서 찾아 수동으로 myTickets에 추가해 누락을 보완한다.
+    const justAnswered = doneTickets.value.find(t => t.ticketId === ticketId)
+    if (justAnswered && !myTickets.value.some(t => t.ticketId === ticketId)) {
+      myTickets.value = [justAnswered, ...myTickets.value]
+    }
   } catch (e: unknown) {
     const status = (e as { response?: { status?: number } })?.response?.status
     if (status === 409) {
@@ -207,7 +216,7 @@ function closeDetail() {
     <div class="page-head">
       <h1 class="page-title">
         <Ticket :size="28" color="#2b7fff" />
-        팀 대시보드
+        부서 대시보드
       </h1>
       <p class="page-sub">우리 부서의 티켓을 확인하고 처리하세요</p>
     </div>

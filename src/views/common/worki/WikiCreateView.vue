@@ -10,9 +10,11 @@ const title = ref('')
 const body = ref('')
 const tagInput = ref('')
 const tags = ref<string[]>([])
+// 중복 제출 방지 플래그 — API 응답 전에 버튼이 재클릭되는 경우를 막는다.
 const submitting = ref(false)
 const error = ref('')
 
+// 최대 5개 제한, 중복 불허 — Enter 키와 버튼 두 경로 모두 이 함수로 처리.
 function addTag() {
   const t = tagInput.value.trim()
   if (t && !tags.value.includes(t) && tags.value.length < 5) {
@@ -37,7 +39,8 @@ async function submit() {
   }
   submitting.value = true
   try {
-    // BE QuestionCreateRequest 는 title, content 만 받는다. (tags 미지원)
+    // BE QuestionCreateRequest 는 title, content 만 받는다 — tags 필드 없음.
+    // UI 태그는 향후 BE 지원 시 추가 예정.
     await createQuestion({
       title: title.value,
       content: body.value,
@@ -52,7 +55,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="content-inner" style="max-width: 760px;">
+  <div class="content-inner">
     <button class="btn" style="margin-bottom: 20px;" @click="router.back()">
       <ChevronLeft :size="16" /> 목록으로
     </button>

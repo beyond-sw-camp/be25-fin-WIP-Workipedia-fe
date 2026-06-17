@@ -180,7 +180,7 @@ async function submitAnswer() {
 </script>
 
 <template>
-  <div class="content-inner" style="max-width: 860px;">
+  <div class="content-inner">
     <button class="btn" style="margin-bottom: 20px;" @click="goBack">
       <ChevronLeft :size="16" /> 목록으로
     </button>
