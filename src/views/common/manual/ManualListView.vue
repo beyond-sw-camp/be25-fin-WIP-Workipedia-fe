@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { BookOpen, Search, Clock, FileText, ChevronRight } from '@lucide/vue'
 import { getManuals } from '@/api/manualApi'
@@ -11,15 +11,16 @@ const deptStore = useDeptStore()
 const query = ref('')
 const activeTab = ref<'recent' | 'all'>('recent')
 
-const PAGE_SIZE = 20
+// 한 페이지에 표시할 항목 수. BE PageRequest의 size 파라미터로 전달된다.
+const PAGE_SIZE = 10
 const manuals = ref<ManualSummaryResponse[]>([])
 const page = ref(1)
-const hasNext = ref(false)
+const totalPages = ref(0)
 const loading = ref(false)
-const loadingMore = ref(false)
 const error = ref('')
 
-// "v1" / "1.0" / "v1.0" 등 다양한 형식을 화면 표시용 "vN.M"으로 통일한다.
+// BE가 반환하는 버전 문자열은 "v1", "1.0", "v1.0" 등 형식이 일정하지 않다.
+// 화면에 표시할 때 "vN.M"으로 통일해 일관된 UX를 제공한다.
 function fmtVersion(v: string | null | undefined): string | null {
   if (!v) return null
   const withDot = v.match(/v?(\d+)\.(\d+)/)
@@ -46,41 +47,52 @@ function timeAgo(iso: string) {
   return formatDate(iso)
 }
 
-// 클라이언트 사이드 검색. 페이지에 이미 로드된 목록 안에서만 제목으로 필터링한다.
+// 검색은 현재 페이지에 로드된 10개 안에서만 클라이언트 사이드로 필터링한다.
+// 검색어가 있으면 페이지네이션을 숨겨 혼란을 줄인다 (템플릿의 v-if 조건과 연동).
 const filtered = computed(() => {
   const q = query.value.trim()
   if (!q) return manuals.value
   return manuals.value.filter((m) => m.title.toLowerCase().includes(q.toLowerCase()))
 })
 
-// API가 최신순 고정이므로 상위 6개가 가장 최근이다. 검색 중이면 검색 결과의 상위 6개를 표시한다.
+// API가 최신순 고정이므로 1페이지 상위 6개가 전체 기준 가장 최근 매뉴얼이다.
+// manuals는 현재 페이지 데이터를 담으므로, 전체 탭에서 페이지를 이동하면 stale해진다.
+// 아래 watch에서 최근 탭 진입 시 page !== 1이면 1페이지를 재요청해 항상 최신 데이터를 보장한다.
 const recentManuals = computed(() => filtered.value.slice(0, 6))
 
-// append=true 이면 기존 목록 뒤에 붙여 무한 스크롤을 구현한다. false 이면 첫 페이지 로드.
-async function fetchPage(pageNum: number, append: boolean) {
-  if (append) loadingMore.value = true
-  else loading.value = true
+// 최근 업데이트 탭은 항상 1페이지(가장 최신) 데이터를 기준으로 한다.
+// 전체 탭에서 2페이지 이상 이동한 뒤 최근 탭으로 돌아오면 오래된 항목이 표시되는 것을 방지한다.
+watch(activeTab, (tab) => {
+  if (tab === 'recent' && page.value !== 1) fetchPage(1)
+})
+
+// 현재 페이지 기준으로 최대 5개의 버튼을 표시한다.
+// Math.min(page-2, totalPages-4)로 마지막 페이지 근처에서도 5개를 유지하고,
+// Math.max(1, ...)로 1페이지 미만으로 내려가지 않도록 양쪽을 모두 클램핑한다.
+const pageNumbers = computed(() => {
+  const start = Math.max(1, Math.min(page.value - 2, totalPages.value - 4))
+  const end = Math.min(totalPages.value, start + 4)
+  return Array.from({ length: end - start + 1 }, (_, i) => start + i)
+})
+
+// 지정한 페이지를 BE에서 새로 불러온다. manuals를 해당 페이지 데이터로 교체(누적 아님)한다.
+// totalPages는 BE 응답의 pageInfo.totalPages를 그대로 사용해 페이지 버튼 수를 결정한다.
+async function fetchPage(pageNum: number) {
+  loading.value = true
   error.value = ''
   try {
     const res = await getManuals({ page: pageNum, size: PAGE_SIZE })
-    manuals.value = append ? [...manuals.value, ...res.data.content] : res.data.content
-    hasNext.value = res.data.pageInfo.hasNext
+    manuals.value = res.data.content
+    totalPages.value = res.data.pageInfo.totalPages
     page.value = pageNum
   } catch {
     error.value = '매뉴얼을 불러오지 못했습니다.'
   } finally {
-    if (append) loadingMore.value = false
-    else loading.value = false
+    loading.value = false
   }
 }
 
-// "더 보기" 버튼 핸들러. 로딩 중이거나 다음 페이지가 없으면 무시한다.
-function loadMore() {
-  if (loading.value || loadingMore.value || !hasNext.value) return
-  fetchPage(page.value + 1, true)
-}
-
-onMounted(() => fetchPage(1, false))
+onMounted(() => fetchPage(1))
 </script>
 
 <template>
@@ -168,10 +180,16 @@ onMounted(() => fetchPage(1, false))
           <ChevronRight :size="18" color="#aeb2bb" />
         </div>
 
-        <div v-if="hasNext && !query.trim()" class="load-more">
-          <button class="btn" :disabled="loadingMore" @click="loadMore">
-            {{ loadingMore ? '불러오는 중...' : '더 보기' }}
-          </button>
+        <div v-if="totalPages > 1 && !query.trim()" class="pagination">
+          <button class="btn" :disabled="page === 1 || loading" @click="fetchPage(page - 1)">이전</button>
+          <button
+            v-for="p in pageNumbers"
+            :key="p"
+            :class="['btn', 'page-btn', { on: p === page }]"
+            :disabled="loading"
+            @click="fetchPage(p)"
+          >{{ p }}</button>
+          <button class="btn" :disabled="page === totalPages || loading" @click="fetchPage(page + 1)">다음</button>
         </div>
       </div>
     </template>
@@ -224,5 +242,7 @@ onMounted(() => fetchPage(1, false))
   background: #eff6ff; border-radius: 4px; padding: 1px 7px;
 }
 .dept-tag.dept-common { color: #9ca3af; background: #f3f4f6; }
-.load-more { text-align: center; padding: 8px; }
+.pagination { display: flex; justify-content: center; align-items: center; gap: 6px; padding: 16px 0 4px; }
+.page-btn { min-width: 36px; }
+.page-btn.on { background: #2b7fff; color: #fff; border-color: #2b7fff; }
 </style>
