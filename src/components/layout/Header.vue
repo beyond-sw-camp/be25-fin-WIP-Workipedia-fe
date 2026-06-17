@@ -58,7 +58,8 @@ const current = computed(() => PAGE_META[route.name as string] ?? { label: '', i
 
 <style scoped>
 .app-header {
-  height: 52px;
+  /* html { font-size: 80% } 기준: 2.625rem = 42px, 원본 52px의 80% */
+  height: 2.625rem;
   border-bottom: 1px solid #e2e8f0;
   display: flex;
   align-items: center;
