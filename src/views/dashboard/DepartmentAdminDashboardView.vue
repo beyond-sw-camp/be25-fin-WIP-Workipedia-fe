@@ -259,6 +259,14 @@ async function submitAnswer() {
       name: f.name, size: f.size, url: URL.createObjectURL(f),
     }))
     await loadTickets()
+    // loadTickets()는 myDoneTickets를 assigneeId === auth.userId 로 필터링한다.
+    // assigneeId가 null인 미배정 티켓에 DEPT_ADMIN·SYSTEM_ADMIN이 답변할 경우 BE가
+    // assigneeId를 갱신하지 않아 myDoneTickets에서 누락된다.
+    // 방금 답변한 티켓을 doneTickets에서 찾아 수동으로 추가해 누락을 보완한다.
+    const justAnswered = doneTickets.value.find(t => t.ticketId === ticketId)
+    if (justAnswered && !myDoneTickets.value.some(t => t.ticketId === ticketId)) {
+      myDoneTickets.value = [justAnswered, ...myDoneTickets.value]
+    }
     if (auth.role === ROLES.TEAM_ADMIN) await loadKnowledge()
     closeAnswer()
     showToast('답변이 등록되었습니다', '티켓이 처리 완료로 이동되었습니다', 'success')
