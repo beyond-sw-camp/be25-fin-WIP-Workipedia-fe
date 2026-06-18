@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { KnowledgeDataResponse } from '@/types/knowledge'
 import { getKnowledgeList } from '@/api/knowledgeApi'
+import { useAuthStore } from '@/stores/authStore'
 
 // 지식화 게시판 데이터를 앱 전역에서 공유한다.
 // 목록·부서·상세 뷰와 대시보드 승인 기능이 동일 store를 참조해 API 중복 호출을 방지한다.
@@ -31,9 +32,14 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     }
   }
 
-  // 승인 API 성공 직후 응답 데이터를 store에 추가해 페이지 이동 없이 게시판에 즉시 반영한다.
+  // 승인 API 성공 직후 응답 데이터를 store 맨 앞에 추가해 게시판에 즉시 반영한다.
+  // BE 응답에 departmentName이 null인 경우 승인자의 부서명(auth.team)으로 보완한다.
   function push(item: KnowledgeDataResponse) {
-    items.value.push(item)
+    const auth = useAuthStore()
+    items.value.unshift({
+      ...item,
+      departmentName: item.departmentName ?? auth.team ?? null,
+    })
   }
 
   return { items, loading, loaded, error, load, push }

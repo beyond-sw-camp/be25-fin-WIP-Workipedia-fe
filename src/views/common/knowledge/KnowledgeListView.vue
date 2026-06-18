@@ -1,4 +1,14 @@
 <script setup lang="ts">
+// ── 페이지 개요 ──────────────────────────────────────────────
+// 지식화 게시판 목록 뷰. 부서 카테고리 선택 없이 전체 지식을 단일 평탄 목록으로 표시한다.
+//
+// 핵심 구현 포인트
+//   1. 데이터 소스: useKnowledgeStore에서 공유 캐시를 참조한다. 최초 마운트 시 load()를 호출하고
+//      이후 라우터 이동으로 재진입해도 API를 중복 호출하지 않는다(loaded 플래그).
+//   2. 정렬: approvedAt 내림차순 — 가장 최근 승인된 지식이 맨 위에 표시된다.
+//   3. 부서 표시: 카테고리 탐색 대신 각 카드에 Building2 아이콘 + departmentName 배지로 소속을 표시.
+//   4. 경과일 색상: 7일 이내 초록 → 30일 이내 파랑 → 90일 이내 주황 → 초과 빨강으로 정보 신선도를 표현.
+//   5. 프론트엔드 페이지네이션: PAGE_SIZE=8, query 변경 시 currentPage를 0으로 초기화한다.
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Library, Search, Clock, Building2, ChevronLeft, ChevronRight } from '@lucide/vue'

@@ -12,6 +12,8 @@
 //   4. 지식화 큐 페이지 클램핑: 승인·반려로 목록이 줄어들 때 현재 페이지가 범위를 벗어나지 않도록
 //      watch로 kPage를 maxtotalPages-1로 클램핑한다.
 //   5. 만료 배지: ASSIGNED 48h 미처리 시 공통 접수 큐 이동 — updatedAt 기준 남은 시간을 배지로 표시.
+//   6. 승인 확인 모달: 승인 버튼 클릭 시 바로 API를 호출하지 않고 approveTargetItem에 대상을 저장해
+//      확인 모달을 먼저 표시한다. 확인 시 approveKnowledge()가 스토어에 즉시 push해 게시판에 반영한다.
 import { ref, computed, reactive, watch, onMounted } from 'vue'
 import {
   Ticket, Clock, CheckCircle2, Bot, UserCheck, Paperclip, X,
@@ -84,6 +86,8 @@ const kLoading = ref(false)
 const editingTicketId = ref<number | null>(null)
 const editedDraft = ref('')
 const rejectTicketId = ref<number | null>(null)
+const approveTargetItem = ref<KnowledgeTicketCandidateResponse | null>(null)
+const approveModalOpen = ref(false)
 
 const K_PAGE_SIZE = 3
 const kPage = ref(0)
@@ -355,7 +359,15 @@ async function submitTransfer() {
 // ── 지식화 승인/반려 ─────────────────────────────────────────
 // 승인 API 성공 시 응답으로 받은 KnowledgeDataResponse를 스토어에 push해 게시판에 즉시 반영한다.
 // 차트는 현재 월(마지막 데이터 포인트)을 +1 증가시킨다.
-async function approveKnowledge(item: KnowledgeTicketCandidateResponse) {
+function openApproveModal(item: KnowledgeTicketCandidateResponse) {
+  approveTargetItem.value = item
+  approveModalOpen.value = true
+}
+
+async function approveKnowledge() {
+  const item = approveTargetItem.value
+  if (!item) return
+  approveModalOpen.value = false
   try {
     const res = await approveKnowledgeCandidate(item.ticketId, item.question, item.answer)
     knowledgeQueue.value = knowledgeQueue.value.filter(k => k.ticketId !== item.ticketId)
@@ -367,6 +379,8 @@ async function approveKnowledge(item: KnowledgeTicketCandidateResponse) {
     showToast('지식화가 승인되었습니다', '지식화 게시판에 등록되었습니다', 'success')
   } catch {
     showToast('승인에 실패했습니다. 다시 시도해주세요.', '', 'error')
+  } finally {
+    approveTargetItem.value = null
   }
 }
 
@@ -471,7 +485,7 @@ function saveEditDraft(ticketId: number) {
             <button
               class="btn btn-approve"
               :disabled="editingTicketId === item.ticketId"
-              @click="approveKnowledge(item)"
+              @click="openApproveModal(item)"
             >
               <CheckCircle2 :size="15" /> 승인
             </button>
@@ -762,6 +776,22 @@ function saveEditDraft(ticketId: number) {
         <div class="modal-footer" style="border-top:none;padding-top:8px;">
           <button class="btn btn-ghost" @click="rejectTicketId = null">취소</button>
           <button class="btn btn-danger" @click="confirmReject">반려하기</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- 승인 확인 다이얼로그 -->
+  <Teleport to="body">
+    <div v-if="approveModalOpen" class="modal-overlay" @click.self="approveModalOpen = false; approveTargetItem = null">
+      <div class="modal-box" style="width:400px;">
+        <div class="modal-header">
+          <div class="modal-title">지식화 승인</div>
+          <div class="modal-desc">이 지식화 후보를 승인하시겠습니까? 승인 시 게시판에 즉시 등록됩니다.</div>
+        </div>
+        <div class="modal-footer" style="border-top:none;padding-top:8px;">
+          <button class="btn btn-ghost" @click="approveModalOpen = false; approveTargetItem = null">취소</button>
+          <button class="btn btn-approve" @click="approveKnowledge">승인</button>
         </div>
       </div>
     </div>
