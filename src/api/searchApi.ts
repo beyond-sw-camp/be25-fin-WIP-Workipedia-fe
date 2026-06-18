@@ -2,8 +2,6 @@ import http from './index'
 import type { PageParams, PageResponse } from '@/types/common'
 import type { IntegratedSearchResponse, ManualSearchResponse } from '@/types/search'
 import type { WorkiSearchResponse } from '@/types/worki'
-import type { KnowledgeDataResponse } from '@/types/knowledge'
-import type { DirectDataResponse } from '@/api/directDataApi'
 
 // 검색 컨트롤러(/search)는 DTO를 직접 반환한다 (ApiResponse 래퍼 없음).
 // 검색 API는 Spring Pageable 기반이라 page 는 0-based (기본 0). keyword 는 2~100자만 허용.
@@ -26,20 +24,6 @@ export function searchWorki(keyword: string, params: PageParams = {}) {
 // 매뉴얼 검색 (DB). 도메인별 더보기/페이징용.
 export function searchManuals(keyword: string, params: PageParams = {}) {
   return http.get<PageResponse<ManualSearchResponse>>('/search/manuals', {
-    params: { keyword, ...params },
-  })
-}
-
-// 지식화 게시판 검색 (DB). 1-based 페이지네이션.
-export function searchKnowledge(keyword: string, params: PageParams = {}) {
-  return http.get<PageResponse<KnowledgeDataResponse>>('/knowledge-data', {
-    params: { keyword, ...params },
-  })
-}
-
-// 수기 지식 게시판 검색 (DB). 1-based 페이지네이션.
-export function searchDirectData(keyword: string, params: PageParams = {}) {
-  return http.get<PageResponse<DirectDataResponse>>('/direct-data', {
     params: { keyword, ...params },
   })
 }

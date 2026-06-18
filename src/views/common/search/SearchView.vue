@@ -4,15 +4,16 @@
 //
 // 핵심 구현 포인트
 //   1. 워키·매뉴얼: searchIntegrated 통합 API + allSettled(부분 실패 허용)
-//   2. 지식화: BE keyword 미지원 → useKnowledgeStore 캐시에서 클라이언트 필터링
-//   3. 수기 지식: searchDirectData. BE 미지원 시 allSettled로 섹션만 숨김
+//   2. 지식화·수기 지식: BE keyword 미지원 → 스토어 캐시 클라이언트 필터링
+//   3. 띄어쓰기 정규화: 검색어·문서 모두 공백 제거 후 비교 ("법인카드" ↔ "법인 카드" 동일 취급)
 //   4. 검색 상태 유지: URL ?q= 쿼리로 동기화 — 상세 → 뒤로가기 시 결과 복원
-//   5. 도메인별 seq 토큰으로 race condition 방지
+//   5. 워키·매뉴얼 seq 토큰으로 race condition 방지
 import { ref, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Search, MessageCircle, BookOpen, Library, BookMarked } from '@lucide/vue'
-import { searchIntegrated, searchWorki, searchManuals, searchDirectData, autocompleteSearch } from '@/api/searchApi'
+import { searchIntegrated, searchWorki, searchManuals, autocompleteSearch } from '@/api/searchApi'
 import { useKnowledgeStore } from '@/stores/useKnowledgeStore'
+import { useDirectDataStore } from '@/stores/useDirectDataStore'
 import BasePagination from '@/components/common/BasePagination.vue'
 import type { WorkiSearchResponse, QuestionStatus } from '@/types/worki'
 import type { ManualSearchResponse } from '@/types/search'
@@ -23,6 +24,7 @@ import type { DirectDataResponse } from '@/api/directDataApi'
 const router = useRouter()
 const route = useRoute()
 const knowledgeStore = useKnowledgeStore()
+const directDataStore = useDirectDataStore()
 const query = ref('')
 
 // 도메인별 한 페이지에 보여줄 건수.
@@ -42,13 +44,15 @@ const knowledgeResults = ref<KnowledgeDataResponse[]>([])
 const knowledgePage = ref(1)
 const knowledgeTotalPages = ref(0)
 const knowledgeTotal = ref(0)
-// 클라이언트 필터링 결과 전체 — 페이지 이동 시 재사용
+// 클라이언트 필터 전체 결과를 보관해 페이지 이동 시 store 재조회 없이 슬라이싱만 한다.
 const allFilteredKnowledge = ref<KnowledgeDataResponse[]>([])
 
 const directDataResults = ref<DirectDataResponse[]>([])
 const directDataPage = ref(1)
 const directDataTotalPages = ref(0)
 const directDataTotal = ref(0)
+// 동일 이유로 수기 지식 전체 필터 결과를 보관한다.
+const allFilteredDirectData = ref<DirectDataResponse[]>([])
 
 const loading = ref(false)
 const error = ref('')
@@ -57,12 +61,13 @@ const suggestions = ref<string[]>([])
 const showSuggestions = ref(false)
 
 // 빠른 타이핑/연속 클릭 시 늦게 도착한 응답이 최신 결과를 덮어쓰지 않도록 하는 토큰.
-// 새 검색은 모든 섹션을 무효화하고, 페이지 이동은 해당 섹션만 무효화한다.
 let searchSeq = 0
 let workiSeq = 0
 let manualSeq = 0
-let directDataSeq = 0
 let suppressNext = false
+
+// 공백을 제거한 소문자 — "법인카드" ↔ "법인 카드" 등 띄어쓰기 차이를 무시한다.
+const normalize = (s: string) => s.replace(/\s+/g, '').toLowerCase()
 
 const workiStatusLabel: Record<QuestionStatus, string> = {
   WAITING: '답변 대기',
@@ -85,11 +90,12 @@ function formatDate(iso: string) {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
 }
 
-// 새 키워드 검색: 4개 도메인을 병렬로 조회해 각 섹션 1페이지를 채운다.
-// 워키·매뉴얼은 통합 검색 API 한 번, 지식화·수기 지식은 개별 엔드포인트를 호출한다.
+// 새 키워드 검색: 워키·매뉴얼은 BE API(원본 키워드), 지식화·수기 지식은 스토어 클라이언트 필터링.
+// normalize()는 클라이언트 필터 비교에만 사용 — BE에는 원본 키워드를 전달해야 검색이 정상 작동한다.
 async function runSearch(keyword: string) {
-  // BE는 keyword 2~100자만 허용.
-  if (keyword.length < 2) {
+  const trimmed = keyword.trim()
+  const kw = normalize(trimmed) // 클라이언트 필터용(공백 제거 + 소문자)
+  if (trimmed.length < 2) {
     workiResults.value = []
     manualResults.value = []
     knowledgeResults.value = []
@@ -100,19 +106,17 @@ async function runSearch(keyword: string) {
   const mySeq = ++searchSeq
   workiSeq++
   manualSeq++
-  directDataSeq++
   loading.value = true
   error.value = ''
 
-  // 워키·매뉴얼: 통합 API. 수기 지식: 개별 API. allSettled로 부분 실패 허용.
-  const [integratedResult, directResult] = await Promise.allSettled([
-    searchIntegrated(keyword, PAGE_SIZE),
-    searchDirectData(keyword, { page: 1, size: PAGE_SIZE }),
+  // 워키·매뉴얼: 통합 API (원본 trimmed 키워드 전달 — BE가 직접 검색)
+  const integratedResult = await Promise.allSettled([
+    searchIntegrated(trimmed, PAGE_SIZE),
   ])
   if (mySeq !== searchSeq) { loading.value = false; return }
 
-  if (integratedResult.status === 'fulfilled') {
-    const d = integratedResult.value.data
+  if (integratedResult[0].status === 'fulfilled') {
+    const d = integratedResult[0].value.data
     workiResults.value = d.worki.content
     workiTotal.value = d.worki.pageInfo.totalElements
     workiTotalPages.value = d.worki.pageInfo.totalPages
@@ -123,30 +127,33 @@ async function runSearch(keyword: string) {
     manualPage.value = 1
   }
 
-  // 지식화: BE keyword 미지원 → 스토어 캐시에서 클라이언트 필터링
+  // 지식화: 스토어 캐시 클라이언트 필터링
   await knowledgeStore.load()
-  const kw = keyword.toLowerCase()
-  const filtered = knowledgeStore.items.filter(k =>
-    k.question.toLowerCase().includes(kw) || k.answer.toLowerCase().includes(kw)
+  const kFiltered = knowledgeStore.items.filter(k =>
+    normalize(k.question).includes(kw) || normalize(k.answer).includes(kw)
   )
-  allFilteredKnowledge.value = filtered
-  knowledgeResults.value = filtered.slice(0, PAGE_SIZE)
-  knowledgeTotal.value = filtered.length
-  knowledgeTotalPages.value = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  allFilteredKnowledge.value = kFiltered
+  knowledgeResults.value = kFiltered.slice(0, PAGE_SIZE)
+  knowledgeTotal.value = kFiltered.length
+  knowledgeTotalPages.value = Math.max(1, Math.ceil(kFiltered.length / PAGE_SIZE))
   knowledgePage.value = 1
 
-  if (directResult.status === 'fulfilled') {
-    const d = directResult.value.data
-    directDataResults.value = d.content
-    directDataTotal.value = d.pageInfo.totalElements
-    directDataTotalPages.value = d.pageInfo.totalPages
-    directDataPage.value = 1
-  }
+  // 수기 지식: 스토어 캐시 클라이언트 필터링
+  await directDataStore.load()
+  const dFiltered = directDataStore.items.filter(d =>
+    normalize(d.title).includes(kw) || normalize(d.content).includes(kw)
+  )
+  allFilteredDirectData.value = dFiltered
+  directDataResults.value = dFiltered.slice(0, PAGE_SIZE)
+  directDataTotal.value = dFiltered.length
+  directDataTotalPages.value = Math.max(1, Math.ceil(dFiltered.length / PAGE_SIZE))
+  directDataPage.value = 1
+
   searched.value = true
   loading.value = false
 }
 
-// 워키 섹션 페이지 이동(0-based).
+// 워키·매뉴얼 페이지 이동: Spring Pageable은 0-based이므로 UI 1-based 페이지에서 -1 변환.
 async function goWorkiPage(p: number) {
   const mySeq = ++workiSeq
   try {
@@ -180,17 +187,11 @@ function goKnowledgePage(p: number) {
   knowledgePage.value = p
 }
 
-async function goDirectDataPage(p: number) {
-  const mySeq = ++directDataSeq
-  try {
-    const res = await searchDirectData(query.value.trim(), { page: p, size: PAGE_SIZE })
-    if (mySeq !== directDataSeq) return
-    directDataResults.value = res.data.content
-    directDataTotalPages.value = res.data.pageInfo.totalPages
-    directDataPage.value = p
-  } catch {
-    if (mySeq === directDataSeq) error.value = '검색에 실패했습니다.'
-  }
+// 수기 지식 페이지 이동 — 클라이언트 필터 결과에서 슬라이싱(동기).
+function goDirectDataPage(p: number) {
+  const start = (p - 1) * PAGE_SIZE
+  directDataResults.value = allFilteredDirectData.value.slice(start, start + PAGE_SIZE)
+  directDataPage.value = p
 }
 
 async function loadSuggestions(keyword: string) {
@@ -209,6 +210,8 @@ async function loadSuggestions(keyword: string) {
   }
 }
 
+// 자동완성 항목 클릭: query 변경이 watch를 트리거해 debounce 검색이 이중 실행되므로
+// suppressNext=true로 watch의 첫 사이클을 건너뛰고 아래 runSearch 직접 호출만 실행한다.
 function selectSuggestion(word: string) {
   suppressNext = true
   query.value = word
@@ -218,6 +221,8 @@ function selectSuggestion(word: string) {
   runSearch(word.trim())
 }
 
+// blur 이벤트는 mousedown보다 먼저 발생하므로 즉시 숨기면 목록 클릭이 소실된다.
+// 150ms 지연으로 mousedown(→click) 완료 후 닫히도록 한다.
 function hideSuggestionsSoon() {
   setTimeout(() => {
     showSuggestions.value = false
@@ -233,6 +238,8 @@ function handleEnter() {
 }
 
 let debounce: ReturnType<typeof setTimeout>
+// query 변경 감지: debounce 300ms 후 검색 실행.
+// suppressNext=true이면 자동완성 클릭·onMounted 복원처럼 외부에서 이미 runSearch를 호출한 경우이므로 건너뛴다.
 watch(query, () => {
   if (suppressNext) {
     suppressNext = false
@@ -269,7 +276,7 @@ onMounted(() => {
       <p class="page-sub">워키·매뉴얼·지식화·수기 지식을 키워드로 검색해보세요. (2자 이상)</p>
     </div>
 
-    <div class="search-bar" style="max-width: 620px; margin-bottom: 24px; position: relative;">
+    <div class="search-bar" style="margin-bottom: 24px; position: relative;">
       <Search :size="18" />
       <input
         v-model="query"
@@ -307,7 +314,7 @@ onMounted(() => {
       <section v-if="workiTotal" class="result-section">
         <div class="section-head" style="color: #7c3aed;">
           <MessageCircle :size="16" />
-          워키 <span class="section-count">{{ workiTotal }}</span>
+          워키 게시판 <span class="section-count">{{ workiTotal }}</span>
         </div>
         <div class="result-list">
           <div
