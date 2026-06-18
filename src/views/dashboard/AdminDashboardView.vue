@@ -1,6 +1,21 @@
 <script setup lang="ts">
+// ── 페이지 개요 ──────────────────────────────────────────────
+// SYSTEM_ADMIN(시스템 어드민) 전용 대시보드 뷰.
+// 역할: 플랫폼 전체 KPI 모니터링 / 공통 접수 큐 티켓을 담당 부서에 배정
+//
+// 핵심 구현 포인트
+//   1. KPI + 차트 데이터는 onMounted에서 5개 API를 병렬 조회해 초기 렌더링 지연을 최소화한다.
+//   2. 공통 접수 큐는 무한 스크롤(append 모드)로 추가 로드한다. 1-based 페이지네이션
+//      (/admin/common-queue/tickets)에 맞춰 queuePage를 1부터 시작한다.
+//   3. 배정 낙관적 업데이트: assignCommonQueueTicket 성공 시 재조회 없이 큐 목록에서
+//      해당 티켓을 즉시 제거한다.
+//   4. 배정 버튼 독립 로딩: 여러 티켓을 동시에 배정할 수 있도록 assigning을 Set으로 관리.
+//      Vue 3가 Set 직접 변이를 감지하지 못해 매번 새 Set으로 교체한다.
+//   5. 공통 큐 만료 배지: 7일 미배정 시 BE 스케줄러가 soft delete → updatedAt 기준 남은 시간 표시.
+//   6. 진입 사유 태그: TRANSFER_REQUESTED(이관)·ASSIGNMENT_EXPIRED(48h 미처리)·ROUTING_FAILED(자동 배정 실패)
+//      3가지로 구분한다. ASSIGNMENT_EXPIRED는 UI에서 "24시간 초과"로 표시한다.
 import { ref, computed, onMounted } from 'vue'
-import { ShieldCheck, AlertCircle, Users, Ticket, FileText } from '@lucide/vue'
+import { ShieldCheck, AlertCircle, Users, Ticket, FileText, Clock } from '@lucide/vue'
 import LineChart from '@/components/common/LineChart.vue'
 import BarChart from '@/components/common/BarChart.vue'
 import BaseToast from '@/components/common/BaseToast.vue'
@@ -97,14 +112,41 @@ const assigning = ref<Set<number>>(new Set())
 // ── 부서 목록 (배정 select 드롭다운) ─────────────────────────
 const departments = ref<AdminDepartment[]>([])
 
-// BE TicketStatus에 TRANSFERRED 값이 없음. 이관된 티켓도 status=COMMON_QUEUE로 들어오고
-// commonQueueReason=TRANSFER_REQUESTED 로 자동 배정 실패(ROUTING_FAILED/ASSIGNMENT_EXPIRED)와 구분
+// BE TicketStatus에 TRANSFERRED 값이 없음. 이관된 티켓도 status=COMMON_QUEUE로 들어온다.
+// ASSIGNMENT_EXPIRED: 48h 미처리로 BE 스케줄러가 이동. UI 라벨은 "24시간 초과"로 표시한다.
 function entryReasonLabel(ticket: TicketResponse) {
-  return ticket.commonQueueReason === 'TRANSFER_REQUESTED' ? '팀 관리자 이관' : '자동 배정 실패'
+  if (ticket.commonQueueReason === 'TRANSFER_REQUESTED') return '팀 관리자 이관'
+  if (ticket.commonQueueReason === 'ASSIGNMENT_EXPIRED') return '24시간 초과'
+  return '자동 배정 실패'
 }
 
 function formatDate(iso: string) {
   return iso.slice(0, 10).replace(/-/g, '.')
+}
+
+// 공통 큐에서 7일 미배정 시 BE 스케줄러가 자동 삭제(soft delete)한다.
+// updatedAt(큐 진입 시각 근사)을 기준으로 남은 시간을 계산한다.
+function queueExpiryMs(updatedAt: string): number {
+  return new Date(updatedAt).getTime() + 7 * 24 * 3600000 - Date.now()
+}
+function queueExpiryLabel(updatedAt: string): string {
+  const ms = queueExpiryMs(updatedAt)
+  if (ms <= 0) return '만료됨'
+  const days = Math.floor(ms / 86400000)
+  const h = Math.floor((ms % 86400000) / 3600000)
+  if (days >= 2) return `${days}일 후 자동 삭제`
+  if (days === 1) return `1일 ${h}시간 후 자동 삭제`
+  const m = Math.floor((ms % 3600000) / 60000)
+  if (h > 0) return `${h}시간 후 자동 삭제`
+  return `${m}분 후 자동 삭제`
+}
+function queueExpiryClass(updatedAt: string): string {
+  const ms = queueExpiryMs(updatedAt)
+  if (ms <= 0) return 'expiry-expired'
+  const days = ms / 86400000
+  if (days <= 1) return 'expiry-urgent'
+  if (days <= 3) return 'expiry-warning'
+  return 'expiry-ok'
 }
 
 async function loadQueue(page: number, append: boolean) {
@@ -325,11 +367,17 @@ onMounted(async () => {
             <div class="queue-item-top">
               <div class="queue-item-title-row">
                 <span class="queue-title">{{ ticket.title }}</span>
-                <span class="badge" :class="ticket.commonQueueReason === 'TRANSFER_REQUESTED' ? 'gray' : 'red'">
+                <span class="badge" :class="ticket.commonQueueReason === 'TRANSFER_REQUESTED' ? 'gray' : ticket.commonQueueReason === 'ASSIGNMENT_EXPIRED' ? 'orange' : 'red'">
                   {{ entryReasonLabel(ticket) }}
                 </span>
               </div>
-              <span class="queue-time">접수: {{ formatDate(ticket.createdAt) }}</span>
+              <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+                <span class="expiry-tag" :class="queueExpiryClass(ticket.updatedAt)">
+                  <Clock :size="10" />
+                  {{ queueExpiryLabel(ticket.updatedAt) }}
+                </span>
+                <span class="queue-time">접수: {{ formatDate(ticket.createdAt) }}</span>
+              </div>
             </div>
 
             <p class="ticket-content">{{ ticket.content }}</p>
@@ -464,6 +512,11 @@ onMounted(async () => {
 .queue-item-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .queue-title { font-size: 14px; font-weight: 600; color: #1f2430; }
 .queue-time { font-size: 12px; color: #aeb2bb; white-space: nowrap; flex-shrink: 0; }
+.expiry-tag { display:inline-flex; align-items:center; gap:3px; font-size:11px; font-weight:600; padding:2px 7px; border-radius:99px; white-space:nowrap; }
+.expiry-ok      { background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; }
+.expiry-warning { background:#fffbeb; color:#b45309; border:1px solid #fde68a; }
+.expiry-urgent  { background:#fff1f2; color:#be123c; border:1px solid #fecdd3; }
+.expiry-expired { background:#f1f5f9; color:#94a3b8; border:1px solid #e2e8f0; }
 
 .ticket-content {
   font-size: 13.5px;

@@ -1,7 +1,20 @@
 <script setup lang="ts">
+// ── 페이지 개요 ──────────────────────────────────────────────
+// TEAM_ADMIN(팀 어드민)과 SYSTEM_ADMIN(시스템 어드민)이 부서 대시보드에서 사용하는 뷰.
+// 두 역할이 공유하되, TEAM_ADMIN 전용 기능(지식화 승인 큐·트렌드 차트)은 onMounted에서 역할 체크 후 로드한다.
+//
+// 핵심 구현 포인트
+//   1. 티켓 버킷: ASSIGNED 중 assigneeId null → deptTickets(부서 미배정),
+//                 assigneeId === 내 id → myActiveTickets, COMPLETED → doneTickets / myDoneTickets
+//   2. 이관 제한: AUTO_ASSIGNED 티켓만 이관 가능. 관리자가 직접 배정(ADMIN_REVIEW)한 티켓은 이관 불가.
+//   3. 답변 후 내 답장 패치: BE가 assigneeId를 갱신하지 않을 수 있어 submitAnswer에서
+//      방금 답변한 티켓을 doneTickets에서 찾아 myDoneTickets에 수동 push한다.
+//   4. 지식화 큐 페이지 클램핑: 승인·반려로 목록이 줄어들 때 현재 페이지가 범위를 벗어나지 않도록
+//      watch로 kPage를 maxtotalPages-1로 클램핑한다.
+//   5. 만료 배지: ASSIGNED 48h 미처리 시 공통 접수 큐 이동 — updatedAt 기준 남은 시간을 배지로 표시.
 import { ref, computed, reactive, watch, onMounted } from 'vue'
 import {
-  Ticket, Clock, CheckCircle2, Bot, Share2, Paperclip, X,
+  Ticket, Clock, CheckCircle2, Bot, UserCheck, Paperclip, X,
   ChevronLeft, ChevronRight, Edit2, Send, ArrowRightLeft, TrendingUp, XCircle,
 } from '@lucide/vue'
 import { getTickets, answerTicket, transferTicket, getLatestAnswer } from '@/api/ticketApi'
@@ -101,10 +114,11 @@ const fileInputEl = ref<HTMLInputElement | null>(null)
 type SavedFile = { name: string; size: number; url: string }
 const sessionFiles = reactive<Record<number, SavedFile[]>>({})
 
-// AI 챗봇이 자동 배정한 티켓만 이관 가능하다.
-// 관리자가 직접 배정한 티켓(sourceChatbotMessageId === null)은 이미 담당 부서가 결정된 것이므로 이관 대상이 아니다.
+// 이관 가능 여부: AI가 자동 배정(AUTO_ASSIGNED)한 ASSIGNED 티켓에 한해 허용한다.
+// 시스템 관리자가 공동 접수 큐에서 부서를 직접 선택해 배정(ADMIN_REVIEW)한 티켓은
+// 이미 담당 부서가 명시적으로 결정된 것이므로 다시 이관할 수 없다.
 function canTransfer(t: TicketResponse): boolean {
-  return t.status === 'ASSIGNED' && t.sourceChatbotMessageId !== null
+  return t.status === 'ASSIGNED' && t.routingDecision === 'AUTO_ASSIGNED'
 }
 
 // ── 차트 데이터 ──────────────────────────────────────────────
@@ -183,8 +197,35 @@ onMounted(() => {
   }
 })
 
+// 티켓 배지 텍스트: routingDecision으로 배정 주체를 구분한다.
+//   AUTO_ASSIGNED → AI 챗봇이 신뢰도 점수 기반으로 자동 라우팅한 경우
+//   그 외(ADMIN_REVIEW 등) → 시스템 관리자가 공동 접수 큐에서 직접 부서를 지정한 경우
+// sourceChatbotMessageId(챗봇 대화 경유 여부)가 아닌 routingDecision을 쓰는 이유:
+// 챗봇 경유 티켓이라도 관리자가 재배정하면 ADMIN_REVIEW로 바뀌기 때문이다.
 function typeLabel(t: TicketResponse) {
-  return t.sourceChatbotMessageId !== null ? 'AI 챗봇' : '관리자 배정'
+  return t.routingDecision === 'AUTO_ASSIGNED' ? 'AI 챗봇 배정' : '관리자 배정'
+}
+
+// BE에 assignedAt 필드가 없으므로 updatedAt(상태 변경 시각)을 기준으로 48h 만료를 계산한다.
+function assignedExpiryMs(updatedAt: string): number {
+  return new Date(updatedAt).getTime() + 48 * 3600000 - Date.now()
+}
+function assignedExpiryLabel(updatedAt: string): string {
+  const ms = assignedExpiryMs(updatedAt)
+  if (ms <= 0) return '만료됨'
+  const h = Math.floor(ms / 3600000)
+  const m = Math.floor((ms % 3600000) / 60000)
+  if (h >= 24) return `${Math.floor(h / 24)}일 후 공통 티켓 이동`
+  if (h > 0) return `${h}시간 후 공통 티켓 이동`
+  return `${m}분 후 공통 티켓 이동`
+}
+function assignedExpiryClass(updatedAt: string): string {
+  const ms = assignedExpiryMs(updatedAt)
+  if (ms <= 0) return 'expiry-expired'
+  const h = ms / 3600000
+  if (h <= 12) return 'expiry-urgent'
+  if (h <= 24) return 'expiry-warning'
+  return 'expiry-ok'
 }
 
 function fromNow(iso: string) {
@@ -518,13 +559,17 @@ function saveEditDraft(ticketId: number) {
                 @click="openDetail(t)"
               >
                 <div class="ticket-meta">
-                  <span class="badge" :class="t.sourceChatbotMessageId !== null ? 'blue' : 'gray'">
-                    <Bot v-if="t.sourceChatbotMessageId !== null" :size="11" />
-                    <Share2 v-else :size="11" />
+                  <span class="badge" :class="t.routingDecision === 'AUTO_ASSIGNED' ? 'blue' : 'gray'">
+                    <Bot v-if="t.routingDecision === 'AUTO_ASSIGNED'" :size="11" />
+                    <UserCheck v-else :size="11" />
                     {{ typeLabel(t) }}
                   </span>
                   <span v-if="t.assigneeId === auth.userId && t.status === 'ASSIGNED'" class="badge green" style="font-size:11px;">내 티켓</span>
                   <span v-if="t.status === 'COMPLETED'" class="badge done-badge">완료</span>
+                  <span v-if="t.status === 'ASSIGNED'" class="expiry-tag" :class="assignedExpiryClass(t.updatedAt)">
+                    <Clock :size="10" />
+                    {{ assignedExpiryLabel(t.updatedAt) }}
+                  </span>
                   <span class="ticket-time">{{ fromNow(t.createdAt) }}</span>
                 </div>
                 <div class="ticket-title">{{ t.title }}</div>
@@ -551,9 +596,9 @@ function saveEditDraft(ticketId: number) {
           <div class="detail-header-main">
             <div class="modal-title">{{ selectedTicket.title }}</div>
             <div class="modal-desc" style="display:flex;align-items:center;gap:8px;margin-top:6px;">
-              <span class="badge" :class="selectedTicket.sourceChatbotMessageId !== null ? 'blue' : 'gray'">
-                <Bot v-if="selectedTicket.sourceChatbotMessageId !== null" :size="11" />
-                <Share2 v-else :size="11" />
+              <span class="badge" :class="selectedTicket.routingDecision === 'AUTO_ASSIGNED' ? 'blue' : 'gray'">
+                <Bot v-if="selectedTicket.routingDecision === 'AUTO_ASSIGNED'" :size="11" />
+                <UserCheck v-else :size="11" />
                 {{ typeLabel(selectedTicket) }}
               </span>
               <span class="ticket-time">{{ fromNow(selectedTicket.createdAt) }}</span>
@@ -588,13 +633,19 @@ function saveEditDraft(ticketId: number) {
                   <span class="answer-time">{{ fromNow(detailAnswer.answeredAt) }}</span>
                 </div>
                 <div class="detail-content" style="white-space:pre-line;">{{ detailAnswer.content }}</div>
-                <!-- 세션 중 첨부한 파일 (BE 파일 미지원 → blob URL) -->
-                <div v-if="sessionFiles[selectedTicket.ticketId]?.length" class="file-list" style="margin-top:8px;">
-                  <div v-for="f in sessionFiles[selectedTicket.ticketId]" :key="f.name" class="file-item">
+                <!-- 첨부 파일: BE fileUrl 우선, 없으면 세션 임시 파일(blob URL) -->
+                <div v-if="detailAnswer.fileUrl || sessionFiles[selectedTicket.ticketId]?.length" class="file-list" style="margin-top:8px;">
+                  <a v-if="detailAnswer.fileUrl" :href="detailAnswer.fileUrl" target="_blank" class="file-item file-item--link">
                     <Paperclip :size="13" style="color:#aeb2bb;" />
-                    <a :href="f.url" target="_blank" class="file-name">{{ f.name }}</a>
+                    <span class="file-name">{{ detailAnswer.fileName ?? '첨부 파일' }}</span>
+                    <span v-if="detailAnswer.fileSize" class="file-size">({{ (detailAnswer.fileSize / 1024).toFixed(1) }}KB)</span>
+                  </a>
+                  <!-- 세션 임시 파일 (BE 파일 미지원 → blob URL, 새로고침 시 초기화) -->
+                  <a v-for="f in sessionFiles[selectedTicket.ticketId] ?? []" :key="f.name" :href="f.url" target="_blank" class="file-item file-item--link">
+                    <Paperclip :size="13" style="color:#aeb2bb;" />
+                    <span class="file-name">{{ f.name }}</span>
                     <span class="file-size">({{ (f.size / 1024).toFixed(1) }}KB)</span>
-                  </div>
+                  </a>
                 </div>
               </div>
               <div v-else class="answer-box" style="color:#aeb2bb;font-size:13px;text-align:center;padding:20px 0;">
@@ -629,7 +680,7 @@ function saveEditDraft(ticketId: number) {
         <div class="modal-body">
           <div class="ticket-preview">
             <div class="ticket-meta">
-              <span class="badge" :class="selectedTicket.sourceChatbotMessageId !== null ? 'blue' : 'gray'">
+              <span class="badge" :class="selectedTicket.routingDecision === 'AUTO_ASSIGNED' ? 'blue' : 'gray'">
                 {{ typeLabel(selectedTicket) }}
               </span>
               <span class="ticket-time">{{ fromNow(selectedTicket.createdAt) }}</span>
@@ -641,7 +692,7 @@ function saveEditDraft(ticketId: number) {
             <textarea v-model="answerText" class="field-textarea" placeholder="답변을 작성하세요..." rows="6" />
           </div>
           <div class="field">
-            <label class="field-label">파일 첨부 <span class="field-hint">PDF, 이미지 파일 가능</span></label>
+            <label class="field-label">파일 첨부</label>
             <input ref="fileInputEl" type="file" multiple accept=".pdf,image/*" class="hidden-input" @change="onFileChange" />
             <button class="btn btn-outline" @click="fileInputEl?.click()">
               <Paperclip :size="13" /> 파일 선택
@@ -772,6 +823,11 @@ function saveEditDraft(ticketId: number) {
 .ticket-row--done { border-left: 3px solid #7c3aed; }
 .ticket-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
 .ticket-time { font-size: 12px; color: #aeb2bb; }
+.expiry-tag { display:inline-flex; align-items:center; gap:3px; font-size:11px; font-weight:600; padding:2px 7px; border-radius:99px; }
+.expiry-ok      { background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; }
+.expiry-warning { background:#fffbeb; color:#b45309; border:1px solid #fde68a; }
+.expiry-urgent  { background:#fff1f2; color:#be123c; border:1px solid #fecdd3; }
+.expiry-expired { background:#f1f5f9; color:#94a3b8; border:1px solid #e2e8f0; }
 .ticket-title { font-size: 14px; font-weight: 600; color: #1f2430; margin-bottom: 3px; }
 .ticket-body { font-size: 13px; color: #6b7280; line-height: 1.5; overflow: hidden; max-height: 3em; }
 .badge { display: inline-flex; align-items: center; gap: 4px; }
@@ -785,8 +841,12 @@ function saveEditDraft(ticketId: number) {
 .pager-info { font-size: 13px; font-weight: 600; color: #6b7280; min-width: 44px; text-align: center; }
 
 /* ── 모달 ── */
+@keyframes modal-slide-in {
+  from { transform: translateY(24px) scale(0.98); opacity: 0; }
+  to   { transform: translateY(0)    scale(1);    opacity: 1; }
+}
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 9000; }
-.modal-box { background: #fff; border-radius: 16px; width: 600px; max-width: calc(100vw - 32px); max-height: calc(100vh - 64px); display: flex; flex-direction: column; }
+.modal-box { background: #fff; border-radius: 16px; width: 600px; max-width: calc(100vw - 32px); max-height: calc(100vh - 64px); display: flex; flex-direction: column; animation: modal-slide-in 0.22s ease-out; }
 .modal-header { padding: 24px 28px 0; }
 .modal-title { font-size: 16px; font-weight: 700; color: #1f2430; }
 .modal-desc  { font-size: 13px; color: #aeb2bb; margin-top: 4px; }
@@ -825,7 +885,10 @@ function saveEditDraft(ticketId: number) {
 
 /* ── 파일 ── */
 .file-list { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
-.file-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; }
+.file-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; text-decoration: none; }
+.file-item--link { cursor: pointer; }
+.file-item--link:hover { background: #eff6ff; border-color: #bfdbfe; }
+.file-item--link:hover .file-name { color: #2b7fff; }
 .file-name { font-size: 13px; color: #1f2430; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-size { font-size: 12px; color: #aeb2bb; flex-shrink: 0; }
 .file-remove { background: none; border: none; cursor: pointer; display: flex; align-items: center; color: #aeb2bb; padding: 2px; transition: color 0.15s; }
