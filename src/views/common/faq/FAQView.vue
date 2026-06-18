@@ -3,7 +3,7 @@
 // 챗봇 화면의 물음표 아이콘이 /faq?tab=usage로 이동해 시스템 사용법 탭을 직접 열 수 있도록
 // URL 쿼리 파라미터(?tab=)로 진입 탭을 결정하며, 탭 전환은 컴포넌트 상태로 관리한다.
 // 시스템 사용법 탭은 정적 콘텐츠이므로 API를 호출하지 않는다.
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   HelpCircle, TrendingUp, ChevronRight, ChevronDown, Heart,
@@ -40,9 +40,9 @@ function formatDate(iso: string) {
 
 // 인기 워키·매뉴얼 데이터를 병렬 요청한다.
 // 사용법 탭은 정적 콘텐츠이므로 API 불필요.
-onMounted(async () => {
-  activeTab.value = resolveTab(route.query.tab)
-  loading.value = true
+// showSpinner=false 로 호출하면(포커스 복귀 시 백그라운드 갱신) 화면 깜빡임 없이 좋아요 수만 최신화한다.
+async function loadPopular(showSpinner = true) {
+  if (showSpinner) loading.value = true
   error.value = ''
   try {
     const [worki, popMan] = await Promise.all([
@@ -54,8 +54,26 @@ onMounted(async () => {
   } catch {
     error.value = '자주 찾는 항목을 불러오지 못했습니다.'
   } finally {
-    loading.value = false
+    if (showSpinner) loading.value = false
   }
+}
+
+// 다른 경로에서 좋아요를 변경한 뒤 FAQ 탭으로 돌아오면 좋아요 수가 stale 상태로 남는다.
+// 탭이 다시 보이거나(visibilitychange) 윈도우 포커스를 받을 때 조용히 재조회해 최신 값을 반영한다.
+function refreshOnVisible() {
+  if (document.visibilityState === 'visible') loadPopular(false)
+}
+
+onMounted(() => {
+  activeTab.value = resolveTab(route.query.tab)
+  loadPopular()
+  document.addEventListener('visibilitychange', refreshOnVisible)
+  window.addEventListener('focus', refreshOnVisible)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', refreshOnVisible)
+  window.removeEventListener('focus', refreshOnVisible)
 })
 
 // 시스템 사용법 FAQ 항목 (정적 콘텐츠)
@@ -183,7 +201,7 @@ const systemFAQs = [
             v-for="(m, i) in popularManuals"
             :key="m.manualId"
             class="rank-row"
-            @click="router.push(`/manuals/${m.manualId}`)"
+            @click="router.push(`/manuals/${m.manualId}?from=faq`)"
           >
             <div class="rank-num" :class="i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : 'plain'">
               {{ i + 1 }}

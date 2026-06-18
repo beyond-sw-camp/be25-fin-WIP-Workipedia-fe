@@ -38,6 +38,16 @@ function formatDate(iso: string) {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
 }
 
+// FAQ 인기 매뉴얼에서 진입한 경우(?from=faq) "목록으로"는 FAQ 매뉴얼 탭으로 복귀시킨다.
+// 그 외(매뉴얼 목록·직접 URL 접근)에는 기존대로 매뉴얼 목록으로 이동한다.
+function goBack() {
+  if (route.query.from === 'faq') {
+    router.push('/faq?tab=manual')
+  } else {
+    router.push('/manuals')
+  }
+}
+
 onMounted(async () => {
   const id = Number(route.params.id)
   if (!Number.isFinite(id)) {
@@ -59,7 +69,7 @@ onMounted(async () => {
 <template>
   <div class="content-inner">
 
-    <button class="btn" style="margin-bottom: 20px;" @click="router.push('/manuals')">
+    <button class="btn" style="margin-bottom: 20px;" @click="goBack">
       <ChevronLeft :size="16" /> 목록으로
     </button>
 
