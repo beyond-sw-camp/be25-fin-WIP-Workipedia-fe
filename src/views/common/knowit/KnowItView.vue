@@ -148,17 +148,20 @@ async function send() {
     }
     const sid = sessionId.value as number
 
-    // 요청 모드: 답변 본문은 쓰지 않고 messageId만 필요하므로 기존 비스트리밍 호출을 유지한다.
-    // AI 응답을 바탕으로 티켓 발행 폼을 연다.
-    // (BE는 별도 draftTicket을 내려주지 않으므로 사용자 입력을 초안으로 사용)
+    // 요청 모드: 폼 내용은 사용자 입력 q 그대로이고(BE는 별도 draftTicket을 안 내려줌),
+    // sendMessage 응답은 messageId(=sourceChatbotMessageId, optional)를 얻는 용도로만 쓰인다.
+    // 따라서 느리고 실패하기 쉬운 AI 호출에 폼 노출을 묶지 않고, 폼은 즉시 연다.
+    // messageId는 백그라운드로 받아 채우며, 실패해도(타임아웃 등) 폼/발행에는 영향이 없다.
     if (mode.value === 'request') {
-      const res = await sendMessage(sid, q)
-      lastMessageId.value = res.data.messageId
       msgs.value = msgs.value.filter(m => m.kind !== 'loading')
+      lastMessageId.value = null
       ticketTitle.value = ''
       ticketContent.value = q
       ticketError.value = ''
       showTicketDialog.value = true
+      sendMessage(sid, q)
+        .then(res => { lastMessageId.value = res.data.messageId })
+        .catch(() => { /* messageId 없이도 티켓 발행 가능(sourceChatbotMessageId: null) */ })
       return
     }
 
