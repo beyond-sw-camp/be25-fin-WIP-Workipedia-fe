@@ -142,7 +142,7 @@ const initials = computed(() =>
           <ShieldCheck :size="16" /> 시스템 대시보드
         </RouterLink>
         <RouterLink to="/admin/ai" class="nav-item nav-item-secondary">
-          <Bot :size="16" /> AI 관리
+          <Bot :size="16" /> AI 관리 및 개발자 도구
         </RouterLink>
         <RouterLink to="/admin/settings" class="nav-item nav-item-secondary">
           <Settings :size="16" /> 설정
