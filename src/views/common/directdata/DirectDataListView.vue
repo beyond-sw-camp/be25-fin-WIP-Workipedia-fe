@@ -1,9 +1,9 @@
 <script setup lang="ts">
-// 수기 지식 게시판 — SYSTEM_ADMIN이 수기 지식 관리 탭에서 활성화한 항목을 카드 목록으로 표시한다.
+// 수기 지식 게시판 — SYSTEM_ADMIN이 수기 지식 관리 탭에서 활성화한 항목을 목록으로 표시한다.
 // 검색과 페이지네이션은 서버 요청 없이 클라이언트에서 처리한다(전체 항목을 스토어에 캐시).
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { BookMarked, Search, Tag, ChevronRight, ChevronLeft } from '@lucide/vue'
+import { BookMarked, Search, ChevronRight, ChevronLeft } from '@lucide/vue'
 import { useDirectDataStore } from '@/stores/useDirectDataStore'
 
 const router = useRouter()
@@ -20,7 +20,7 @@ const filteredItems = computed(() => {
   return sorted.filter(i => i.title.includes(q) || i.content.includes(q))
 })
 
-const PAGE_SIZE = 9
+const PAGE_SIZE = 15
 const currentPage = ref(0)
 watch(query, () => { currentPage.value = 0 })
 
@@ -33,7 +33,7 @@ function formatDate(iso: string) {
   return iso.slice(0, 10).replace(/-/g, '.')
 }
 
-function truncate(text: string, max = 100) {
+function truncate(text: string, max = 80) {
   return text.length > max ? text.slice(0, max) + '…' : text
 }
 </script>
@@ -64,7 +64,7 @@ function truncate(text: string, max = 100) {
     </div>
 
     <template v-else>
-      <div class="search-bar" style="margin-bottom: 24px;">
+      <div class="search-bar" style="margin-bottom: 20px;">
         <Search :size="16" />
         <input v-model="query" placeholder="제목 또는 내용으로 검색" />
       </div>
@@ -74,24 +74,20 @@ function truncate(text: string, max = 100) {
       </div>
 
       <template v-else>
-        <div class="card-grid">
+        <div class="item-list">
           <div
             v-for="item in pagedItems"
             :key="item.directDataId"
-            class="card item-card"
+            class="card item-row"
             @click="router.push(`/direct-data/${item.directDataId}`)"
           >
-            <div class="card-top">
-              <span v-if="item.category" class="category-badge">
-                <Tag :size="11" />
-                {{ item.category }}
-              </span>
-              <ChevronRight class="card-arrow" :size="14" color="#aeb2bb" />
+            <div class="row-main">
+              <h3 class="row-title">{{ item.title }}</h3>
+              <p class="row-preview">{{ truncate(item.content) }}</p>
             </div>
-            <h3 class="card-title">{{ item.title }}</h3>
-            <p class="card-preview">{{ truncate(item.content) }}</p>
-            <div class="card-footer">
-              <span class="card-date">{{ formatDate(item.updatedAt) }}</span>
+            <div class="row-meta">
+              <span class="row-date">{{ formatDate(item.updatedAt) }}</span>
+              <ChevronRight :size="15" color="#aeb2bb" />
             </div>
           </div>
         </div>
@@ -136,68 +132,51 @@ function truncate(text: string, max = 100) {
 .summary-value { font-size: 26px; font-weight: 900; color: #10b981; }
 .summary-label { font-size: 12.5px; color: #aeb2bb; margin-top: 2px; }
 
-.card-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-}
+.item-list { display: flex; flex-direction: column; gap: 10px; }
 
-.item-card {
-  padding: 20px 22px;
-  cursor: pointer;
+.item-row {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-  transition: box-shadow 0.15s, transform 0.15s;
-}
-.item-card:hover { box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1); transform: translateY(-2px); }
-
-.card-top { display: flex; align-items: center; justify-content: space-between; min-height: 20px; }
-.card-arrow { margin-left: auto; flex-shrink: 0; }
-
-.category-badge {
-  display: inline-flex;
   align-items: center;
-  gap: 3px;
-  font-size: 0.7rem;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 99px;
-  background: #ecfdf5;
-  color: #059669;
+  gap: 16px;
+  padding: 18px 24px;
+  cursor: pointer;
+  transition: box-shadow 0.15s;
 }
+.item-row:hover { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08); }
 
-.card-title {
+.row-main { flex: 1; min-width: 0; }
+.row-title {
   font-size: 15px;
   font-weight: 700;
   color: #1f2430;
-  margin: 0;
-  line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  margin: 0 0 4px;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
-.card-preview {
+.row-preview {
   font-size: 13px;
   color: #717182;
-  line-height: 1.6;
   margin: 0;
-  flex: 1;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
-.card-footer { display: flex; align-items: center; justify-content: flex-end; }
-.card-date { font-size: 11.5px; color: #aeb2bb; }
+
+.row-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.row-date { font-size: 12px; color: #aeb2bb; }
 
 .pagination {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 12px;
-  margin-top: 28px;
+  margin-top: 24px;
 }
 .page-btn {
   display: flex;

@@ -6,6 +6,7 @@ import {
   Search, Building2, LogIn, MessageCircle, X, Settings, Timer, ExternalLink,
 } from '@lucide/vue'
 import BaseToast from '@/components/common/BaseToast.vue'
+import BaseModal from '@/components/common/BaseModal.vue'
 import {
   getDashboardSummary, getAdminUsers, updateUserStatus,
   getAdminManuals, createAdminManual, updateAdminManual, updateAdminManualMeta, deleteAdminManual,
@@ -591,8 +592,8 @@ const knowledgeSaving = ref(false)
 const deleteKnowledgeId = ref<number | null>(null)
 const knowledgeModalOpen = ref(false)
 
-type KnowledgeForm = { id?: number; title: string; content: string; category: string; isActive: boolean }
-const knowledgeForm = ref<KnowledgeForm>({ title: '', content: '', category: '', isActive: true })
+type KnowledgeForm = { id?: number; title: string; content: string; isActive: boolean }
+const knowledgeForm = ref<KnowledgeForm>({ title: '', content: '', isActive: true })
 // 수정 모달을 열 때의 원본 isActive. null이면 신규 생성.
 // N→Y 전환 시에만 알림 발송되므로 Y→Y 편집 시에는 알림 안내를 숨긴다.
 const knowledgeOriginalIsActive = ref<boolean | null>(null)
@@ -619,7 +620,7 @@ function setKnowledgeTab(tab: KnowledgeTab) {
 }
 
 function openKnowledgeCreate() {
-  knowledgeForm.value = { title: '', content: '', category: '', isActive: true }
+  knowledgeForm.value = { title: '', content: '', isActive: true }
   knowledgeOriginalIsActive.value = null
   knowledgeModalOpen.value = true
 }
@@ -629,7 +630,6 @@ function openKnowledgeEdit(item: AdminDirectData) {
     id: item.directDataId,
     title: item.title,
     content: item.content,
-    category: item.category ?? '',
     isActive: item.isActive,
   }
   knowledgeOriginalIsActive.value = item.isActive
@@ -647,7 +647,6 @@ async function saveKnowledge() {
     const body = {
       title: knowledgeForm.value.title.trim(),
       content: knowledgeForm.value.content,
-      ...(knowledgeForm.value.category.trim() ? { category: knowledgeForm.value.category.trim() } : {}),
       isActive: knowledgeForm.value.isActive,
     }
     if (knowledgeForm.value.id) {
@@ -1248,10 +1247,6 @@ onMounted(() => {
             <input v-model="knowledgeForm.title" class="text-input" placeholder="제목을 입력하세요 (최대 255자)" maxlength="255" />
           </div>
           <div class="field">
-            <label>분류</label>
-            <input v-model="knowledgeForm.category" class="text-input" placeholder="예: 인사, IT, 총무 (선택)" />
-          </div>
-          <div class="field">
             <label>내용 <span style="color:#ef4444;">*</span></label>
             <textarea v-model="knowledgeForm.content" class="textarea-input" rows="8"
               style="font-family:inherit; white-space:pre-wrap; resize:vertical;" placeholder="내용을 입력하세요" />
@@ -1279,16 +1274,15 @@ onMounted(() => {
       </div>
 
       <!-- 수기 지식 삭제 -->
-      <div v-if="deleteKnowledgeId" class="modal-overlay" @click.self="deleteKnowledgeId = null">
-        <div class="modal-box">
-          <h4 class="modal-title">수기 지식을 삭제하시겠습니까?</h4>
-          <p class="modal-desc">삭제된 지식은 복구할 수 없으며 RAG 검색에서 제거됩니다.</p>
-          <div class="btn-row" style="justify-content:flex-end;">
-            <button class="btn" @click="deleteKnowledgeId = null">취소</button>
-            <button class="btn danger" @click="confirmDeleteKnowledge">삭제</button>
-          </div>
-        </div>
-      </div>
+      <BaseModal
+        :model-value="deleteKnowledgeId !== null"
+        title="수기 지식 삭제"
+        message="삭제된 지식은 복구할 수 없으며 RAG 검색에서 제거됩니다."
+        confirm-label="삭제"
+        :danger="true"
+        @update:model-value="(v) => { if (!v) deleteKnowledgeId = null }"
+        @confirm="confirmDeleteKnowledge"
+      />
     </Teleport>
 
     <BaseToast v-model="toastVisible" :title="toastTitle" :sub="toastSub" :type="toastType" />
