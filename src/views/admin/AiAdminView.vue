@@ -279,7 +279,7 @@ onMounted(() => {
     <div class="page-head">
       <h1 class="page-title">
         <Bot :size="28" color="#1f2430" />
-        AI 관리
+        AI 관리 및 개발자 도구
       </h1>
       <p class="page-sub">AI 설정과 운영 품질을 한곳에서 관리합니다.</p>
     </div>

@@ -21,7 +21,7 @@ import { getManualDetail } from '@/api/manualApi'
 
 const auth = useAuthStore()
 
-type Tab = 'manual' | 'knowledge' | 'departments' | 'users' | 'points' | 'chat' | 'script'
+type Tab = 'manual' | 'knowledge' | 'departments' | 'users' | 'points' | 'chat'
 const activeTab = ref<Tab>('manual')
 
 // ── Toast ──────────────────────────────────────────────────────
@@ -685,27 +685,6 @@ async function confirmDeleteKnowledge() {
   deleteKnowledgeId.value = null
 }
 
-// ── Script ─────────────────────────────────────────────────────
-// 사내 포털에 삽입할 NOIT 챗봇 위젯 스크립트. 클립보드 복사만 제공하며 API 호출은 없다.
-const WIDGET_SCRIPT = `<!-- NOIT Chatbot Widget -->
-<script>
-  (function() {
-    var script = document.createElement('script');
-    script.src = 'https://cdn.noit.workipedia.com/widget.js';
-    script.async = true;
-    script.setAttribute('data-org-id', 'YOUR_ORG_ID');
-    script.setAttribute('data-api-key', 'YOUR_API_KEY');
-    document.head.appendChild(script);
-  })();
-<\/script>
-<style>
-  .noit-widget { position: fixed; bottom: 20px; right: 20px; z-index: 9999; }
-</style>`
-function copyScript() {
-  navigator.clipboard.writeText(WIDGET_SCRIPT)
-  showToast('스크립트가 클립보드에 복사되었습니다.')
-}
-
 // ── Init ───────────────────────────────────────────────────────
 // 사용자·포인트 탭은 처음 진입할 때만 API를 호출한다. 매뉴얼·부서는 onMounted에서 미리 로드한다.
 const loadedTabs = new Set<Tab>()
@@ -767,9 +746,9 @@ onMounted(() => {
 
     <!-- Tab Bar - AiAdminView 탭 스타일과 동일 -->
     <div class="tab-bar">
-      <button v-for="t in (['manual','knowledge','departments','users','points','chat','script'] as Tab[])"
+      <button v-for="t in (['manual','knowledge','departments','users','points','chat'] as Tab[])"
         :key="t" :class="['tab', { 'tab--active': activeTab === t }]" @click="activeTab = t">
-        {{ { manual:'매뉴얼 관리', knowledge:'수기 지식 관리', departments:'부서 관리', users:'사용자 관리', points:'포인트 사용', chat:'채팅 옵션', script:'스크립트' }[t] }}
+        {{ { manual:'매뉴얼 관리', knowledge:'수기 지식 관리', departments:'부서 관리', users:'사용자 관리', points:'포인트 사용', chat:'채팅 옵션' }[t] }}
       </button>
     </div>
 
@@ -1167,53 +1146,6 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- ────────────── 스크립트 ────────────── -->
-    <div v-show="activeTab === 'script'" class="card section-card">
-      <h3 class="sec-title" style="margin-bottom:6px;"><span style="font-size:16px;">위젯 스크립트</span></h3>
-      <p class="sec-desc" style="margin-bottom:24px;">사내 포털 또는 그룹웨어에 삽입하여 NOIT 서비스를 사용할 수 있는 스크립트입니다</p>
-
-      <div style="margin-bottom:16px;">
-        <h4 style="font-size:14px; font-weight:600; margin-bottom:6px;">설치 방법</h4>
-        <p style="font-size:13px; color:#717182; margin-bottom:16px;">
-          아래 스크립트를 복사하여 사내 포털 또는 그룹웨어의 &lt;head&gt; 태그 안에 붙여넣으세요.
-        </p>
-      </div>
-
-      <div style="position:relative; margin-bottom:20px;">
-        <label style="font-size:13px; font-weight:600; display:block; margin-bottom:8px;">챗봇 위젯 스크립트</label>
-        <pre class="script-pre"><code>{{ WIDGET_SCRIPT }}</code></pre>
-        <button class="btn" style="position:absolute; top:36px; right:12px;" @click="copyScript">복사</button>
-      </div>
-
-      <div style="border-top: 1px solid var(--line); padding-top:20px; margin-bottom:20px;">
-        <h4 style="font-size:14px; font-weight:600; margin-bottom:12px;">API 키 정보</h4>
-        <div class="api-key-row">
-          <div>
-            <div style="font-size:14px; font-weight:500;">Organization ID</div>
-            <div style="font-size:12px; color:#aeb2bb; margin-top:2px;">조직 고유 식별자</div>
-          </div>
-          <code class="api-code">org_2a8f9b3c4d5e</code>
-        </div>
-        <div class="api-key-row">
-          <div>
-            <div style="font-size:14px; font-weight:500;">API Key</div>
-            <div style="font-size:12px; color:#aeb2bb; margin-top:2px;">위젯 인증 키</div>
-          </div>
-          <code class="api-code">noit_sk_••••••••••••••••</code>
-        </div>
-      </div>
-
-      <div class="info-box">
-        <strong style="font-size:13px;">💡 참고사항</strong>
-        <ul>
-          <li>스크립트 설치 후 즉시 챗봇 기능을 사용할 수 있습니다</li>
-          <li>YOUR_ORG_ID와 YOUR_API_KEY를 실제 값으로 교체해주세요</li>
-          <li>위젯은 사용자 인증을 자동으로 처리합니다</li>
-          <li>별도의 서버 구축 없이 티켓 발행 및 조회가 가능합니다</li>
-        </ul>
-      </div>
-    </div>
-
     <!-- ── 삭제 확인 모달 ── -->
     <Teleport to="body">
       <!-- 매뉴얼 삭제 -->
@@ -1452,18 +1384,6 @@ onMounted(() => {
 .banned-word-chip:hover { background: #e2e8f0; }
 .banned-word-chip button { display: flex; align-items: center; color: #94a3b8; }
 .banned-word-chip button:hover { color: #ef4444; }
-
-/* ── Script ── */
-.script-pre {
-  background: #f1f5f9; border-radius: 10px; padding: 16px;
-  font-size: 12px; font-family: 'Consolas', monospace;
-  overflow-x: auto; line-height: 1.7; white-space: pre; color: #334155;
-}
-.api-key-row {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 16px; background: #f8f9fb; border-radius: 10px; margin-bottom: 8px;
-}
-.api-code { font-size: 13px; font-family: monospace; padding: 5px 12px; background: #fff; border: 1px solid var(--line); border-radius: 7px; }
 
 /* ── Info / Warn boxes ── */
 .info-box { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 14px 16px; }
