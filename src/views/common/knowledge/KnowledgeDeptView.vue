@@ -116,7 +116,6 @@ onMounted(() => { knowledgeStore.load() })
           <p class="item-preview">{{ truncate(item.answer) }}</p>
           <div class="item-footer">
             <span class="item-date">{{ formatDate(item.approvedAt) }}</span>
-            <span v-if="item.answererNickname" class="item-author">{{ item.answererNickname }}</span>
           </div>
         </div>
       </div>
