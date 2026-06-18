@@ -21,8 +21,14 @@ const item = computed(() =>
   store.items.find(i => i.directDataId === id) ?? fetchedItem.value
 )
 
+// 시각(시분초)을 제거하고 날짜 단위로만 차이를 계산한다.
+// 밀리초 단위 비교는 같은 날짜라도 시간 차이에 따라 0일이 되는 오류가 있다.
 function daysSince(iso: string) {
-  return Math.floor((Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24))
+  const d = new Date(iso)
+  const from = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const now = new Date()
+  const to = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  return Math.floor((to - from) / (1000 * 60 * 60 * 24))
 }
 
 const elapsed = computed(() => (item.value ? daysSince(item.value.updatedAt) : 0))
