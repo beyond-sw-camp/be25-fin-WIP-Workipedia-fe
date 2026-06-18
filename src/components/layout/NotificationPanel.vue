@@ -38,6 +38,7 @@ function kindOf(type: NotificationType): Kind | null {
     case 'TICKET_DELETED':
       return 'ticket'
     case 'MANUAL_UPDATED':
+    case 'DIRECT_DATA_ACTIVATED':
       return 'manual'
     default:
       return null

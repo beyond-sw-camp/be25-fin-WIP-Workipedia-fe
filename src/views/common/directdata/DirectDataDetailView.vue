@@ -3,7 +3,7 @@
 // URL 직접 접근(알림 링크 등) 시에는 단건 API로 폴백해 빈 화면을 방지한다.
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ChevronLeft, Clock, AlertTriangle, Tag } from '@lucide/vue'
+import { ChevronLeft, Clock, AlertTriangle } from '@lucide/vue'
 import { useDirectDataStore } from '@/stores/useDirectDataStore'
 import { getDirectDataDetail } from '@/api/directDataApi'
 import type { DirectDataResponse } from '@/api/directDataApi'
@@ -67,10 +67,6 @@ onMounted(async () => {
 
     <template v-else>
       <div class="detail-badges">
-        <span v-if="item.category" class="badge gray">
-          <Tag :size="11" />
-          {{ item.category }}
-        </span>
         <span class="badge" :style="elapsedStyle(elapsed)">
           <Clock :size="11" /> {{ elapsed }}일 경과
         </span>
@@ -78,7 +74,7 @@ onMounted(async () => {
 
       <div v-if="isStale" class="stale-banner">
         <AlertTriangle :size="16" />
-        이 문서는 작성된 지 {{ elapsed }}일이 지났습니다. 내용이 현재와 다를 수 있습니다.
+        이 문서는 마지막으로 수정된 지 {{ elapsed }}일이 지났습니다. 내용이 현재와 다를 수 있습니다.
       </div>
 
       <h1 class="item-title">{{ item.title }}</h1>
@@ -109,7 +105,6 @@ onMounted(async () => {
 <style scoped>
 .item-title { font-size: 22px; font-weight: 800; color: #1f2430; margin: 0 0 18px; line-height: 1.35; }
 .detail-badges { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
-.badge.gray { display: inline-flex; align-items: center; gap: 4px; }
 
 .stale-banner {
   display: flex;

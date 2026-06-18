@@ -909,7 +909,6 @@ onMounted(() => {
           class="item-row" style="cursor:pointer;" @click="openKnowledgeEdit(item)">
           <div class="item-body">
             <div class="item-meta">
-              <span v-if="item.category" class="badge solid-blue">{{ item.category }}</span>
               <span :class="['badge', item.isActive ? 'badge-kn-active' : 'badge-kn-inactive']">
                 {{ item.isActive ? '활성' : '비활성' }}
               </span>
