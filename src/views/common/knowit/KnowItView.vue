@@ -200,9 +200,8 @@ async function send() {
         scroll()
       },
     })
-  } catch (err) {
+  } catch {
     msgs.value = msgs.value.filter(m => m.kind !== 'loading')
-    showToast('답변을 가져오지 못했습니다.', err instanceof Error ? err.message : '잠시 후 다시 시도해주세요.')
   } finally {
     loading.value = false
   }
