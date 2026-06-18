@@ -94,10 +94,6 @@ onMounted(async () => {
           <span class="meta-key">발행일</span>
           <span class="meta-val">{{ formatDate(item.approvedAt) }}</span>
         </div>
-        <div v-if="item.answererNickname" class="meta-row">
-          <span class="meta-key">답변자</span>
-          <span class="meta-val">{{ item.answererNickname }}</span>
-        </div>
         <div class="meta-row">
           <span class="meta-key">정보 경과</span>
           <span class="meta-val" :style="elapsedStyle(elapsed)">{{ elapsed }}일</span>

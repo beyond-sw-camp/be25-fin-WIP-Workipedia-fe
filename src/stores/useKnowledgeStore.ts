@@ -20,7 +20,8 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     loading.value = true
     error.value = false
     try {
-      const res = await getKnowledgeList({ size: 100 })
+      // 1-based 페이지네이션. size 최대 100.
+      const res = await getKnowledgeList({ page: 1, size: 100 })
       items.value = res.data.content
       loaded.value = true
     } catch {
