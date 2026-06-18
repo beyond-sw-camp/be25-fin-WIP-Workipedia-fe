@@ -70,6 +70,10 @@ export interface StreamHandlers {
   onError?: (err: unknown) => void
 }
 
+function apiUrl(path: string) {
+  return `${String(import.meta.env.VITE_API_BASE_URL).replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`
+}
+
 export async function streamMessage(
   sessionId: number,
   question: string,
@@ -78,7 +82,7 @@ export async function streamMessage(
 ): Promise<void> {
   const auth = useAuthStore()
   const res = await fetch(
-    `${import.meta.env.VITE_API_BASE_URL}/chatbot/sessions/${sessionId}/messages/stream`,
+    apiUrl(`/chatbot/sessions/${sessionId}/messages/stream`),
     {
       method: 'POST',
       headers: {
