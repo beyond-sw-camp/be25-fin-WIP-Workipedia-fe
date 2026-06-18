@@ -897,6 +897,7 @@ onMounted(() => {
         </button>
       </div>
 
+      <!-- length===0 조건: 탭 전환 시 기존 목록을 유지해 로딩 스피너 깜빡임을 방지한다 -->
       <div v-if="knowledgeLoading && knowledgeItems.length === 0" class="empty-ph" style="height:180px;">
         <div class="loading-spinner" />
         불러오는 중...

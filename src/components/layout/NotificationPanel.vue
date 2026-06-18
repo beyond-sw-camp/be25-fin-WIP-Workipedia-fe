@@ -22,9 +22,9 @@ const error = ref('')
 type Tab = 'all' | 'ticket' | 'worki' | 'manual'
 const activeTab = ref<Tab>('all')
 
-// 카테고리는 티켓/게시판/매뉴얼 3가지만 존재한다.
-// 매핑되지 않는 타입은 null을 반환해 배지를 숨기고 전체 탭에서만 노출한다.
-// DIRECT_DATA_ACTIVATED는 null을 반환해 '매뉴얼' 탭에 포함되지 않고 전체 탭에서만 보인다.
+// 카테고리는 티켓/게시판/매뉴얼 3가지다. 매핑되지 않는 타입은 null → 전체 탭에서만 노출.
+// DIRECT_DATA_ACTIVATED는 'manual'을 반환해 매뉴얼 탭에도 함께 표시된다.
+// badgeOf()는 kindOf()와 별개로 '수기 지식' 배지(초록)를 달아 매뉴얼과 시각적으로 구분한다.
 type Kind = 'ticket' | 'worki' | 'manual'
 function kindOf(type: NotificationType): Kind | null {
   switch (type) {
