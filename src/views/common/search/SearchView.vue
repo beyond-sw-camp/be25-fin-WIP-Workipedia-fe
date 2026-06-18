@@ -3,14 +3,16 @@
 // 통합 검색 뷰. 워키·매뉴얼·지식화·수기 지식 4개 도메인을 병렬로 검색해 섹션별로 표시한다.
 //
 // 핵심 구현 포인트
-//   1. 첫 검색: searchIntegrated(워키+매뉴얼)와 searchKnowledge·searchDirectData를 Promise.all로
-//      병렬 호출해 왕복 횟수를 최소화한다.
-//   2. 도메인별 페이지 이동: 각 섹션 독립 seq 토큰으로 race condition을 방지한다.
-//   3. 페이지 base 혼용: 워키·매뉴얼은 0-based(Spring Pageable), 지식화·수기 지식은 1-based(BasePageRequest).
-import { ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+//   1. 워키·매뉴얼: searchIntegrated 통합 API + allSettled(부분 실패 허용)
+//   2. 지식화: BE keyword 미지원 → useKnowledgeStore 캐시에서 클라이언트 필터링
+//   3. 수기 지식: searchDirectData. BE 미지원 시 allSettled로 섹션만 숨김
+//   4. 검색 상태 유지: URL ?q= 쿼리로 동기화 — 상세 → 뒤로가기 시 결과 복원
+//   5. 도메인별 seq 토큰으로 race condition 방지
+import { ref, watch, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { Search, MessageCircle, BookOpen, Library, BookMarked } from '@lucide/vue'
-import { searchIntegrated, searchWorki, searchManuals, searchKnowledge, searchDirectData, autocompleteSearch } from '@/api/searchApi'
+import { searchIntegrated, searchWorki, searchManuals, searchDirectData, autocompleteSearch } from '@/api/searchApi'
+import { useKnowledgeStore } from '@/stores/useKnowledgeStore'
 import BasePagination from '@/components/common/BasePagination.vue'
 import type { WorkiSearchResponse, QuestionStatus } from '@/types/worki'
 import type { ManualSearchResponse } from '@/types/search'
@@ -19,6 +21,8 @@ import type { KnowledgeDataResponse } from '@/types/knowledge'
 import type { DirectDataResponse } from '@/api/directDataApi'
 
 const router = useRouter()
+const route = useRoute()
+const knowledgeStore = useKnowledgeStore()
 const query = ref('')
 
 // 도메인별 한 페이지에 보여줄 건수.
@@ -38,6 +42,8 @@ const knowledgeResults = ref<KnowledgeDataResponse[]>([])
 const knowledgePage = ref(1)
 const knowledgeTotalPages = ref(0)
 const knowledgeTotal = ref(0)
+// 클라이언트 필터링 결과 전체 — 페이지 이동 시 재사용
+const allFilteredKnowledge = ref<KnowledgeDataResponse[]>([])
 
 const directDataResults = ref<DirectDataResponse[]>([])
 const directDataPage = ref(1)
@@ -55,7 +61,6 @@ const showSuggestions = ref(false)
 let searchSeq = 0
 let workiSeq = 0
 let manualSeq = 0
-let knowledgeSeq = 0
 let directDataSeq = 0
 let suppressNext = false
 
@@ -93,42 +98,52 @@ async function runSearch(keyword: string) {
     return
   }
   const mySeq = ++searchSeq
-  // 이전 키워드의 페이지 이동 응답이 남아 덮어쓰지 않도록 무효화.
   workiSeq++
   manualSeq++
-  knowledgeSeq++
   directDataSeq++
   loading.value = true
   error.value = ''
-  try {
-    const [integratedRes, knowledgeRes, directRes] = await Promise.all([
-      searchIntegrated(keyword, PAGE_SIZE),
-      searchKnowledge(keyword, { page: 1, size: PAGE_SIZE }),
-      searchDirectData(keyword, { page: 1, size: PAGE_SIZE }),
-    ])
-    if (mySeq !== searchSeq) return
-    workiResults.value = integratedRes.data.worki.content
-    workiTotal.value = integratedRes.data.worki.pageInfo.totalElements
-    workiTotalPages.value = integratedRes.data.worki.pageInfo.totalPages
+
+  // 워키·매뉴얼: 통합 API. 수기 지식: 개별 API. allSettled로 부분 실패 허용.
+  const [integratedResult, directResult] = await Promise.allSettled([
+    searchIntegrated(keyword, PAGE_SIZE),
+    searchDirectData(keyword, { page: 1, size: PAGE_SIZE }),
+  ])
+  if (mySeq !== searchSeq) { loading.value = false; return }
+
+  if (integratedResult.status === 'fulfilled') {
+    const d = integratedResult.value.data
+    workiResults.value = d.worki.content
+    workiTotal.value = d.worki.pageInfo.totalElements
+    workiTotalPages.value = d.worki.pageInfo.totalPages
     workiPage.value = 1
-    manualResults.value = integratedRes.data.manuals.content
-    manualTotal.value = integratedRes.data.manuals.pageInfo.totalElements
-    manualTotalPages.value = integratedRes.data.manuals.pageInfo.totalPages
+    manualResults.value = d.manuals.content
+    manualTotal.value = d.manuals.pageInfo.totalElements
+    manualTotalPages.value = d.manuals.pageInfo.totalPages
     manualPage.value = 1
-    knowledgeResults.value = knowledgeRes.data.content
-    knowledgeTotal.value = knowledgeRes.data.pageInfo.totalElements
-    knowledgeTotalPages.value = knowledgeRes.data.pageInfo.totalPages
-    knowledgePage.value = 1
-    directDataResults.value = directRes.data.content
-    directDataTotal.value = directRes.data.pageInfo.totalElements
-    directDataTotalPages.value = directRes.data.pageInfo.totalPages
-    directDataPage.value = 1
-    searched.value = true
-  } catch {
-    if (mySeq === searchSeq) error.value = '검색에 실패했습니다.'
-  } finally {
-    if (mySeq === searchSeq) loading.value = false
   }
+
+  // 지식화: BE keyword 미지원 → 스토어 캐시에서 클라이언트 필터링
+  await knowledgeStore.load()
+  const kw = keyword.toLowerCase()
+  const filtered = knowledgeStore.items.filter(k =>
+    k.question.toLowerCase().includes(kw) || k.answer.toLowerCase().includes(kw)
+  )
+  allFilteredKnowledge.value = filtered
+  knowledgeResults.value = filtered.slice(0, PAGE_SIZE)
+  knowledgeTotal.value = filtered.length
+  knowledgeTotalPages.value = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  knowledgePage.value = 1
+
+  if (directResult.status === 'fulfilled') {
+    const d = directResult.value.data
+    directDataResults.value = d.content
+    directDataTotal.value = d.pageInfo.totalElements
+    directDataTotalPages.value = d.pageInfo.totalPages
+    directDataPage.value = 1
+  }
+  searched.value = true
+  loading.value = false
 }
 
 // 워키 섹션 페이지 이동(0-based).
@@ -158,18 +173,11 @@ async function goManualPage(p: number) {
   }
 }
 
-// 지식화·수기 지식 섹션 페이지 이동(1-based).
-async function goKnowledgePage(p: number) {
-  const mySeq = ++knowledgeSeq
-  try {
-    const res = await searchKnowledge(query.value.trim(), { page: p, size: PAGE_SIZE })
-    if (mySeq !== knowledgeSeq) return
-    knowledgeResults.value = res.data.content
-    knowledgeTotalPages.value = res.data.pageInfo.totalPages
-    knowledgePage.value = p
-  } catch {
-    if (mySeq === knowledgeSeq) error.value = '검색에 실패했습니다.'
-  }
+// 지식화 페이지 이동 — 클라이언트 필터 결과에서 슬라이싱(동기).
+function goKnowledgePage(p: number) {
+  const start = (p - 1) * PAGE_SIZE
+  knowledgeResults.value = allFilteredKnowledge.value.slice(start, start + PAGE_SIZE)
+  knowledgePage.value = p
 }
 
 async function goDirectDataPage(p: number) {
@@ -216,6 +224,14 @@ function hideSuggestionsSoon() {
   }, 150)
 }
 
+// 엔터 키: 자동완성을 닫고 즉시 검색 실행
+function handleEnter() {
+  const kw = query.value.trim()
+  showSuggestions.value = false
+  clearTimeout(debounce)
+  runSearch(kw)
+}
+
 let debounce: ReturnType<typeof setTimeout>
 watch(query, () => {
   if (suppressNext) {
@@ -225,9 +241,21 @@ watch(query, () => {
   clearTimeout(debounce)
   debounce = setTimeout(() => {
     const kw = query.value.trim()
+    // URL ?q= 동기화 — 상세 → 뒤로가기 시 검색 상태를 복원하기 위함
+    router.replace({ path: '/search', query: kw.length >= 2 ? { q: kw } : {} })
     runSearch(kw)
     loadSuggestions(kw)
   }, 300)
+})
+
+// 뒤로가기 재진입 시 URL의 ?q= 값으로 검색 상태 복원
+onMounted(() => {
+  const q = route.query.q as string | undefined
+  if (q && q.length >= 2) {
+    suppressNext = true   // watch가 debounce를 이중 실행하지 않도록 억제
+    query.value = q
+    runSearch(q)
+  }
 })
 </script>
 
@@ -249,6 +277,7 @@ watch(query, () => {
         autofocus
         @focus="showSuggestions = suggestions.length > 0"
         @blur="hideSuggestionsSoon"
+        @keyup.enter="handleEnter"
       />
       <ul v-if="showSuggestions && suggestions.length" class="autocomplete">
         <li
@@ -305,7 +334,7 @@ watch(query, () => {
             v-for="m in manualResults"
             :key="m.manualId"
             class="card result-item"
-            @click="router.push(`/manuals/${m.manualId}`)"
+            @click="router.push(`/manuals/${m.manualId}?from=search`)"
           >
             <h3 class="result-title">{{ m.title }}</h3>
             <div class="result-meta">{{ manualStatusLabel[m.status] }} · v{{ m.version }} · {{ formatDate(m.createdAt) }}</div>

@@ -38,11 +38,13 @@ function formatDate(iso: string) {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
 }
 
-// FAQ 인기 매뉴얼에서 진입한 경우(?from=faq) "목록으로"는 FAQ 매뉴얼 탭으로 복귀시킨다.
-// 그 외(매뉴얼 목록·직접 URL 접근)에는 기존대로 매뉴얼 목록으로 이동한다.
+// ?from 쿼리로 진입 경로를 판단해 올바른 페이지로 복귀한다.
+// from=faq → FAQ 매뉴얼 탭, from=search → 통합 검색, 그 외 → 매뉴얼 목록
 function goBack() {
   if (route.query.from === 'faq') {
     router.push('/faq?tab=manual')
+  } else if (route.query.from === 'search') {
+    router.push('/search')
   } else {
     router.push('/manuals')
   }
