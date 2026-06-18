@@ -202,6 +202,8 @@ async function send() {
     })
   } catch {
     msgs.value = msgs.value.filter(m => m.kind !== 'loading')
+    // 스트림 오류 또는 세션 생성 실패 시 표준 폴백 문구를 답변 버블로 표시한다.
+    msgs.value.push({ kind: 'answer', text: '해당 질문에 대한 내용을 찾을 수 없습니다.' })
   } finally {
     loading.value = false
   }
@@ -315,7 +317,7 @@ async function submitTicket() {
                 <span :class="['badge', m.msgMode === 'question' ? 'badge--blue' : 'badge--purple']">
                   {{ m.msgMode === 'question' ? '질문 모드' : '요청 모드' }}
                 </span>
-                <button class="mode-change" :disabled="loading" @click="changeMode">변경</button>
+                <button class="mode-change" :disabled="loading" @click="changeMode">모드 변경</button>
               </div>
               <p class="mode-text">{{ m.text }}</p>
             </div>
@@ -450,9 +452,6 @@ async function submitTicket() {
             <textarea v-model="ticketContent" class="dialog-textarea" rows="5" placeholder="요청 내용을 입력하세요 (최소 10자)" @input="ticketError = ''" />
             <p v-if="ticketError" class="field-error">{{ ticketError }}</p>
           </div>
-          <div class="info-box">
-            <strong>💡 참고:</strong> 닉네임과 부서명이 함께 전달됩니다.
-          </div>
         </div>
         <div class="dialog-footer">
           <button class="btn btn--ghost" @click="showTicketDialog = false">취소</button>
@@ -546,8 +545,13 @@ async function submitTicket() {
 .badge { padding: 3px 10px; border-radius: 99px; font-size: 12px; font-weight: 600; }
 .badge--blue { background: #2b7fff; color: #fff; }
 .badge--purple { background: #8b5cf6; color: #fff; }
-.mode-change { background: none; border: none; color: #717182; font-size: 13px; font-weight: 600; cursor: pointer; padding: 0; }
-.mode-change:hover { color: #1f2430; }
+.mode-change {
+  background: none; border: 1px solid #e6e8ec; color: #717182;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  padding: 4px 10px; border-radius: 6px; transition: background 0.15s, color 0.15s;
+}
+.mode-change:hover:not(:disabled) { background: #f3f4f6; color: #1f2430; }
+.mode-change:disabled { opacity: 0.4; cursor: not-allowed; }
 .mode-text { font-size: 15px; color: #44403c; line-height: 1.7; margin: 0; white-space: pre-line; }
 
 /* ── 소스 카드 ── */
@@ -676,11 +680,7 @@ async function submitTicket() {
   font-family: inherit; transition: border-color 0.15s;
 }
 .dialog-textarea:focus { border-color: #2b7fff; }
-.info-box {
-  background: #eff6ff; border: 1px solid #bfdbfe;
-  border-radius: 8px; padding: 10px 14px;
-  font-size: 13px; color: #1e40af;
-}
+
 .dialog-footer {
   display: flex; justify-content: flex-end; gap: 8px;
   padding: 0 24px 20px;
