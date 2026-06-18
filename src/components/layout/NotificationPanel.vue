@@ -22,8 +22,9 @@ const error = ref('')
 type Tab = 'all' | 'ticket' | 'worki' | 'manual'
 const activeTab = ref<Tab>('all')
 
-// 카테고리는 티켓/게시판/매뉴얼 3가지만 존재한다.
-// 매핑되지 않는 타입은 null을 반환해 배지를 숨기고 전체 탭에서만 노출한다.
+// 카테고리는 티켓/게시판/매뉴얼 3가지다. 매핑되지 않는 타입은 null → 전체 탭에서만 노출.
+// DIRECT_DATA_ACTIVATED는 'manual'을 반환해 매뉴얼 탭에도 함께 표시된다.
+// badgeOf()는 kindOf()와 별개로 '수기 지식' 배지(초록)를 달아 매뉴얼과 시각적으로 구분한다.
 type Kind = 'ticket' | 'worki' | 'manual'
 function kindOf(type: NotificationType): Kind | null {
   switch (type) {
@@ -48,10 +49,11 @@ const kindLabel: Record<Kind, string> = {
   ticket: '티켓', worki: '게시판', manual: '매뉴얼',
 }
 
-// null-safe 래퍼 — kindOf가 null일 때 kindLabel 인덱스 접근을 방지한다.
-function kindLabelOf(type: NotificationType): string | null {
+// 배지 표시용 — kindOf와 별개로 DIRECT_DATA_ACTIVATED에 '수기 지식' 배지를 달아준다.
+function badgeOf(type: NotificationType): { label: string; cls: string } | null {
+  if (type === 'DIRECT_DATA_ACTIVATED') return { label: '수기 지식', cls: 'badge-direct-data' }
   const k = kindOf(type)
-  return k ? kindLabel[k] : null
+  return k ? { label: kindLabel[k], cls: `badge-${k}` } : null
 }
 
 // null-kind 항목은 카테고리 탭에 속하지 않아 전체 탭에서만 표시된다.
@@ -180,8 +182,8 @@ onMounted(async () => {
         >
           <div class="noti-li-content">
             <div class="noti-li-meta">
-              <span v-if="kindOf(n.type)" class="kind-badge" :class="`badge-${kindOf(n.type)}`">
-                {{ kindLabelOf(n.type) }}
+              <span v-if="badgeOf(n.type)" class="kind-badge" :class="badgeOf(n.type)!.cls">
+                {{ badgeOf(n.type)!.label }}
               </span>
               <div v-if="!n.readAt" class="unread-dot"></div>
             </div>
@@ -308,9 +310,10 @@ onMounted(async () => {
   padding: 1px 7px;
   border-radius: 99px;
 }
-.badge-ticket { background: #e0f2fe; color: #0369a1; }
-.badge-worki  { background: #ede9fe; color: #7c3aed; }
-.badge-manual { background: #fee2e2; color: #dc2626; }
+.badge-ticket      { background: #e0f2fe; color: #0369a1; }
+.badge-worki       { background: #ede9fe; color: #7c3aed; }
+.badge-manual      { background: #fee2e2; color: #dc2626; }
+.badge-direct-data { background: #ecfdf5; color: #059669; }
 
 .unread-dot { width: 7px; height: 7px; border-radius: 50%; background: #ff6900; flex-shrink: 0; }
 

@@ -124,6 +124,19 @@ const router = createRouter({
           component: () => import('@/views/common/knowledge/KnowledgeDetailView.vue'),
         },
 
+        // 수기 지식 게시판 — 카드 목록
+        {
+          path: 'direct-data',
+          name: 'direct-data',
+          component: () => import('@/views/common/directdata/DirectDataListView.vue'),
+        },
+        // 수기 지식 상세 (숫자 id)
+        {
+          path: 'direct-data/:id(\\d+)',
+          name: 'direct-data-detail',
+          component: () => import('@/views/common/directdata/DirectDataDetailView.vue'),
+        },
+
         // 검색
         {
           path: 'search',

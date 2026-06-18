@@ -64,10 +64,10 @@ export function getAdminManuals() {
   return http.get<AdminManualPage>('/admin/manuals')
 }
 export function createAdminManual(formData: FormData) {
-  return http.post<AdminManual>('/admin/manuals/pdf', formData)
+  return http.post<AdminManual>('/admin/manuals', formData)
 }
 export function updateAdminManual(manualId: number, formData: FormData) {
-  return http.patch<ApiResponse<AdminManual>>(`/admin/manuals/${manualId}/pdf`, formData)
+  return http.put<AdminManual>(`/admin/manuals/${manualId}`, formData)
 }
 export function updateAdminManualMeta(manualId: number, body: { title?: string; version?: string; departmentId?: number | null }) {
   return http.patch<ApiResponse<AdminManual>>(`/admin/manuals/${manualId}`, body)
@@ -186,4 +186,38 @@ export function getChatPolicy() {
 }
 export function updateChatPolicy(body: ChatPolicy) {
   return http.patch<ChatPolicy>('/admin/flash-chat/policy', body)
+}
+
+// ── 수기 지식 관리 ──────────────────────────────────────────────
+export interface AdminDirectData {
+  directDataId: number
+  title: string
+  content: string
+  category: string | null
+  isActive: boolean
+  createdBy: number | null
+  updatedBy: number | null
+  createdAt: string
+  updatedAt: string
+  deletedAt: string | null
+}
+// page: 1-based (BasePageRequest 기반, 기본값 1)
+export interface DirectDataParams {
+  isActive?: boolean
+  category?: string
+  keyword?: string
+  page?: number
+  size?: number
+}
+export function getAdminDirectData(params: DirectDataParams = {}) {
+  return http.get<PageResponse<AdminDirectData>>('/admin/direct-data', { params })
+}
+export function createAdminDirectData(body: { title: string; content: string; category?: string; isActive?: boolean }) {
+  return http.post<AdminDirectData>('/admin/direct-data', body)
+}
+export function updateAdminDirectData(id: number, body: { title: string; content: string; category?: string; isActive?: boolean }) {
+  return http.put<AdminDirectData>(`/admin/direct-data/${id}`, body)
+}
+export function deleteAdminDirectData(id: number) {
+  return http.delete<void>(`/admin/direct-data/${id}`)
 }

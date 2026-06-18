@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink, useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { ROLES } from '@/constants/roles'
 import {
   MessageCircle, FileText, MessagesSquare, Trophy,
-  Search, BookOpen, Library, HelpCircle,
+  Search, BookOpen, Library, BookMarked, HelpCircle,
   LayoutDashboard, Building2, ShieldCheck, Settings, Bot,
   Bell, LogOut, Star,
 } from '@lucide/vue'
@@ -16,7 +16,14 @@ import { logout as logoutApi } from '@/api/authApi'
 
 const auth = useAuthStore()
 const router = useRouter()
+const currentRoute = useRoute()
 const notiStore = useNotificationStore()
+
+// Vue Router는 형제 라우트(flat children)에서 router-link-active를 자동 적용하지 않으므로
+// 경로 접두사 일치 여부를 직접 체크해 상세 페이지에서도 하이라이트를 유지한다.
+function isNavActive(prefix: string) {
+  return currentRoute.path === prefix || currentRoute.path.startsWith(prefix + '/')
+}
 
 const showNotification = ref(false)
 const showPoint = ref(false)
@@ -88,7 +95,7 @@ const initials = computed(() =>
       <RouterLink to="/knowit" class="nav-item">
         <MessageCircle :size="16" /> 노잇 (Know-it)
       </RouterLink>
-      <RouterLink to="/worki" class="nav-item">
+      <RouterLink to="/worki" class="nav-item" :class="{ 'router-link-active': isNavActive('/worki') }">
         <FileText :size="16" /> 워키 게시판
       </RouterLink>
       <RouterLink to="/chat" class="nav-item">
@@ -103,11 +110,14 @@ const initials = computed(() =>
       <RouterLink to="/search" class="nav-item nav-item-secondary">
         <Search :size="16" /> 통합 검색
       </RouterLink>
-      <RouterLink to="/manuals" class="nav-item nav-item-secondary">
+      <RouterLink to="/manuals" class="nav-item nav-item-secondary" :class="{ 'router-link-active': isNavActive('/manuals') }">
         <BookOpen :size="16" /> 매뉴얼
       </RouterLink>
-      <RouterLink to="/knowledge" class="nav-item nav-item-secondary">
+      <RouterLink to="/knowledge" class="nav-item nav-item-secondary" :class="{ 'router-link-active': isNavActive('/knowledge') }">
         <Library :size="16" /> 지식화 게시판
+      </RouterLink>
+      <RouterLink to="/direct-data" class="nav-item nav-item-secondary" :class="{ 'router-link-active': isNavActive('/direct-data') }">
+        <BookMarked :size="16" /> 수기 지식 게시판
       </RouterLink>
       <RouterLink to="/faq" class="nav-item nav-item-secondary">
         <HelpCircle :size="16" /> FAQ

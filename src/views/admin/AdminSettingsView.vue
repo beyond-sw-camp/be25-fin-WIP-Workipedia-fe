@@ -6,19 +6,22 @@ import {
   Search, Building2, LogIn, MessageCircle, X, Settings, Timer, ExternalLink,
 } from '@lucide/vue'
 import BaseToast from '@/components/common/BaseToast.vue'
+import BaseModal from '@/components/common/BaseModal.vue'
 import {
   getDashboardSummary, getAdminUsers, updateUserStatus,
   getAdminManuals, createAdminManual, updateAdminManual, updateAdminManualMeta, deleteAdminManual,
   getAdminDepartments, createAdminDepartment, updateAdminDepartment, deleteAdminDepartment,
   getAdminPoints, deductAdminPoints,
   getChatPolicy, updateChatPolicy,
+  getAdminDirectData, createAdminDirectData, updateAdminDirectData, deleteAdminDirectData,
   type DashboardSummary, type AdminUser, type AdminManual, type AdminDepartment, type AdminPointUser,
+  type AdminDirectData,
 } from '@/api/adminApi'
 import { getManualDetail } from '@/api/manualApi'
 
 const auth = useAuthStore()
 
-type Tab = 'manual' | 'departments' | 'users' | 'points' | 'chat' | 'script'
+type Tab = 'manual' | 'knowledge' | 'departments' | 'users' | 'points' | 'chat' | 'script'
 const activeTab = ref<Tab>('manual')
 
 // ── Toast ──────────────────────────────────────────────────────
@@ -281,30 +284,24 @@ async function loadManuals() {
   }
 }
 
-// localStorage 레지스트리에 없는 기존 매뉴얼(서비스 도입 전 등록분)도 중복 감지 대상에 포함하기 위해
-// fileUrl이 있는 것은 URL 파싱으로, 없는 것은 상세 API 병렬 호출로 파일명을 수집해 인메모리 맵을 구성한다.
-async function buildExistingFileMap(manuals: AdminManual[]) {
+// 어드민 목록 응답에 fileUrl이 포함된 항목만 인메모리 맵에 등록한다.
+// fileUrl이 없는 항목에 대해 /manuals/{id}를 추가 호출하던 로직은 삭제된 매뉴얼에서 404가 발생해 제거했다.
+// 주요 중복 감지는 SHA-256 기반 localStorage 레지스트리로 충분히 커버된다.
+function buildExistingFileMap(manuals: AdminManual[]) {
   const map = new Map<string, { manualId: number; title: string }>()
-  const withUrl = manuals.filter(m => m.fileUrl)
-  const withoutUrl = manuals.filter(m => !m.fileUrl)
-  for (const m of withUrl) {
+  for (const m of manuals) {
     const name = extractFileName(m.fileUrl)
     if (name) map.set(name, { manualId: m.manualId, title: m.title })
   }
-  await Promise.allSettled(
-    withoutUrl.map(async m => {
-      try {
-        const res = await getManualDetail(m.manualId)
-        const name = extractFileName(res.data.fileUrl)
-        if (name) map.set(name, { manualId: m.manualId, title: m.title })
-      } catch { /* silent */ }
-    })
-  )
   existingFileMap.value = map
 }
 async function saveManual() {
   if (!editingManual.value) return
   if (manualSubmitting.value) return
+  if (!editingManual.value.title.trim()) {
+    showToast('매뉴얼 제목을 입력해주세요.', '', 'error')
+    return
+  }
   if (!editingManual.value.id && uploadedFiles.value.length === 0) {
     fileError.value = true
     return
@@ -328,7 +325,9 @@ async function saveManual() {
         formData.append('title', editingManual.value.title)
         formData.append('description', editingManual.value.description)
         formData.append('version', nextVer)
-        formData.append('file', uploadedFiles.value[0]!)
+        for (const file of uploadedFiles.value) {
+          formData.append('file', file)
+        }
         if (editingManual.value.departmentId != null) {
           formData.append('departmentId', String(editingManual.value.departmentId))
         }
@@ -582,6 +581,110 @@ async function saveBannedWords() {
   }
 }
 
+// ── 수기 지식 관리 ─────────────────────────────────────────────
+// 전체/활성/비활성 탭으로 필터하고, 목록 클릭 또는 새 수기 지식 버튼으로 모달 생성·수정.
+// isActive 활성화 저장 시 BE가 전체 사용자에게 알림을 자동 발송한다(FE 추가 처리 불필요).
+type KnowledgeTab = 'all' | 'active' | 'inactive'
+const knowledgeTab = ref<KnowledgeTab>('all')
+const knowledgeItems = ref<AdminDirectData[]>([])
+const knowledgeLoading = ref(false)
+const knowledgeSaving = ref(false)
+const deleteKnowledgeId = ref<number | null>(null)
+const knowledgeModalOpen = ref(false)
+
+type KnowledgeForm = { id?: number; title: string; content: string; isActive: boolean }
+const knowledgeForm = ref<KnowledgeForm>({ title: '', content: '', isActive: true })
+// 수정 모달을 열 때의 원본 isActive. null이면 신규 생성.
+// N→Y 전환 시에만 알림 발송되므로 Y→Y 편집 시에는 알림 안내를 숨긴다.
+const knowledgeOriginalIsActive = ref<boolean | null>(null)
+
+async function loadKnowledge() {
+  knowledgeLoading.value = true
+  try {
+    const res = await getAdminDirectData({
+      page: 1,
+      size: 50,
+      ...(knowledgeTab.value === 'active' ? { isActive: true } : knowledgeTab.value === 'inactive' ? { isActive: false } : {}),
+    })
+    knowledgeItems.value = res.data.content
+  } catch {
+    showToast('수기 지식 목록을 불러오지 못했습니다.', '', 'error')
+  } finally {
+    knowledgeLoading.value = false
+  }
+}
+
+function setKnowledgeTab(tab: KnowledgeTab) {
+  knowledgeTab.value = tab
+  loadKnowledge()
+}
+
+function openKnowledgeCreate() {
+  knowledgeForm.value = { title: '', content: '', isActive: true }
+  knowledgeOriginalIsActive.value = null
+  knowledgeModalOpen.value = true
+}
+
+function openKnowledgeEdit(item: AdminDirectData) {
+  knowledgeForm.value = {
+    id: item.directDataId,
+    title: item.title,
+    content: item.content,
+    isActive: item.isActive,
+  }
+  knowledgeOriginalIsActive.value = item.isActive
+  knowledgeModalOpen.value = true
+}
+
+async function saveKnowledge() {
+  if (knowledgeSaving.value) return
+  if (!knowledgeForm.value.title.trim() || !knowledgeForm.value.content.trim()) {
+    showToast('제목과 내용을 입력해주세요.', '', 'error')
+    return
+  }
+  knowledgeSaving.value = true
+  try {
+    const body = {
+      title: knowledgeForm.value.title.trim(),
+      content: knowledgeForm.value.content,
+      isActive: knowledgeForm.value.isActive,
+    }
+    if (knowledgeForm.value.id) {
+      const res = await updateAdminDirectData(knowledgeForm.value.id, body)
+      // 탭 필터 기준에 맞지 않는 isActive로 변경된 경우 목록 리로드, 그 외엔 인플레이스 업데이트
+      const tabMismatch = knowledgeTab.value !== 'all' && res.data.isActive !== (knowledgeTab.value === 'active')
+      if (tabMismatch) {
+        await loadKnowledge()
+      } else {
+        const idx = knowledgeItems.value.findIndex(i => i.directDataId === knowledgeForm.value.id)
+        if (idx !== -1) knowledgeItems.value[idx] = res.data
+      }
+      showToast('수기 지식이 수정되었습니다.')
+    } else {
+      await createAdminDirectData(body)
+      showToast('수기 지식이 추가되었습니다.')
+      await loadKnowledge()
+    }
+    knowledgeModalOpen.value = false
+  } catch {
+    showToast('수기 지식 저장에 실패했습니다.', '', 'error')
+  } finally {
+    knowledgeSaving.value = false
+  }
+}
+
+async function confirmDeleteKnowledge() {
+  if (!deleteKnowledgeId.value) return
+  try {
+    await deleteAdminDirectData(deleteKnowledgeId.value)
+    knowledgeItems.value = knowledgeItems.value.filter(i => i.directDataId !== deleteKnowledgeId.value)
+    showToast('수기 지식이 삭제되었습니다.')
+  } catch {
+    showToast('수기 지식 삭제에 실패했습니다.', '', 'error')
+  }
+  deleteKnowledgeId.value = null
+}
+
 // ── Script ─────────────────────────────────────────────────────
 // 사내 포털에 삽입할 NOIT 챗봇 위젯 스크립트. 클립보드 복사만 제공하며 API 호출은 없다.
 const WIDGET_SCRIPT = `<!-- NOIT Chatbot Widget -->
@@ -612,6 +715,7 @@ watch(activeTab, (tab) => {
   if (tab === 'users') loadUsers()
   if (tab === 'points') loadPoints()
   if (tab === 'chat') loadChatPolicy()
+  if (tab === 'knowledge') loadKnowledge()
 })
 
 onMounted(() => {
@@ -661,11 +765,11 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Tab Bar -->
+    <!-- Tab Bar - AiAdminView 탭 스타일과 동일 -->
     <div class="tab-bar">
-      <button v-for="t in (['manual','departments','users','points','chat','script'] as Tab[])"
-        :key="t" :class="['tab-btn', { on: activeTab === t }]" @click="activeTab = t">
-        {{ { manual:'매뉴얼 관리', departments:'부서 관리', users:'사용자 관리', points:'포인트 사용', chat:'채팅 옵션', script:'스크립트' }[t] }}
+      <button v-for="t in (['manual','knowledge','departments','users','points','chat','script'] as Tab[])"
+        :key="t" :class="['tab', { 'tab--active': activeTab === t }]" @click="activeTab = t">
+        {{ { manual:'매뉴얼 관리', knowledge:'수기 지식 관리', departments:'부서 관리', users:'사용자 관리', points:'포인트 사용', chat:'채팅 옵션', script:'스크립트' }[t] }}
       </button>
     </div>
 
@@ -766,6 +870,57 @@ onMounted(() => {
           <div class="item-actions">
             <button class="btn" @click="openEditManualForm(m)"><Edit2 :size="15" /></button>
             <button class="btn" @click="deleteManualId = m.manualId"><Trash2 :size="15" color="#ef4444" /></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ────────────── 수기 지식 관리 ────────────── -->
+    <div v-show="activeTab === 'knowledge'" class="card section-card">
+      <div class="sec-head">
+        <div>
+          <h3 class="sec-title"><FileText :size="17" color="#10b981" /> 수기 지식 관리</h3>
+          <p class="sec-desc">RAG 검색에 활용될 수기 지식을 등록하고 관리합니다</p>
+        </div>
+        <button class="btn primary" @click="openKnowledgeCreate"><Plus :size="15" /> 새 수기 지식</button>
+      </div>
+
+      <!-- 활성 필터 탭 -->
+      <div class="kn-tab-bar">
+        <button
+          v-for="t in (['all', 'active', 'inactive'] as KnowledgeTab[])"
+          :key="t"
+          :class="['kn-tab', { 'kn-tab--active': knowledgeTab === t }]"
+          @click="setKnowledgeTab(t)"
+        >
+          {{ t === 'all' ? '전체' : t === 'active' ? '활성' : '비활성' }}
+        </button>
+      </div>
+
+      <!-- length===0 조건: 탭 전환 시 기존 목록을 유지해 로딩 스피너 깜빡임을 방지한다 -->
+      <div v-if="knowledgeLoading && knowledgeItems.length === 0" class="empty-ph" style="height:180px;">
+        <div class="loading-spinner" />
+        불러오는 중...
+      </div>
+      <div v-else-if="!knowledgeLoading && knowledgeItems.length === 0" class="empty-ph" style="height:180px;">
+        {{ knowledgeTab === 'inactive' ? '비활성 수기 지식이 없습니다.' : '등록된 수기 지식이 없습니다.' }}
+      </div>
+      <div v-else class="item-list">
+        <div v-for="item in knowledgeItems" :key="item.directDataId"
+          class="item-row" style="cursor:pointer;" @click="openKnowledgeEdit(item)">
+          <div class="item-body">
+            <div class="item-meta">
+              <span :class="['badge', item.isActive ? 'badge-kn-active' : 'badge-kn-inactive']">
+                {{ item.isActive ? '활성' : '비활성' }}
+              </span>
+              <span class="meta-date">등록: {{ fmtDate(item.createdAt) }}</span>
+            </div>
+            <div class="item-title">{{ item.title }}</div>
+            <div class="item-desc" style="white-space:pre-wrap;">{{ item.content.slice(0, 120) }}{{ item.content.length > 120 ? '…' : '' }}</div>
+          </div>
+          <div class="item-actions">
+            <button class="btn" @click.stop="openKnowledgeEdit(item)"><Edit2 :size="15" /></button>
+            <button class="btn" @click.stop="deleteKnowledgeId = item.directDataId"><Trash2 :size="15" color="#ef4444" /></button>
           </div>
         </div>
       </div>
@@ -1083,6 +1238,51 @@ onMounted(() => {
           </div>
         </div>
       </div>
+      <!-- 수기 지식 생성/수정 -->
+      <div v-if="knowledgeModalOpen" class="modal-overlay" @click.self="knowledgeModalOpen = false">
+        <div class="modal-box" style="width:560px; max-width:calc(100vw - 32px);">
+          <h4 class="modal-title">{{ knowledgeForm.id ? '수기 지식 수정' : '새 수기 지식 추가' }}</h4>
+          <div class="field" style="margin-top:16px;">
+            <label>제목 <span style="color:#ef4444;">*</span></label>
+            <input v-model="knowledgeForm.title" class="text-input" placeholder="제목을 입력하세요 (최대 255자)" maxlength="255" />
+          </div>
+          <div class="field">
+            <label>내용 <span style="color:#ef4444;">*</span></label>
+            <textarea v-model="knowledgeForm.content" class="textarea-input" rows="8"
+              style="font-family:inherit; white-space:pre-wrap; resize:vertical;" placeholder="내용을 입력하세요" />
+          </div>
+          <div class="field">
+            <label style="display:flex; align-items:center; justify-content:space-between;">
+              <span>활성화 (공개)</span>
+              <label class="kn-toggle">
+                <input type="checkbox" v-model="knowledgeForm.isActive" />
+                <span></span>
+              </label>
+            </label>
+            <!-- 신규(null)이고 활성이거나, 기존 비활성→활성 전환 시에만 안내 표시 (Y→Y 수정은 알림 없음) -->
+            <p v-if="knowledgeForm.isActive && (knowledgeOriginalIsActive === null || knowledgeOriginalIsActive === false)" class="kn-notify-hint">
+              ℹ️ 활성 상태로 저장 시 전체 사용자에게 알림이 발송됩니다.
+            </p>
+          </div>
+          <div class="btn-row" style="justify-content:flex-end; margin-top:20px;">
+            <button class="btn" @click="knowledgeModalOpen = false">취소</button>
+            <button class="btn primary" :disabled="knowledgeSaving" @click="saveKnowledge">
+              {{ knowledgeSaving ? '저장 중...' : '저장' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 수기 지식 삭제 -->
+      <BaseModal
+        :model-value="deleteKnowledgeId !== null"
+        title="수기 지식 삭제"
+        message="삭제된 지식은 복구할 수 없으며 RAG 검색에서 제거됩니다."
+        confirm-label="삭제"
+        :danger="true"
+        @update:model-value="(v) => { if (!v) deleteKnowledgeId = null }"
+        @confirm="confirmDeleteKnowledge"
+      />
     </Teleport>
 
     <BaseToast v-model="toastVisible" :title="toastTitle" :sub="toastSub" :type="toastType" />
@@ -1106,15 +1306,16 @@ onMounted(() => {
 .stat-val { font-size: 26px; font-weight: 800; color: #1f2430; }
 .stat-sub { font-size: 11.5px; color: #aeb2bb; margin-top: 3px; }
 
-/* ── Tab Bar ── */
-.tab-bar { display: flex; gap: 4px; background: #f5f6f8; border-radius: 12px; padding: 5px; margin-bottom: 20px; flex-wrap: wrap; }
-.tab-btn {
-  flex: 1; min-width: 80px; padding: 9px 14px; border-radius: 9px; border: none;
-  background: none; font-size: 13.5px; font-weight: 600; color: #717182; cursor: pointer;
-  transition: background 0.15s, color 0.15s; white-space: nowrap;
+/* ── Tab Bar - AiAdminView 스타일과 동일 ── */
+.tab-bar { display: flex; border-bottom: 1px solid #dde1e7; margin-bottom: 24px; flex-wrap: wrap; }
+.tab {
+  padding: 9px 20px; border: 1px solid transparent; border-bottom: none;
+  border-radius: 6px 6px 0 0; background: #e2e8f0; color: #64748b;
+  font-size: 13px; font-weight: 600; cursor: pointer; margin-right: 4px;
+  position: relative; bottom: -1px; transition: background 0.15s, color 0.15s; white-space: nowrap;
 }
-.tab-btn:hover { background: #fff; }
-.tab-btn.on { background: #fff; color: #2b7fff; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+.tab:hover:not(.tab--active) { background: #d0d9e8; color: #475569; }
+.tab--active { background: #fff; color: #1e293b; border-color: #dde1e7; border-bottom-color: #fff; }
 
 /* ── Section Card ── */
 .section-card { padding: 28px 32px; }
@@ -1272,6 +1473,36 @@ onMounted(() => {
 .warn-box { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 14px 16px; margin-top: 16px; }
 .warn-box strong { color: #92400e; }
 .warn-box li { color: #78350f; }
+
+/* ── Knowledge ── */
+.kn-tab-bar { display: flex; gap: 4px; margin-bottom: 16px; }
+.kn-tab {
+  padding: 5px 16px; border-radius: 20px; border: 1px solid var(--line);
+  background: #f8f9fb; font-size: 13px; font-weight: 600; color: #717182;
+  cursor: pointer; transition: background 0.15s, color 0.15s;
+}
+.kn-tab:hover { background: #f0f2f5; }
+.kn-tab--active { background: #eff6ff; color: #2b7fff; border-color: #bfdbfe; }
+.badge-kn-active { background: #f0fdf4; color: #16a34a; }
+.badge-kn-inactive { background: #f1f5f9; color: #64748b; }
+.kn-toggle { display: inline-flex; cursor: pointer; }
+.kn-toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+.kn-toggle span {
+  position: relative; width: 36px; height: 20px; border-radius: 10px;
+  background: #c3cad1; transition: background 0.15s; display: block;
+}
+.kn-toggle span::after {
+  content: ''; position: absolute; top: 3px; left: 3px;
+  width: 14px; height: 14px; border-radius: 50%; background: #fff;
+  transition: transform 0.15s; box-shadow: 0 1px 2px rgba(0,0,0,.2);
+}
+.kn-toggle input:checked + span { background: #22c55e; }
+.kn-toggle input:checked + span::after { transform: translateX(16px); }
+.kn-notify-hint {
+  margin-top: 8px; font-size: 12px; color: #d97706;
+  background: #fffbeb; border: 1px solid #fde68a;
+  border-radius: 7px; padding: 8px 12px;
+}
 
 /* ── Loading ── */
 .loading-spinner {
