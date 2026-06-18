@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   MessageCircle, FileText, MessagesSquare, Trophy,
-  Search, BookOpen, Library, HelpCircle,
+  Search, BookOpen, Library, BookMarked, HelpCircle,
   LayoutDashboard, Building2, ShieldCheck, Settings, Bot,
   User,
 } from '@lucide/vue'
@@ -19,10 +19,12 @@ const PAGE_META: Record<string, { label: string; icon: object; color: string }> 
   leaderboard:           { label: '리더보드',              icon: Trophy,          color: '#f59e0b' },
   search:                { label: '통합 검색',             icon: Search,          color: '#64748b' },
   manuals:               { label: '매뉴얼',                icon: BookOpen,        color: '#10b981' },
-  'manual-detail':       { label: '매뉴얼 상세',           icon: BookOpen,        color: '#10b981' },
+  'manual-detail':       { label: '매뉴얼',           icon: BookOpen,        color: '#10b981' },
   knowledge:             { label: '지식화 게시판',         icon: Library,         color: '#3b82f6' },
   'knowledge-dept':      { label: '지식화 게시판',         icon: Library,         color: '#3b82f6' },
   'knowledge-detail':    { label: '지식화 상세',           icon: Library,         color: '#3b82f6' },
+  'direct-data':         { label: '수기 지식 게시판',      icon: BookMarked,      color: '#10b981' },
+  'direct-data-detail':  { label: '수기 지식 게시판',      icon: BookMarked,      color: '#10b981' },
   faq:                   { label: 'FAQ',                   icon: HelpCircle,      color: '#f5c000' },
   tickets:               { label: '내 티켓',              icon: FileText,        color: '#ef4444' },
   'ticket-new':          { label: '티켓 생성',             icon: FileText,        color: '#ef4444' },
@@ -35,7 +37,7 @@ const PAGE_META: Record<string, { label: string; icon: object; color: string }> 
   'dashboard-department':{ label: '부서 대시보드',         icon: Building2,       color: '#8b5cf6' },
   'dashboard-admin':     { label: '시스템 대시보드',       icon: ShieldCheck,     color: '#ef4444' },
   'admin-settings':      { label: '설정',           icon: Settings,        color: '#64748b' },
-  'admin-ai':            { label: 'AI 관리',               icon: Bot,             color: '#6366f1' },
+  'admin-ai':            { label: 'AI 관리 및 개발자 도구', icon: Bot,             color: '#6366f1' },
 }
 
 const current = computed(() => PAGE_META[route.name as string] ?? { label: '', icon: null, color: '#64748b' })
@@ -57,8 +59,7 @@ const current = computed(() => PAGE_META[route.name as string] ?? { label: '', i
 
 <style scoped>
 .app-header {
-  /* html { font-size: 80% } 기준: 2.625rem = 42px, 원본 52px의 80% */
-  height: 2.625rem;
+  height: 3.25rem;
   border-bottom: 1px solid #e2e8f0;
   display: flex;
   align-items: center;
