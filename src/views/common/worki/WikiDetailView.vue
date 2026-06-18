@@ -100,6 +100,12 @@ const canAccept = computed(
     question.value.acceptedAnswerId == null,
 )
 
+// 자가 채택 방지: 질문 작성자 == 답변 작성자인 답변은 채택할 수 없다.
+// (FE 차단 + BE 검증 병행 — issue #87)
+function isSelfAnswer(a: AnswerResponse) {
+  return !!question.value && a.authorId === question.value.authorId
+}
+
 // 삭제 권한: SYSTEM_ADMIN 전용 (답변 유무 무관, 작성자 -100P 차감 API 호출)
 const isSystemAdmin = computed(() => auth.role === ROLES.SYSTEM_ADMIN)
 const canDelete = computed(() => isSystemAdmin.value)
@@ -171,6 +177,12 @@ async function saveEdit() {
 
 async function accept(answerId: number) {
   if (accepting.value) return
+  // 자가 채택 방지: 본인이 작성한 답변은 채택 요청을 보내지 않는다. (BE에서도 재검증)
+  const target = answers.value.find((a) => a.answerId === answerId)
+  if (target && isSelfAnswer(target)) {
+    error.value = '본인 답변은 채택할 수 없습니다.'
+    return
+  }
   accepting.value = true
   try {
     await acceptAnswer(answerId)
@@ -314,6 +326,10 @@ async function submitAnswer() {
             <div v-if="a.accepted" class="accepted-badge">
               <CheckCircle2 :size="14" /> 채택된 답변
             </div>
+            <!-- 본인 답변은 채택 불가: 안내 문구만 노출 (issue #87) -->
+            <span v-else-if="canAccept && isSelfAnswer(a)" class="self-answer-hint">
+              본인 답변은 채택할 수 없습니다
+            </span>
             <button
               v-else-if="canAccept"
               class="btn primary"
@@ -427,6 +443,7 @@ async function submitAnswer() {
 .ans-author-name { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; color: #1f2430; }
 .ans-author-dept { font-weight: 500; font-size: 12px; color: #7c3aed; background: #f3f0ff; padding: 1px 9px; border-radius: 999px; }
 .accepted-badge { display: inline-flex; align-items: center; gap: 6px; color: #00a63e; font-size: 13px; font-weight: 700; }
+.self-answer-hint { font-size: 12px; color: #aeb2bb; white-space: nowrap; }
 .ans-body { font-size: 15px; color: #1f2430; line-height: 1.7; margin: 0; white-space: pre-wrap; }
 
 /* ── 인라인 수정 ── */
