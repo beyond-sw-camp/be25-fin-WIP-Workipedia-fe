@@ -1,4 +1,12 @@
 <script setup lang="ts">
+// ── 페이지 개요 ──────────────────────────────────────────────
+// 지식화 게시판 상세 뷰. URL 파라미터(id)로 단건 지식 문서를 표시한다.
+//
+// 핵심 구현 포인트
+//   1. 데이터 우선순위: useKnowledgeStore 캐시에서 먼저 찾고, 없으면 getKnowledgeDetail API로 단건 조회한다.
+//      직접 URL 진입(목록 캐시 없음) 또는 size 한도(100건) 초과 항목 진입에 대응하기 위함이다.
+//   2. 경과일 색상: 7일 초록 → 30일 파랑 → 90일 주황 → 초과 빨강. 목록 뷰와 동일한 기준을 사용한다.
+//   3. 90일 경과 배너: 오래된 문서임을 독자에게 경고해 신뢰도를 명시적으로 안내한다.
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ChevronLeft, Clock, AlertTriangle } from '@lucide/vue'
@@ -93,10 +101,6 @@ onMounted(async () => {
         <div class="meta-row">
           <span class="meta-key">발행일</span>
           <span class="meta-val">{{ formatDate(item.approvedAt) }}</span>
-        </div>
-        <div v-if="item.answererNickname" class="meta-row">
-          <span class="meta-key">답변자</span>
-          <span class="meta-val">{{ item.answererNickname }}</span>
         </div>
         <div class="meta-row">
           <span class="meta-key">정보 경과</span>
