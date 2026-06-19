@@ -13,6 +13,10 @@ const ticket = ref<TicketResponse | null>(null)
 const loading = ref(false)
 const error = ref('')
 
+// KnowIt 발행 티켓의 content에 삽입된 발신자 마커가 상세 페이지에서 그대로 노출되는 문제를 방지한다.
+const SENDER_RE = /\n##SENDER:(.+)##$/
+function ticketBody(content: string) { return content.replace(SENDER_RE, '').trim() }
+
 function formatDateTime(iso: string) {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
@@ -75,7 +79,7 @@ onMounted(async () => {
 
         <hr class="divider" />
 
-        <p class="ticket-body">{{ ticket.content }}</p>
+        <p class="ticket-body">{{ ticketBody(ticket.content) }}</p>
       </div>
 
       <!-- 라우팅 근거: BE가 자동 배정 시 제공 -->

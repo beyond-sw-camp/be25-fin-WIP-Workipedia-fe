@@ -218,6 +218,12 @@ function typeLabel(t: TicketResponse) {
   return t.routingDecision === 'AUTO_ASSIGNED' ? 'AI 챗봇 배정' : '관리자 배정'
 }
 
+// 목록 카드에서 "N분 전" 대신 절대 날짜(YYYY.MM.DD)를 표시하기 위해 추가했다.
+function formatDate(iso: string) {
+  const d = new Date(iso)
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
+}
+
 // 생성/수정 시각을 "N분 전" 형태로 변환해 목록에 표시
 function fromNow(iso: string) {
   const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
@@ -329,6 +335,16 @@ function closeDetail() {
   latestAnswer.value = null
 }
 
+// KnowIt에서 발행된 티켓은 content 끝에 "\n##SENDER:부서명|닉네임##" 마커를 포함한다.
+// ticketBody: 마커를 제거한 순수 내용을 반환해 content 영역에 표시한다.
+// ticketSender: 마커에서 "부서명 · 닉네임" 형태의 발신자 정보를 추출해 별도 UI에 표시한다.
+const SENDER_RE = /\n##SENDER:(.+)##$/
+function ticketBody(content: string) { return content.replace(SENDER_RE, '').trim() }
+function ticketSender(content: string) {
+  const m = content.match(SENDER_RE)
+  return m?.[1]?.replaceAll('|', ' · ') ?? ''
+}
+
 </script>
 
 <template>
@@ -382,19 +398,24 @@ function closeDetail() {
             <div class="ticket-list">
               <div v-for="t in deptPaged" :key="t.ticketId" class="ticket-row" @click="openAnswer(t)">
                 <div class="ticket-meta">
-                  <span class="badge" :class="t.routingDecision === 'AUTO_ASSIGNED' ? 'blue' : 'gray'">
-                    <Bot v-if="t.routingDecision === 'AUTO_ASSIGNED'" :size="11" />
-                    <UserCheck v-else :size="11" />
-                    {{ typeLabel(t) }}
-                  </span>
-                  <span class="expiry-tag" :class="assignedExpiryClass(t.updatedAt)">
-                    <Clock :size="10" />
-                    {{ assignedExpiryLabel(t.updatedAt) }}
-                  </span>
-                  <span class="ticket-time">{{ fromNow(t.createdAt) }}</span>
+                  <div class="ticket-meta-left">
+                    <span class="badge" :class="t.routingDecision === 'AUTO_ASSIGNED' ? 'blue' : 'gray'">
+                      <Bot v-if="t.routingDecision === 'AUTO_ASSIGNED'" :size="11" />
+                      <UserCheck v-else :size="11" />
+                      {{ typeLabel(t) }}
+                    </span>
+                    <span class="expiry-tag" :class="assignedExpiryClass(t.updatedAt)">
+                      <Clock :size="10" />
+                      {{ assignedExpiryLabel(t.updatedAt) }}
+                    </span>
+                  </div>
+                  <div class="ticket-meta-right">
+                    <span class="ticket-time">접수: {{ formatDate(t.createdAt) }}</span>
+                    <span v-if="ticketSender(t.content)" class="ticket-sender">{{ ticketSender(t.content) }}</span>
+                  </div>
                 </div>
                 <div class="ticket-title">{{ t.title }}</div>
-                <div class="ticket-body">{{ t.content }}</div>
+                <div class="ticket-body">{{ ticketBody(t.content) }}</div>
               </div>
             </div>
             <div v-if="deptTotalPages > 1" class="pager">
@@ -419,15 +440,20 @@ function closeDetail() {
             <div class="ticket-list">
               <div v-for="t in myPaged" :key="t.ticketId" class="ticket-row" @click="openDetail(t, 'my')">
                 <div class="ticket-meta">
-                  <span class="badge" :class="t.routingDecision === 'AUTO_ASSIGNED' ? 'blue' : 'gray'">
-                    <Bot v-if="t.routingDecision === 'AUTO_ASSIGNED'" :size="11" />
-                    <UserCheck v-else :size="11" />
-                    {{ typeLabel(t) }}
-                  </span>
-                  <span class="ticket-time">{{ fromNow(t.createdAt) }}</span>
+                  <div class="ticket-meta-left">
+                    <span class="badge" :class="t.routingDecision === 'AUTO_ASSIGNED' ? 'blue' : 'gray'">
+                      <Bot v-if="t.routingDecision === 'AUTO_ASSIGNED'" :size="11" />
+                      <UserCheck v-else :size="11" />
+                      {{ typeLabel(t) }}
+                    </span>
+                  </div>
+                  <div class="ticket-meta-right">
+                    <span class="ticket-time">접수: {{ formatDate(t.createdAt) }}</span>
+                    <span v-if="ticketSender(t.content)" class="ticket-sender">{{ ticketSender(t.content) }}</span>
+                  </div>
                 </div>
                 <div class="ticket-title">{{ t.title }}</div>
-                <div class="ticket-body">{{ t.content }}</div>
+                <div class="ticket-body">{{ ticketBody(t.content) }}</div>
               </div>
             </div>
             <div v-if="myTotalPages > 1" class="pager">
@@ -452,15 +478,20 @@ function closeDetail() {
             <div class="ticket-list">
               <div v-for="t in donePaged" :key="t.ticketId" class="ticket-row ticket-row--done" @click="openDetail(t, 'done')">
                 <div class="ticket-meta">
-                  <span class="badge gray">
-                    <Bot v-if="t.routingDecision === 'AUTO_ASSIGNED'" :size="11" />
-                    <UserCheck v-else :size="11" />
-                    {{ typeLabel(t) }}
-                  </span>
-                  <span class="ticket-time">완료: {{ fromNow(t.updatedAt) }}</span>
+                  <div class="ticket-meta-left">
+                    <span class="badge gray">
+                      <Bot v-if="t.routingDecision === 'AUTO_ASSIGNED'" :size="11" />
+                      <UserCheck v-else :size="11" />
+                      {{ typeLabel(t) }}
+                    </span>
+                  </div>
+                  <div class="ticket-meta-right">
+                    <span class="ticket-time">완료: {{ formatDate(t.updatedAt) }}</span>
+                    <span v-if="ticketSender(t.content)" class="ticket-sender">{{ ticketSender(t.content) }}</span>
+                  </div>
                 </div>
                 <div class="ticket-title">{{ t.title }}</div>
-                <div class="ticket-body">{{ t.content }}</div>
+                <div class="ticket-body">{{ ticketBody(t.content) }}</div>
               </div>
             </div>
             <div v-if="doneTotalPages > 1" class="pager">
@@ -489,10 +520,13 @@ function closeDetail() {
               <span class="badge" :class="selectedTicket.routingDecision === 'AUTO_ASSIGNED' ? 'blue' : 'gray'">
                 {{ typeLabel(selectedTicket) }}
               </span>
-              <span class="ticket-time">{{ fromNow(selectedTicket.createdAt) }}</span>
+              <div class="ticket-meta-right">
+                <span class="ticket-time">접수: {{ formatDate(selectedTicket.createdAt) }}</span>
+                <span v-if="ticketSender(selectedTicket.content)" class="ticket-sender">{{ ticketSender(selectedTicket.content) }}</span>
+              </div>
             </div>
             <div class="ticket-title">{{ selectedTicket.title }}</div>
-            <div class="ticket-body" style="margin-top:6px; max-height: none;">{{ selectedTicket.content }}</div>
+            <div class="ticket-body" style="margin-top:6px; max-height: none;">{{ ticketBody(selectedTicket.content) }}</div>
           </div>
 
           <div class="field">
@@ -572,7 +606,8 @@ function closeDetail() {
                 <span class="ticket-time">{{ fromNow(detailTicket.createdAt) }}</span>
               </div>
               <div class="ticket-title">{{ detailTicket.title }}</div>
-              <div style="font-size:13px; color:#6b7280; line-height:1.6; margin-top:6px;">{{ detailTicket.content }}</div>
+              <div style="font-size:13px; color:#6b7280; line-height:1.6; margin-top:6px;">{{ ticketBody(detailTicket.content) }}</div>
+              <div v-if="ticketSender(detailTicket.content)" class="sender-info">발신자: {{ ticketSender(detailTicket.content) }}</div>
             </div>
           </div>
 
@@ -654,15 +689,19 @@ function closeDetail() {
 .ticket-row:hover { background: #f8fafc; }
 .ticket-row--done { background: #fafafa; }
 .ticket-row--done:hover { background: #f1f5f9; }
-.ticket-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; flex-wrap: wrap; }
+.ticket-meta { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
+.ticket-meta-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ticket-meta-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
 .expiry-tag { display:inline-flex; align-items:center; gap:3px; font-size:11px; font-weight:600; padding:2px 7px; border-radius:99px; }
 .expiry-ok      { background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; }
 .expiry-warning { background:#fffbeb; color:#b45309; border:1px solid #fde68a; }
 .expiry-urgent  { background:#fff1f2; color:#be123c; border:1px solid #fecdd3; }
 .expiry-expired { background:#f1f5f9; color:#94a3b8; border:1px solid #e2e8f0; }
-.ticket-time { font-size: 12px; color: #aeb2bb; }
+.ticket-time { font-size: 12px; color: #aeb2bb; white-space: nowrap; }
+.ticket-sender { font-size: 12px; color: #aeb2bb; white-space: nowrap; }
 .ticket-title { font-size: 14px; font-weight: 600; color: #1f2430; margin-bottom: 4px; }
 .ticket-body { font-size: 13px; color: #6b7280; line-height: 1.5; overflow: hidden; max-height: 3em; }
+.sender-info { font-size: 12px; color: #9ca3af; margin-top: 6px; }
 .badge { display: inline-flex; align-items: center; gap: 4px; }
 
 /* ── 페이지네이션 ── */
