@@ -9,6 +9,7 @@ import { createSession, sendMessage, streamMessage, parseReferences } from '@/ap
 import type { SourceItem } from '@/api/chatbotApi'
 import { createQuestion } from '@/api/workiApi'
 import { createTicket } from '@/api/ticketApi'
+import { useAuthStore } from '@/stores/authStore'
 
 type Mode = 'none' | 'question' | 'request'
 
@@ -25,6 +26,7 @@ interface Msg {
 }
 
 const router = useRouter()
+const authStore = useAuthStore()
 const scrollEl = ref<HTMLElement | null>(null)
 const mode = ref<Mode>('none')
 const msgs = ref<Msg[]>([])
@@ -45,6 +47,9 @@ const ticketTitle = ref('')
 const ticketContent = ref('')
 const ticketError = ref('')
 const ticketDept = ref('')
+// 티켓 발행 버튼을 연속 클릭하면 동일 메시지에 대해 티켓이 중복 생성되는 문제가 있었다.
+// API 응답 전까지 flag를 true로 유지해 중복 요청을 차단한다.
+const submittingTicket = ref(false)
 
 const toastVisible = ref(false)
 const toastTitle = ref('')
@@ -184,11 +189,14 @@ async function send() {
         msgs.value = msgs.value.filter(m => m.kind !== 'loading')
         // 누적된 token과 최종 content가 다를 수 있어 done.content를 확정값으로 덮어쓴다.
         // token이 한 번도 안 온 경우(fallback 등)에도 여기서 답변 버블을 만든다.
+        // answerable=false는 RAG가 관련 지식을 찾지 못한 상태다.
+        // BE가 내려주는 기본 오류 메시지 대신 사용자 친화적인 문구로 대체한다.
+        const displayText = saved.answerable ? saved.content : '해당 질문에 대한 내용을 찾을 수 없습니다.'
         if (answerIdx === -1) {
-          msgs.value.push({ kind: 'answer', text: saved.content })
+          msgs.value.push({ kind: 'answer', text: displayText })
           answerIdx = msgs.value.length - 1
         } else {
-          msgs.value[answerIdx]!.text = saved.content
+          msgs.value[answerIdx]!.text = displayText
         }
         // 참조 문서는 nextAction과 무관하게 출처가 1개 이상이면 항상 표시한다.
         // (AI SUCCESS 응답은 action=null로 내려와 nextAction이 SHOW_SOURCES가 아니기 때문)
@@ -246,16 +254,22 @@ function openTicketDialog(userText: string, draft?: { title: string; content: st
 }
 
 async function submitTicket() {
+  if (submittingTicket.value) return
   if (!ticketTitle.value.trim()) return
   if (ticketContent.value.trim().length < 10) {
     ticketError.value = '내용을 10자 이상 작성해주세요.'
     return
   }
+  submittingTicket.value = true
   try {
+    // TicketResponse에 발신자 필드가 없어 content 끝에 마커로 삽입한다.
+    // 대시보드에서 SENDER_RE 정규식으로 파싱해 발신자 정보를 별도 UI 영역에 표시한다.
+    const senderParts = [authStore.team, authStore.nickname].filter(Boolean)
+    const senderTag = senderParts.length ? `\n##SENDER:${senderParts.join('|')}##` : ''
     const res = await createTicket({
       sourceChatbotMessageId: lastMessageId.value,
       title: ticketTitle.value.trim(),
-      content: ticketContent.value.trim(),
+      content: ticketContent.value.trim() + senderTag,
     })
     ticketDept.value = res.data.assignedDepartmentName ?? ''
     showTicketDialog.value = false
@@ -268,6 +282,8 @@ async function submitTicket() {
     showToast('티켓이 발행되었습니다!', deptMsg)
   } catch {
     ticketError.value = '발행 중 오류가 발생했습니다. 다시 시도해주세요.'
+  } finally {
+    submittingTicket.value = false
   }
 }
 </script>
@@ -317,7 +333,11 @@ async function submitTicket() {
                 <span :class="['badge', m.msgMode === 'question' ? 'badge--blue' : 'badge--purple']">
                   {{ m.msgMode === 'question' ? '질문 모드' : '요청 모드' }}
                 </span>
-                <button class="mode-change" :disabled="loading" @click="changeMode">모드 변경</button>
+                <button
+                  :class="['mode-change', m.msgMode === 'question' ? 'mode-change--blue' : 'mode-change--purple']"
+                  :disabled="loading"
+                  @click="changeMode"
+                >모드 변경</button>
               </div>
               <p class="mode-text">{{ m.text }}</p>
             </div>
@@ -452,10 +472,13 @@ async function submitTicket() {
             <textarea v-model="ticketContent" class="dialog-textarea" rows="5" placeholder="요청 내용을 입력하세요 (최소 10자)" @input="ticketError = ''" />
             <p v-if="ticketError" class="field-error">{{ ticketError }}</p>
           </div>
+          <div class="info-box">
+            <strong>💡 참고:</strong> 닉네임과 부서명이 함께 전달됩니다.
+          </div>
         </div>
         <div class="dialog-footer">
           <button class="btn btn--ghost" @click="showTicketDialog = false">취소</button>
-          <button class="btn btn--purple-solid" :disabled="!ticketTitle.trim()" @click="submitTicket">티켓 발행</button>
+          <button class="btn btn--purple-solid" :disabled="!ticketTitle.trim() || submittingTicket" @click="submitTicket">티켓 발행</button>
         </div>
       </div>
     </div>
@@ -546,11 +569,14 @@ async function submitTicket() {
 .badge--blue { background: #2b7fff; color: #fff; }
 .badge--purple { background: #8b5cf6; color: #fff; }
 .mode-change {
-  background: none; border: 1px solid #e6e8ec; color: #717182;
-  font-size: 12px; font-weight: 600; cursor: pointer;
-  padding: 4px 10px; border-radius: 6px; transition: background 0.15s, color 0.15s;
+  background: none; border: 1px solid; font-size: 12px; font-weight: 600;
+  cursor: pointer; padding: 4px 12px; border-radius: 6px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
-.mode-change:hover:not(:disabled) { background: #f3f4f6; color: #1f2430; }
+.mode-change--blue { background: #eff6ff; border-color: #93c5fd; color: #2563eb; }
+.mode-change--blue:hover:not(:disabled) { background: #dbeafe; border-color: #60a5fa; }
+.mode-change--purple { background: #f5f3ff; border-color: #c4b5fd; color: #7c3aed; }
+.mode-change--purple:hover:not(:disabled) { background: #ede9fe; border-color: #a78bfa; }
 .mode-change:disabled { opacity: 0.4; cursor: not-allowed; }
 .mode-text { font-size: 15px; color: #44403c; line-height: 1.7; margin: 0; white-space: pre-line; }
 
@@ -680,7 +706,11 @@ async function submitTicket() {
   font-family: inherit; transition: border-color 0.15s;
 }
 .dialog-textarea:focus { border-color: #2b7fff; }
-
+.info-box {
+  background: #eff6ff; border: 1px solid #bfdbfe;
+  border-radius: 8px; padding: 10px 14px;
+  font-size: 13px; color: #1e40af;
+}
 .dialog-footer {
   display: flex; justify-content: flex-end; gap: 8px;
   padding: 0 24px 20px;

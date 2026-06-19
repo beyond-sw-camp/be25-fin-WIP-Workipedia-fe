@@ -219,6 +219,15 @@ onMounted(async () => {
   }
   loadQueue(1, false)
 })
+
+// KnowIt에서 발행된 티켓은 content 끝에 "\n##SENDER:부서명|닉네임##" 마커를 포함한다.
+// ticketBody: 마커를 제거한 순수 내용을 반환해 content 영역에 표시한다.
+// ticketSender: 마커에서 "부서명 · 닉네임" 형태의 발신자 정보를 추출해 별도 UI에 표시한다.
+const SENDER_RE = /\n##SENDER:(.+)##$/
+function ticketBody(content: string) { return content.replace(SENDER_RE, '').trim() }
+function ticketSender(content: string) {
+  return content.match(SENDER_RE)?.[1]?.replaceAll('|', ' · ') ?? ''
+}
 </script>
 
 <template>
@@ -370,17 +379,18 @@ onMounted(async () => {
                 <span class="badge" :class="ticket.commonQueueReason === 'TRANSFER_REQUESTED' ? 'gray' : ticket.commonQueueReason === 'ASSIGNMENT_EXPIRED' ? 'orange' : 'red'">
                   {{ entryReasonLabel(ticket) }}
                 </span>
-              </div>
-              <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
                 <span class="expiry-tag" :class="queueExpiryClass(ticket.updatedAt)">
                   <Clock :size="10" />
                   {{ queueExpiryLabel(ticket.updatedAt) }}
                 </span>
+              </div>
+              <div class="queue-item-meta-right">
                 <span class="queue-time">접수: {{ formatDate(ticket.createdAt) }}</span>
+                <span v-if="ticketSender(ticket.content)" class="queue-sender">{{ ticketSender(ticket.content) }}</span>
               </div>
             </div>
 
-            <p class="ticket-content">{{ ticket.content }}</p>
+            <p class="ticket-content">{{ ticketBody(ticket.content) }}</p>
 
             <div v-if="ticket.commonQueueReason === 'TRANSFER_REQUESTED' && ticket.transferReason" class="transfer-reason">
               <p class="transfer-label">이관 사유</p>
@@ -511,7 +521,9 @@ onMounted(async () => {
 .queue-item-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .queue-item-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .queue-title { font-size: 14px; font-weight: 600; color: #1f2430; }
-.queue-time { font-size: 12px; color: #aeb2bb; white-space: nowrap; flex-shrink: 0; }
+.queue-item-meta-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
+.queue-time { font-size: 12px; color: #aeb2bb; white-space: nowrap; }
+.queue-sender { font-size: 12px; color: #aeb2bb; white-space: nowrap; }
 .expiry-tag { display:inline-flex; align-items:center; gap:3px; font-size:11px; font-weight:600; padding:2px 7px; border-radius:99px; white-space:nowrap; }
 .expiry-ok      { background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; }
 .expiry-warning { background:#fffbeb; color:#b45309; border:1px solid #fde68a; }

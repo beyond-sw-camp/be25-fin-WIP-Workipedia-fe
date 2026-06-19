@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// ── 페이지 개요 ──────────────────────────────────────────────
+// ── 페이지 개요 ─────────────────────────────────────────────
 // TEAM_ADMIN(팀 어드민)과 SYSTEM_ADMIN(시스템 어드민)이 부서 대시보드에서 사용하는 뷰.
 // 두 역할이 공유하되, TEAM_ADMIN 전용 기능(지식화 승인 큐·트렌드 차트)은 onMounted에서 역할 체크 후 로드한다.
 //
@@ -242,6 +242,12 @@ function fromNow(iso: string) {
   return days === 1 ? '어제' : `${days}일 전`
 }
 
+// 목록 카드에서 "N분 전" 대신 절대 날짜(YYYY.MM.DD)를 표시하기 위해 추가했다.
+function formatDate(iso: string) {
+  const d = new Date(iso)
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
+}
+
 // ── 티켓 상세 다이얼로그 ─────────────────────────────────────
 async function openDetail(t: TicketResponse) {
   selectedTicket.value = t
@@ -408,6 +414,15 @@ function saveEditDraft(ticketId: number) {
   if (item) item.answer = editedDraft.value
   editingTicketId.value = null
 }
+
+// KnowIt에서 발행된 티켓은 content 끝에 "\n##SENDER:부서명|닉네임##" 마커를 포함한다.
+// ticketBody: 마커를 제거한 순수 내용을 반환해 content 영역에 표시한다.
+// ticketSender: 마커에서 "부서명 · 닉네임" 형태의 발신자 정보를 추출해 별도 UI에 표시한다.
+const SENDER_RE = /\n##SENDER:(.+)##$/
+function ticketBody(content: string) { return content.replace(SENDER_RE, '').trim() }
+function ticketSender(content: string) {
+  return content.match(SENDER_RE)?.[1]?.replaceAll('|', ' · ') ?? ''
+}
 </script>
 
 <template>
@@ -573,21 +588,26 @@ function saveEditDraft(ticketId: number) {
                 @click="openDetail(t)"
               >
                 <div class="ticket-meta">
-                  <span class="badge" :class="t.routingDecision === 'AUTO_ASSIGNED' ? 'blue' : 'gray'">
-                    <Bot v-if="t.routingDecision === 'AUTO_ASSIGNED'" :size="11" />
-                    <UserCheck v-else :size="11" />
-                    {{ typeLabel(t) }}
-                  </span>
-                  <span v-if="t.assigneeId === auth.userId && t.status === 'ASSIGNED'" class="badge green" style="font-size:11px;">내 티켓</span>
-                  <span v-if="t.status === 'COMPLETED'" class="badge done-badge">완료</span>
-                  <span v-if="t.status === 'ASSIGNED'" class="expiry-tag" :class="assignedExpiryClass(t.updatedAt)">
-                    <Clock :size="10" />
-                    {{ assignedExpiryLabel(t.updatedAt) }}
-                  </span>
-                  <span class="ticket-time">{{ fromNow(t.createdAt) }}</span>
+                  <div class="ticket-meta-left">
+                    <span class="badge" :class="t.routingDecision === 'AUTO_ASSIGNED' ? 'blue' : 'gray'">
+                      <Bot v-if="t.routingDecision === 'AUTO_ASSIGNED'" :size="11" />
+                      <UserCheck v-else :size="11" />
+                      {{ typeLabel(t) }}
+                    </span>
+                    <span v-if="t.assigneeId === auth.userId && t.status === 'ASSIGNED'" class="badge green" style="font-size:11px;">내 티켓</span>
+                    <span v-if="t.status === 'COMPLETED'" class="badge done-badge">완료</span>
+                    <span v-if="t.status === 'ASSIGNED'" class="expiry-tag" :class="assignedExpiryClass(t.updatedAt)">
+                      <Clock :size="10" />
+                      {{ assignedExpiryLabel(t.updatedAt) }}
+                    </span>
+                  </div>
+                  <div class="ticket-meta-right">
+                    <span class="ticket-time">접수: {{ formatDate(t.createdAt) }}</span>
+                    <span v-if="ticketSender(t.content)" class="ticket-sender">{{ ticketSender(t.content) }}</span>
+                  </div>
                 </div>
                 <div class="ticket-title">{{ t.title }}</div>
-                <div class="ticket-body">{{ t.content }}</div>
+                <div class="ticket-body">{{ ticketBody(t.content) }}</div>
               </div>
             </div>
             <div v-if="totalPages > 1" class="pager">
@@ -632,7 +652,8 @@ function saveEditDraft(ticketId: number) {
           <div class="detail-section">
             <div class="detail-section-label">질문 내용</div>
             <div class="ticket-preview">
-              <div class="detail-content">{{ selectedTicket.content }}</div>
+              <div class="detail-content">{{ ticketBody(selectedTicket.content) }}</div>
+              <div v-if="ticketSender(selectedTicket.content)" class="sender-info">발신자: {{ ticketSender(selectedTicket.content) }}</div>
             </div>
           </div>
 
@@ -693,13 +714,14 @@ function saveEditDraft(ticketId: number) {
         </div>
         <div class="modal-body">
           <div class="ticket-preview">
-            <div class="ticket-meta">
+            <div class="ticket-meta" style="flex-wrap:wrap;">
               <span class="badge" :class="selectedTicket.routingDecision === 'AUTO_ASSIGNED' ? 'blue' : 'gray'">
                 {{ typeLabel(selectedTicket) }}
               </span>
-              <span class="ticket-time">{{ fromNow(selectedTicket.createdAt) }}</span>
+              <span class="ticket-time">접수: {{ formatDate(selectedTicket.createdAt) }}</span>
+              <span v-if="ticketSender(selectedTicket.content)" class="ticket-sender">{{ ticketSender(selectedTicket.content) }}</span>
             </div>
-            <div class="detail-content" style="margin-top:6px;">{{ selectedTicket.content }}</div>
+            <div class="detail-content" style="margin-top:6px;">{{ ticketBody(selectedTicket.content) }}</div>
           </div>
           <div class="field">
             <label class="field-label">답변 내용</label>
@@ -851,8 +873,11 @@ function saveEditDraft(ticketId: number) {
 .ticket-row:hover { background: #f8fafc; }
 .ticket-row--my   { border-left: 3px solid #00a63e; }
 .ticket-row--done { border-left: 3px solid #7c3aed; }
-.ticket-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
-.ticket-time { font-size: 12px; color: #aeb2bb; }
+.ticket-meta { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.ticket-meta-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ticket-meta-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
+.ticket-time { font-size: 12px; color: #aeb2bb; white-space: nowrap; }
+.ticket-sender { font-size: 12px; color: #aeb2bb; white-space: nowrap; }
 .expiry-tag { display:inline-flex; align-items:center; gap:3px; font-size:11px; font-weight:600; padding:2px 7px; border-radius:99px; }
 .expiry-ok      { background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; }
 .expiry-warning { background:#fffbeb; color:#b45309; border:1px solid #fde68a; }
@@ -860,6 +885,7 @@ function saveEditDraft(ticketId: number) {
 .expiry-expired { background:#f1f5f9; color:#94a3b8; border:1px solid #e2e8f0; }
 .ticket-title { font-size: 14px; font-weight: 600; color: #1f2430; margin-bottom: 3px; }
 .ticket-body { font-size: 13px; color: #6b7280; line-height: 1.5; overflow: hidden; max-height: 3em; }
+.sender-info { font-size: 12px; color: #9ca3af; margin-top: 6px; }
 .badge { display: inline-flex; align-items: center; gap: 4px; }
 .done-badge { font-size: 11px; background: #f5f3ff; color: #7c3aed; border: 1px solid #ddd6fe; border-radius: 99px; padding: 1px 8px; }
 
