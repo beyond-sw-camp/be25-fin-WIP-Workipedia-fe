@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, reactive, onMounted } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
 import { isAxiosError } from 'axios'
 import { Bot } from '@lucide/vue'
 import BaseToast from '@/components/common/BaseToast.vue'
@@ -40,7 +40,13 @@ const sectionNotices: Record<Section, { label: string; tone: 'optional' | 'requi
   },
 }
 
-const activeSection = ref<Section>('prompt')
+// localStorage에 마지막 활성 탭을 저장해 새로고침 후에도 탭을 유지한다.
+// 저장된 값이 유효한 Section이 아닌 경우(직접 조작 등) 기본값 'prompt'로 폴백한다.
+const VALID_SECTIONS: Section[] = ['prompt', 'department', 'tools']
+const TAB_LS_KEY = 'workipedia_ai_admin_tab'
+const storedTab = localStorage.getItem(TAB_LS_KEY) as Section | null
+const activeSection = ref<Section>(storedTab && VALID_SECTIONS.includes(storedTab) ? storedTab : 'prompt')
+watch(activeSection, (s) => localStorage.setItem(TAB_LS_KEY, s))
 
 // ── 토스트 (BaseToast 공통 컴포넌트 사용) ──────────────────────
 const toastVisible = ref(false)
@@ -97,19 +103,23 @@ const filteredDepts = computed(() => {
 
 const deptWithPromptCount = computed(() => adminDepts.value.filter(d => d.routingPrompt).length)
 
-// PATCH 실패한 부서만 추적 (재시도 버튼 표시용)
-const deptSyncFailed = reactive<Record<number, boolean>>({})
-// 저장 성공 시각을 부서별로 로컬 추적 (BE가 제공하지 않으므로 세션 내에서만 유효)
-const deptLastSyncAt = reactive<Record<number, Date>>({})
-
+// BE가 반환하는 syncStatus로 카드 뱃지를 결정한다.
+// PENDING/FAILED는 syncStatus 우선, 그 외에는 routingPrompt 유무로 활성/미설정을 구분한다.
 function deptBadge(dept: AdminDepartment): { text: string; cls: string } {
-  if (deptSyncFailed[dept.departmentId]) return { text: '동기화 실패', cls: 'department-badge--failed' }
-  if (dept.routingPrompt) return { text: '활성', cls: 'department-badge--active' }
-  return { text: '미설정', cls: 'department-badge--empty' }
+  if (dept.syncStatus === 'PENDING') return { text: '동기화 대기', cls: 'department-badge--pending' }
+  if (dept.syncStatus === 'FAILED')  return { text: '동기화 실패', cls: 'department-badge--failed' }
+  if (dept.routingPrompt)            return { text: '활성',       cls: 'department-badge--active' }
+  return                                    { text: '미설정',     cls: 'department-badge--empty' }
 }
 
-function formatSyncTime(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+// 카드 하단에 표시할 동기화 상태 문구를 반환한다.
+// SYNCED/FAILED는 syncInfo(BE 제공 날짜 문자열)를 포함해 표시하고, syncInfo가 null이면 날짜 없이 표시한다.
+// EMPTY는 routingPrompt가 한 번도 등록된 적 없으므로 문구를 표시하지 않는다.
+function deptSyncLabel(dept: AdminDepartment): string | null {
+  if (dept.syncStatus === 'SYNCED')  return dept.syncInfo ? `마지막 동기화: ${dept.syncInfo}` : '동기화 완료'
+  if (dept.syncStatus === 'PENDING') return '동기화 대기 중'
+  if (dept.syncStatus === 'FAILED')  return dept.syncInfo ? `마지막 동기화 실패: ${dept.syncInfo}` : '동기화 실패'
+  return null // EMPTY — 미표시
 }
 
 async function loadDepts() {
@@ -129,7 +139,9 @@ function cancelDepartmentEdit() {
   editingRr.value = ''
 }
 
-// PATCH /admin/departments/{id} 로 개별 부서 R&R 저장
+// routingPrompt를 저장하고, 성공 시 해당 카드를 낙관적으로 PENDING 상태로 전환한다.
+// BE가 Vector Store 반영을 비동기로 처리하므로, 저장 직후에는 PENDING이 정확한 상태다.
+// 실제 반영 완료(SYNCED) 또는 실패(FAILED) 여부는 다음 loadDepts 시 BE 값으로 갱신된다.
 async function saveDepartmentEdit(dept: AdminDepartment) {
   if (deptSaving.value) return
   deptSaving.value = true
@@ -138,44 +150,51 @@ async function saveDepartmentEdit(dept: AdminDepartment) {
       routingPrompt: editingRr.value.trim(),
     })
     const idx = adminDepts.value.findIndex(d => d.departmentId === dept.departmentId)
-    if (idx !== -1) adminDepts.value[idx]!.routingPrompt = editingRr.value.trim() || null
-    delete deptSyncFailed[dept.departmentId]
-    deptLastSyncAt[dept.departmentId] = new Date()
+    if (idx !== -1) {
+      adminDepts.value[idx]!.routingPrompt = editingRr.value.trim() || null
+      adminDepts.value[idx]!.syncStatus = 'PENDING'
+      adminDepts.value[idx]!.syncInfo = '동기화 대기 중'
+    }
     cancelDepartmentEdit()
     showSaved('R&R 프롬프트를 저장했습니다.')
   } catch {
-    deptSyncFailed[dept.departmentId] = true
     showSaved('저장에 실패했습니다.', 'error')
   } finally {
     deptSaving.value = false
   }
 }
 
-// 저장 실패 시 동일한 routingPrompt로 PATCH 재전송
+// syncStatus가 FAILED인 부서에 동일한 routingPrompt를 재전송해 Vector Store 재반영을 요청한다.
+// routingPrompt가 없으면 BE @NotBlank 검증 오류가 발생하므로 전송을 차단한다.
 async function retrySyncDept(dept: AdminDepartment) {
-  delete deptSyncFailed[dept.departmentId]
+  if (!dept.routingPrompt) return  // @NotBlank — 빈 문자열 전송 방지
+  dept.syncStatus = 'PENDING'
+  dept.syncInfo = '재시도 요청됨'
   try {
     await updateDepartmentRoutingPrompt(dept.departmentId, {
-      routingPrompt: dept.routingPrompt ?? '',
+      routingPrompt: dept.routingPrompt,
     })
-    deptLastSyncAt[dept.departmentId] = new Date()
-    showSaved(`${dept.departmentName} R&R을 저장했습니다.`)
+    showSaved(`${dept.departmentName} 동기화를 다시 요청했습니다.`)
   } catch {
-    deptSyncFailed[dept.departmentId] = true
+    dept.syncStatus = 'FAILED'
+    dept.syncInfo = null  // 재시도 실패 시 syncInfo 초기화 — "마지막 동기화 실패: 재시도 요청됨" 방지
     showSaved(`${dept.departmentName} 저장에 실패했습니다.`, 'error')
   }
 }
 
-// PATCH /admin/departments/routing-prompt/instruction 로 AI 일괄 수정 후 전체 목록 갱신
+// AI 수정 지침을 BE에 전송하면, BE가 모든 부서의 routingPrompt를 일괄 수정하고 Vector Store 재반영을 예약한다.
+// 목록을 갱신한 뒤, routingPrompt가 있는 부서를 낙관적으로 PENDING 상태로 전환해 UI에 즉시 반영한다.
 async function applyAiInstruction() {
   if (!aiInstruction.value.trim() || aiLoading.value) return
   aiLoading.value = true
   try {
     await editRoutingPromptInstruction(aiInstruction.value.trim())
     await loadDepts()
-    const now = new Date()
     adminDepts.value.forEach(d => {
-      if (d.routingPrompt) deptLastSyncAt[d.departmentId] = now
+      if (d.routingPrompt) {
+        d.syncStatus = 'PENDING'
+        d.syncInfo = 'AI 수정 반영 후 동기화 대기 중'
+      }
     })
     aiInstruction.value = ''
     showSaved('AI가 R&R을 수정했습니다.')
@@ -464,15 +483,12 @@ onMounted(() => {
                 <p class="department-prompt" :class="{ 'department-prompt--empty': !dept.routingPrompt }">
                   {{ dept.routingPrompt || '아직 R&R 프롬프트가 설정되지 않았습니다.' }}
                 </p>
-                <p class="department-member-count">
-                  마지막 동기화: {{ deptLastSyncAt[dept.departmentId] ? formatSyncTime(deptLastSyncAt[dept.departmentId]!) : '-' }}
-                </p>
-                <p v-if="deptSyncFailed[dept.departmentId]" class="dept-sync-info dept-sync-info--failed">
-                  저장 실패 — 재시도 버튼을 눌러주세요.
+                <p v-if="deptSyncLabel(dept)" :class="['dept-sync-info', `dept-sync-info--${dept.syncStatus.toLowerCase()}`]">
+                  {{ deptSyncLabel(dept) }}
                 </p>
                 <div class="department-actions">
                   <button
-                    v-if="deptSyncFailed[dept.departmentId]"
+                    v-if="dept.syncStatus === 'FAILED'"
                     class="button department-btn-retry"
                     @click="retrySyncDept(dept)"
                   >
@@ -678,7 +694,7 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
 /* Tool 표는 컨테이너보다 넓어지면 활성 토글 칸이 잘리므로 가로 스크롤 허용 */
 .table-wrap:has(.editable-table) { overflow-x: auto; }
 .editable-table th:last-child, .editable-table td:last-child { width: 72px; padding-right: 18px; white-space: nowrap; }
-.prompt-excerpt { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-width: 360px; color: #53606d; }
+.prompt-excerpt { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-width: 360px; color: #53606d; }
 .inline-note { margin: 14px 0; padding: 10px 12px; border-left: 3px solid #75a1cf; background: #f3f7fb; color: #687683; font-size: 11px; line-height: 1.55; }
 .routing-note { margin-top: 14px; }
 
@@ -701,13 +717,14 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
 .department-badge--empty   { background: #f1f3f5; color: #8a939e; }
 .department-badge--pending { background: #fef3c7; color: #d97706; }
 .department-badge--failed  { background: #fee2e2; color: #ef4444; }
-.department-prompt { font-size: 13px; color: #404055; line-height: 1.65; margin: 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; flex: 1; }
+.department-prompt { font-size: 13px; color: #404055; line-height: 1.65; margin: 0; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; flex: 1; }
 .department-prompt--empty { color: #b0b8c1; font-style: italic; }
 .department-member-count { font-size: 11px; color: #aeb2bb; margin: 0; }
 .department-textarea { width: 100%; min-height: 100px; padding: 9px 11px; border: 1px solid #ccd3da; border-radius: 6px; font: inherit; font-size: 13px; color: #26323d; resize: vertical; }
 .department-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .department-empty { grid-column: 1 / -1; text-align: center; padding: 40px 0; color: #b0b8c1; font-size: 14px; }
-.dept-sync-info { font-size: 11px; margin: 0; }
+.dept-sync-info { font-size: 11px; margin: 0; color: #8a939e; }
+.dept-sync-info--synced  { color: #8a939e; }
 .dept-sync-info--pending { color: #d97706; }
 .dept-sync-info--failed  { color: #ef4444; }
 .department-btn-retry { border: 1px solid #ef4444; color: #ef4444; background: #fff; font-size: 12px; padding: 6px 12px; border-radius: 6px; cursor: pointer; }

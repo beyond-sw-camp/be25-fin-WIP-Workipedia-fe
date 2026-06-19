@@ -10,7 +10,7 @@ import BaseModal from '@/components/common/BaseModal.vue'
 import {
   getDashboardSummary, getAdminUsers, updateUserStatus,
   getAdminManuals, createAdminManual, updateAdminManual, updateAdminManualMeta, deleteAdminManual,
-  getAdminDepartments, createAdminDepartment, updateAdminDepartment, deleteAdminDepartment,
+  getAdminDepartments, createAdminDepartment, updateAdminDepartment, updateDepartmentRoutingPrompt, deleteAdminDepartment,
   getAdminPoints, deductAdminPoints,
   getChatPolicy, updateChatPolicy,
   getAdminDirectData, createAdminDirectData, updateAdminDirectData, deleteAdminDirectData,
@@ -22,7 +22,13 @@ import { getManualDetail } from '@/api/manualApi'
 const auth = useAuthStore()
 
 type Tab = 'manual' | 'knowledge' | 'departments' | 'users' | 'points' | 'chat'
-const activeTab = ref<Tab>('manual')
+// localStorage에 마지막 활성 탭을 저장해 새로고침 후에도 탭을 유지한다.
+// 저장된 값이 유효한 Tab이 아닌 경우(직접 조작 등) 기본값 'manual'로 폴백한다.
+const VALID_TABS: Tab[] = ['manual', 'knowledge', 'departments', 'users', 'points', 'chat']
+const SETTINGS_TAB_LS_KEY = 'workipedia_settings_tab'
+const storedSettingsTab = localStorage.getItem(SETTINGS_TAB_LS_KEY) as Tab | null
+const activeTab = ref<Tab>(storedSettingsTab && VALID_TABS.includes(storedSettingsTab) ? storedSettingsTab : 'manual')
+watch(activeTab, (t) => localStorage.setItem(SETTINGS_TAB_LS_KEY, t))
 
 // ── Toast ──────────────────────────────────────────────────────
 // showToast 함수로 저장·삭제·오류 결과를 한 곳에서 처리한다. BaseToast는 v-model로 가시성을 제어한다.
@@ -431,7 +437,12 @@ async function saveDept() {
       const targetId = editingDept.value.id
       const name = editingDept.value.name
       const routingPrompt = editingDept.value.routingPrompt
-      await updateAdminDepartment(targetId, { departmentName: name, routingPrompt })
+      // BE가 부서명과 routingPrompt를 별도 엔드포인트로 분리해 관리하므로 두 번 호출한다.
+      // routingPrompt가 비어있으면 BE @NotBlank 검증 오류(400)가 발생하므로 전송을 건너뛴다.
+      await updateAdminDepartment(targetId, { departmentName: name })
+      if (routingPrompt.trim()) {
+        await updateDepartmentRoutingPrompt(targetId, { routingPrompt: routingPrompt.trim() })
+      }
       const idx = adminDepts.value.findIndex(d => d.departmentId === targetId)
       if (idx !== -1) {
         const cur = adminDepts.value[idx]

@@ -77,11 +77,20 @@ export function deleteAdminManual(manualId: number) {
 }
 
 // ── 부서 관리 (추가/삭제/수정) ──────────────────────────────────
+// syncStatus: BE가 routingPrompt를 Vector Store에 반영한 상태를 나타낸다.
+//   SYNCED  — 마지막 반영 성공 (syncInfo = 반영 시각)
+//   PENDING — 저장됐으나 아직 Vector Store에 반영되지 않은 상태 (syncInfo = null)
+//   FAILED  — Vector Store 반영 시도 실패 (syncInfo = 실패 시각)
+//   EMPTY   — routingPrompt가 한 번도 등록된 적 없음 (syncInfo = null, 레이블 미표시)
+export type DeptSyncStatus = 'SYNCED' | 'PENDING' | 'FAILED' | 'EMPTY'
+
 export interface AdminDepartment {
   departmentId: number
   departmentName: string
   routingPrompt: string | null
   memberCount: number
+  syncStatus: DeptSyncStatus
+  syncInfo: string | null  // SYNCED/FAILED 시 날짜 문자열, 그 외 null
 }
 export function getAdminDepartments() {
   return http.get<AdminDepartment[]>('/admin/departments')
@@ -92,6 +101,8 @@ export function createAdminDepartment(body: { departmentName: string }) {
 export function updateAdminDepartment(departmentId: number, body: { departmentName: string }) {
   return http.patch<AdminDepartment>(`/admin/departments/${departmentId}`, body)
 }
+// BE가 부서명(PATCH /admin/departments/{id})과 routingPrompt(PATCH /admin/departments/{id}/routing-prompt)를
+// 별도 엔드포인트로 분리해 관리하므로 함수도 분리한다.
 export function updateDepartmentRoutingPrompt(departmentId: number, body: { routingPrompt: string }) {
   return http.patch<AdminDepartment>(`/admin/departments/${departmentId}/routing-prompt`, body)
 }
