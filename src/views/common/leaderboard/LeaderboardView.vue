@@ -4,12 +4,25 @@ import { Trophy, TrendingUp, ChevronDown, RefreshCw } from '@lucide/vue'
 import { getEsgLeaderboard } from '@/api/pointApi'
 import type { EsgLeaderboardResponse } from '@/types/esg'
 
+interface EnvironmentImpactView {
+  savedWorkHours: number
+  electricitySavedKwh: number
+  co2SavedKg: number
+  smartphoneChargeEquivalentCount: number
+}
+
 // GET /leaderboard → topRankers(상위 랭커 배열) + mySummary(로그인 사용자 순위)
 const topRankers = ref<EsgLeaderboardResponse[]>([])
 const myRank = ref<EsgLeaderboardResponse | null>(null)
 const loading = ref(false)
 const error = ref('')
 const showFormula = ref(false)
+const environmentImpact = ref<EnvironmentImpactView>({
+  savedWorkHours: 0,
+  electricitySavedKwh: 0,
+  co2SavedKg: 0,
+  smartphoneChargeEquivalentCount: 0,
+})
 
 // 1명 이상일 때만 포디엄 렌더. vue-tsc 배열 인덱스 타입 한계로 named property로 분리
 const podiumEntries = computed(() => {
@@ -22,33 +35,29 @@ const podiumEntries = computed(() => {
   }
 })
 
-// ESG 점수 1점 = 반복 질문 0.5건 절감으로 환산하여 절감 시간·전력·탄소 계산
-const MINUTES_PER_QUESTION = 10
-const KWH_PER_HOUR = 0.1
-const EMISSION_FACTOR = 0.4781
-
-// TODO: BE 환경 지표 API 연동 후 아래 계산 로직 복원
-// const userEsgScore = computed(() => myRank.value?.esgScore ?? 0)
-// const questionCount = computed(() => Math.floor(userEsgScore.value / 2))
-// const savedHours = computed(() => (questionCount.value * MINUTES_PER_QUESTION) / 60)
-// const savedKWh = computed(() => savedHours.value * KWH_PER_HOUR)
-// const co2Saved = computed(() => savedKWh.value * EMISSION_FACTOR)
-const questionCount = ref(0)
-const savedHours = ref(0)
-const savedKWh = ref(0)
-const co2Saved = ref(0)
-
 // 전체 사용자 ESG 포인트 합산 (북극 회복도 카드용)
 const totalEsgScore = ref(0)
+const KWH_PER_HOUR = 0.08
+const EMISSION_FACTOR = 0.478
+
+const formatImpactNumber = (value: number, maximumFractionDigits = 3) =>
+  value.toLocaleString(undefined, { maximumFractionDigits })
 
 onMounted(async () => {
   loading.value = true
   error.value = ''
   try {
     const res = await getEsgLeaderboard()
+    const impact = res.data.environmentImpact
     topRankers.value = res.data.topRankers ?? []
     myRank.value = res.data.mySummary ?? null
     totalEsgScore.value = res.data.totalEsgScore ?? 0
+    environmentImpact.value = {
+      savedWorkHours: impact?.savedWorkHours ?? 0,
+      electricitySavedKwh: impact?.electricitySavedKwh ?? 0,
+      co2SavedKg: impact?.co2SavedKg ?? 0,
+      smartphoneChargeEquivalentCount: impact?.smartphoneChargeEquivalentCount ?? 0,
+    }
   } catch {
     error.value = '리더보드를 불러오지 못했습니다.'
   } finally {
@@ -156,29 +165,44 @@ onMounted(async () => {
           <div v-else class="my-rank-empty">아직 ESG 점수가 없습니다. 워키에서 답변을 달아보세요!</div>
         </div>
 
-        <!--
-        환경 영향: 내 ESG 점수 기반으로 절감 시간·전력·탄소를 공식으로 환산해 표시
+        <!-- 환경에 미친 영향 -->
         <div class="card env-card">
           <div class="env-head">
             <TrendingUp :size="17" color="#00a63e" />
             환경에 미친 영향
           </div>
-          <p class="env-sub">당신의 지식 공유가 만든 환경적 가치</p>
+          <p class="env-sub">매주 월요일 00시에 집계된 주간 스냅샷 기준입니다.</p>
           <div class="env-grid">
             <div class="env-item env-item--sky">
-              <div class="env-emoji">⏱️</div>
-              <div class="env-val" style="color:#0284c7;">{{ savedHours.toFixed(1) }}h</div>
-              <div class="env-label">절감 업무 시간</div>
+              <div class="env-emoji">⏱</div>
+              <div class="env-val" style="color:#0284c7;">
+                {{ formatImpactNumber(environmentImpact.savedWorkHours, 1) }}시간
+              </div>
+              <div class="env-label">추정 업무 절감 시간</div>
             </div>
             <div class="env-item env-item--yellow">
               <div class="env-emoji">⚡</div>
-              <div class="env-val" style="color:#d97706;">{{ savedKWh.toFixed(2) }}kWh</div>
-              <div class="env-label">전기 절감량</div>
+              <div class="env-val" style="color:#d97706;">
+                {{ formatImpactNumber(environmentImpact.electricitySavedKwh) }} kWh
+              </div>
+              <div class="env-label">추정 전력 절감 효과</div>
             </div>
             <div class="env-item env-item--green">
               <div class="env-emoji">🌿</div>
-              <div class="env-val" style="color:#00a63e;">{{ co2Saved.toFixed(2) }}kg</div>
-              <div class="env-label">CO₂ 절감량</div>
+              <div class="env-val" style="color:#00a63e;">
+                {{ formatImpactNumber(environmentImpact.co2SavedKg) }} kgCO₂e
+              </div>
+              <div class="env-label">추정 CO₂ 절감 효과</div>
+            </div>
+          </div>
+          <div class="phone-equivalent">
+            <div class="phone-equivalent-main">
+              🌱 줄어든 탄소량은 스마트폰 약
+              <strong>{{ environmentImpact.smartphoneChargeEquivalentCount.toLocaleString() }}회</strong>
+              충전 시 발생하는 배출량과 같아요!
+            </div>
+            <div class="phone-equivalent-source">
+              * 출처: 미국 EPA Greenhouse Gas Equivalencies Calculator 기준
             </div>
           </div>
           <button class="formula-toggle" @click="showFormula = !showFormula">
@@ -187,12 +211,28 @@ onMounted(async () => {
           </button>
           <div v-if="showFormula" class="formula-box">
             <div class="formula-title">📐 계산 기준</div>
-            <p>반복 질문 감소 건수 <code>{{ questionCount }}건</code> × 1건당 절감 {{ MINUTES_PER_QUESTION }}분 ÷ 60 = <code>{{ savedHours.toFixed(2) }}h</code></p>
-            <p>절감 시간 <code>{{ savedHours.toFixed(2) }}h</code> × 전력 {{ KWH_PER_HOUR }}kWh/h = <code>{{ savedKWh.toFixed(3) }}kWh</code></p>
-            <p>전기 절감 <code>{{ savedKWh.toFixed(3) }}kWh</code> × 배출계수 {{ EMISSION_FACTOR }} = <code>{{ co2Saved.toFixed(3) }}kgCO₂eq</code></p>
+            <p>
+              Σ 날짜 d∈W Σ 사용자 u min(사용자 u의 d일 인용 포함 챗봇 답변 수 × 3분, 37.8분) ÷ 60분 =
+              <code>{{ formatImpactNumber(environmentImpact.savedWorkHours, 2) }}시간</code>
+            </p>
+            <p>
+              추정 업무 절감 시간 <code>{{ formatImpactNumber(environmentImpact.savedWorkHours, 2) }}시간</code>
+              × {{ KWH_PER_HOUR }}kW =
+              <code>{{ formatImpactNumber(environmentImpact.electricitySavedKwh) }}kWh</code>
+            </p>
+            <p>
+              추정 전력 절감 효과 <code>{{ formatImpactNumber(environmentImpact.electricitySavedKwh) }}kWh</code>
+              × {{ EMISSION_FACTOR }}kgCO₂e/kWh =
+              <code>{{ formatImpactNumber(environmentImpact.co2SavedKg) }}kgCO₂e</code>
+            </p>
+            <div class="formula-notes">
+              <p>※ 답변 1건당 평균 3분의 정보 탐색 시간 절감 효과를 가정합니다.</p>
+              <p>※ 사용자별 일일 최대 절감 시간은 McKinsey 연구에서 제시한 정보 탐색 시간 절감 효과(37.8분)를 기준으로 제한합니다.</p>
+              <p>※ 전력 절감 효과는 일반 사무환경의 평균 소비전력 0.08kW를 기준으로 환산합니다. (출처: EnergySage, Mobile Pixels)</p>
+              <p>※ CO₂ 절감 효과는 대한민국 전력 배출계수 0.478kgCO₂e/kWh를 적용하여 산정합니다. (참고: GHG Protocol Scope 2, 대한민국 전력망 배출계수)</p>
+            </div>
           </div>
         </div>
-        -->
 
         <!-- 북극 회복도: topRankers ESG 합산 → 플랫폼 전체 기여 수치 표시 -->
         <div class="card arctic-card">
@@ -306,6 +346,21 @@ onMounted(async () => {
 .env-emoji { font-size: 1.8rem; line-height: 1; }
 .env-val { font-size: 1.5rem; font-weight: 800; }
 .env-label { font-size: 12px; color: #6b7280; }
+.phone-equivalent {
+  padding: 12px 14px;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  background: #f0fdf4;
+  color: #166534;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.phone-equivalent-main { font-weight: 600; }
+.phone-equivalent-source {
+  margin-top: 2px;
+  color: #6b7280;
+  font-size: 11.5px;
+}
 
 .formula-toggle {
   display: flex; align-items: center; gap: 4px;
@@ -326,6 +381,16 @@ onMounted(async () => {
   font-family: 'Courier New', monospace; font-size: 11.5px;
   background: #e2e8f0; border-radius: 4px; padding: 1px 5px; color: #374151;
 }
+.formula-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid #e2e8f0;
+  color: #6b7280;
+}
+.formula-notes p { margin: 0; }
 
 /* ── 북극 회복도 ──────────────────────────────────────────── */
 .arctic-card { padding: 24px 28px; }
