@@ -171,7 +171,7 @@ onMounted(async () => {
             <TrendingUp :size="17" color="#00a63e" />
             환경에 미친 영향
           </div>
-          <p class="env-sub">매주 월요일 00시에 집계된 주간 스냅샷 기준입니다.</p>
+          <p class="env-sub">주간 스냅샷 기준</p>
           <div class="env-grid">
             <div class="env-item env-item--sky">
               <div class="env-emoji">⏱</div>
@@ -202,7 +202,7 @@ onMounted(async () => {
               충전 시 발생하는 배출량과 같아요!
             </div>
             <div class="phone-equivalent-source">
-              * 출처: 미국 EPA Greenhouse Gas Equivalencies Calculator 기준
+              * 출처: U.S. EPA Greenhouse Gas Equivalencies Calculator
             </div>
           </div>
           <button class="formula-toggle" @click="showFormula = !showFormula">
@@ -227,9 +227,9 @@ onMounted(async () => {
             </p>
             <div class="formula-notes">
               <p>※ 답변 1건당 평균 3분의 정보 탐색 시간 절감 효과를 가정합니다.</p>
-              <p>※ 사용자별 일일 최대 절감 시간은 McKinsey 연구에서 제시한 정보 탐색 시간 절감 효과(37.8분)를 기준으로 제한합니다.</p>
-              <p>※ 전력 절감 효과는 일반 사무환경의 평균 소비전력 0.08kW를 기준으로 환산합니다. (출처: EnergySage, Mobile Pixels)</p>
-              <p>※ CO₂ 절감 효과는 대한민국 전력 배출계수 0.478kgCO₂e/kWh를 적용하여 산정합니다. (참고: GHG Protocol Scope 2, 대한민국 전력망 배출계수)</p>
+              <p>※ 사용자별 일일 최대 절감 시간은 McKinsey 연구에서 제시한 정보 탐색 시간 절감 효과 37.8분을 기준으로 제한합니다.</p>
+              <p>※ 전력 절감 효과는 노트북 및 모니터 사용 환경을 기준으로 평균 소비전력 80W를 가정하여 산정합니다.</p>
+              <p>※ CO₂ 절감 효과는 대한민국 전력 배출계수를 적용하여 산정합니다.</p>
             </div>
           </div>
         </div>
