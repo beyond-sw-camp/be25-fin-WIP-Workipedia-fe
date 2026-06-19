@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted } from 'vue'
 import { isAxiosError } from 'axios'
 import { Bot } from '@lucide/vue'
+import BaseToast from '@/components/common/BaseToast.vue'
 import {
   getAiPromptSettings, updateAiPromptSettings,
   getAiTools, createAiTool, updateAiTool,
@@ -29,10 +30,10 @@ const sectionNotices: Record<Section, { label: string; tone: 'optional' | 'requi
     label: '선택 설정',
     tone: 'optional',
     title: '배정 기준을 등록하지 않아도 티켓 기능은 정상 동작합니다.',
-    description: '추천 근거가 없거나 점수가 부족한 티켓은 공통 접수 큐로 이동하며, 관리자가 담당 부서를 지정합니다.',
+    description: '추천 근거가 없거나 점수가 부족한 티켓은 공통 접수 티켓으로 이동하며, 관리자가 담당 부서를 지정합니다.',
   },
   tools: {
-    label: '선택 기능',
+    label: '선택 설정',
     tone: 'optional',
     title: 'API Tool은 고객사가 제공하는 연동 기능이 있을 때만 등록합니다.',
     description: '활성 Tool이 없으면 실시간 데이터 조회 단계를 건너뛰고 다음 RAG 또는 티켓 생성 단계로 이동합니다.',
@@ -41,11 +42,14 @@ const sectionNotices: Record<Section, { label: string; tone: 'optional' | 'requi
 
 const activeSection = ref<Section>('prompt')
 
-// ── 토스트 ──────────────────────────────────────────────────
-const savedNotice = ref('')
-function showSaved(message: string) {
-  savedNotice.value = message
-  window.setTimeout(() => { savedNotice.value = '' }, 1800)
+// ── 토스트 (BaseToast 공통 컴포넌트 사용) ──────────────────────
+const toastVisible = ref(false)
+const toastTitle = ref('')
+const toastType = ref<'success' | 'error'>('success')
+function showSaved(message: string, type: 'success' | 'error' = 'success') {
+  toastTitle.value = message
+  toastType.value = type
+  toastVisible.value = true
 }
 
 // ── 프롬프트 관리 ────────────────────────────────────────────
@@ -68,7 +72,7 @@ async function savePrompt() {
     await updateAiPromptSettings({ enabled: promptEnabled.value, customPrompt: customPrompt.value })
     showSaved('프롬프트를 저장했습니다.')
   } catch {
-    showSaved('저장에 실패했습니다.')
+    showSaved('저장에 실패했습니다.', 'error')
   } finally {
     promptSaving.value = false
   }
@@ -93,6 +97,26 @@ const filteredDepts = computed(() => {
 
 const deptWithPromptCount = computed(() => adminDepts.value.filter(d => d.routingPrompt).length)
 
+// 저장 후 AI 동기화 상태를 로컬에서 추적 (페이지 재방문 시 초기화)
+// 'pending': PATCH 성공, AI 동기화 대기 중 / 'failed': PATCH 실패
+const deptSyncStatus = reactive<Record<number, 'pending' | 'failed'>>({})
+
+function deptBadge(dept: AdminDepartment): { text: string; cls: string } {
+  const sync = deptSyncStatus[dept.departmentId]
+  if (sync === 'pending') return { text: '동기화 대기', cls: 'department-badge--pending' }
+  if (sync === 'failed') return { text: '동기화 실패', cls: 'department-badge--failed' }
+  if (dept.routingPrompt) return { text: '활성', cls: 'department-badge--active' }
+  return { text: '미설정', cls: 'department-badge--empty' }
+}
+
+// 동기화 완료(서버 반영)된 부서 수 — syncStatus 없고 routingPrompt 있는 경우
+const deptSyncedCount = computed(() =>
+  adminDepts.value.filter(d => d.routingPrompt && !deptSyncStatus[d.departmentId]).length
+)
+const deptPendingCount = computed(() =>
+  Object.values(deptSyncStatus).filter(s => s === 'pending').length
+)
+
 async function loadDepts() {
   try {
     const res = await getAdminDepartments()
@@ -115,18 +139,35 @@ async function saveDepartmentEdit(dept: AdminDepartment) {
   if (deptSaving.value) return
   deptSaving.value = true
   try {
-    const res = await updateAdminDepartment(dept.departmentId, {
+    await updateAdminDepartment(dept.departmentId, {
       departmentName: dept.departmentName,
       routingPrompt: editingRr.value.trim(),
     })
     const idx = adminDepts.value.findIndex(d => d.departmentId === dept.departmentId)
-    if (idx !== -1) adminDepts.value[idx] = res.data
+    if (idx !== -1) adminDepts.value[idx]!.routingPrompt = editingRr.value.trim() || null
+    deptSyncStatus[dept.departmentId] = 'pending'
     cancelDepartmentEdit()
-    showSaved('배정 기준을 저장했습니다.')
+    showSaved('R&R 프롬프트를 저장하고 동기화를 요청했습니다.')
   } catch {
-    showSaved('저장에 실패했습니다.')
+    deptSyncStatus[dept.departmentId] = 'failed'
+    showSaved('저장에 실패했습니다.', 'error')
   } finally {
     deptSaving.value = false
+  }
+}
+
+// 동기화 실패 시 동일한 routingPrompt로 PATCH 재전송
+async function retrySyncDept(dept: AdminDepartment) {
+  deptSyncStatus[dept.departmentId] = 'pending'
+  try {
+    await updateAdminDepartment(dept.departmentId, {
+      departmentName: dept.departmentName,
+      routingPrompt: dept.routingPrompt ?? '',
+    })
+    showSaved(`${dept.departmentName} 동기화를 다시 요청했습니다.`)
+  } catch {
+    deptSyncStatus[dept.departmentId] = 'failed'
+    showSaved(`${dept.departmentName} 동기화 재시도에 실패했습니다.`, 'error')
   }
 }
 
@@ -135,12 +176,16 @@ async function applyAiInstruction() {
   if (!aiInstruction.value.trim() || aiLoading.value) return
   aiLoading.value = true
   try {
-    const res = await editRoutingPromptInstruction(aiInstruction.value.trim())
-    adminDepts.value = res.data
+    await editRoutingPromptInstruction(aiInstruction.value.trim())
+    await loadDepts()
+    // R&R이 있는 모든 부서를 동기화 대기로 표시
+    adminDepts.value.forEach(d => {
+      if (d.routingPrompt) deptSyncStatus[d.departmentId] = 'pending'
+    })
     aiInstruction.value = ''
-    showSaved('AI가 배정 기준을 수정하고 저장했습니다.')
+    showSaved('AI가 R&R을 수정하고 동기화를 요청했습니다.')
   } catch {
-    showSaved('AI 수정에 실패했습니다.')
+    showSaved('AI 수정에 실패했습니다.', 'error')
   } finally {
     aiLoading.value = false
   }
@@ -314,7 +359,7 @@ onMounted(() => {
     </div>
 
     <div class="workspace-content">
-      <div v-if="savedNotice" class="toast">{{ savedNotice }}</div>
+      <BaseToast v-model="toastVisible" :title="toastTitle" :type="toastType" />
 
         <div class="requirement-notice" :class="`requirement-notice--${sectionNotices[activeSection].tone}`">
           <span class="requirement-label">{{ sectionNotices[activeSection].label }}</span>
@@ -389,7 +434,7 @@ onMounted(() => {
           <div class="department-section-header">
             <div>
               <h3>부서 목록</h3>
-              <span>총 {{ adminDepts.length }}개 부서 · 등록 {{ deptWithPromptCount }} · 미등록 {{ adminDepts.length - deptWithPromptCount }}</span>
+              <span>총 {{ adminDepts.length }}개 부서 · 완료 {{ deptSyncedCount }} · 대기 {{ deptPendingCount }} · 미설정 {{ adminDepts.length - deptWithPromptCount }}</span>
             </div>
             <input v-model="deptSearch" class="search-input" placeholder="부서명 검색" />
           </div>
@@ -399,8 +444,8 @@ onMounted(() => {
             <article v-for="dept in filteredDepts" :key="dept.departmentId" class="department-card">
               <div class="department-card-top">
                 <strong>{{ dept.departmentName }}</strong>
-                <span :class="['department-badge', dept.routingPrompt ? 'department-badge--active' : 'department-badge--empty']">
-                  {{ dept.routingPrompt ? '활성' : '미설정' }}
+                <span :class="['department-badge', deptBadge(dept).cls]">
+                  {{ deptBadge(dept).text }}
                 </span>
               </div>
 
@@ -413,7 +458,7 @@ onMounted(() => {
                 />
                 <div class="department-actions">
                   <button class="button button--secondary" @click="cancelDepartmentEdit">취소</button>
-                  <button class="button button--primary" :disabled="deptSaving" @click="saveDepartmentEdit(dept)">
+                  <button class="button button--primary" :disabled="deptSaving || !editingRr.trim()" @click="saveDepartmentEdit(dept)">
                     {{ deptSaving ? '저장 중...' : '저장' }}
                   </button>
                 </div>
@@ -425,13 +470,26 @@ onMounted(() => {
                   {{ dept.routingPrompt || '아직 R&R 프롬프트가 설정되지 않았습니다.' }}
                 </p>
                 <p class="department-member-count">팀원 {{ dept.memberCount }}명</p>
+                <p v-if="deptSyncStatus[dept.departmentId] === 'pending'" class="dept-sync-info dept-sync-info--pending">
+                  동기화 대기 중…
+                </p>
+                <p v-else-if="deptSyncStatus[dept.departmentId] === 'failed'" class="dept-sync-info dept-sync-info--failed">
+                  동기화 실패 — 재시도 버튼을 눌러주세요.
+                </p>
                 <div class="department-actions">
+                  <button
+                    v-if="deptSyncStatus[dept.departmentId] === 'failed'"
+                    class="button department-btn-retry"
+                    @click="retrySyncDept(dept)"
+                  >
+                    재시도
+                  </button>
                   <button
                     class="button"
                     :class="dept.routingPrompt ? 'button--secondary' : 'button--primary'"
                     @click="startDepartmentEdit(dept)"
                   >
-                    {{ dept.routingPrompt ? '편집' : 'R&R 작성' }}
+                    {{ dept.routingPrompt ? '편집' : '프롬프트 작성' }}
                   </button>
                 </div>
               </template>
@@ -443,7 +501,7 @@ onMounted(() => {
           </div>
 
           <div class="inline-note routing-note">
-            부서 자체의 생성·삭제는 설정 페이지에서 수행합니다. 이 화면에서는 존재하는 부서를 선택해 AI 티켓 배정 기준만 등록합니다.
+            부서 자체의 생성·삭제는 조직 관리에서 수행합니다. 이 화면에서는 R&R 프롬프트만 등록하고 수정합니다.
           </div>
         </template>
 
@@ -645,14 +703,21 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
 .department-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .department-card-top strong { font-size: 14px; font-weight: 700; color: #1f2430; }
 .department-badge { padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; white-space: nowrap; }
-.department-badge--active { background: #d1fae5; color: #059669; }
-.department-badge--empty { background: #f1f3f5; color: #8a939e; }
+.department-badge--active  { background: #d1fae5; color: #059669; }
+.department-badge--empty   { background: #f1f3f5; color: #8a939e; }
+.department-badge--pending { background: #fef3c7; color: #d97706; }
+.department-badge--failed  { background: #fee2e2; color: #ef4444; }
 .department-prompt { font-size: 13px; color: #404055; line-height: 1.65; margin: 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; flex: 1; }
 .department-prompt--empty { color: #b0b8c1; font-style: italic; }
 .department-member-count { font-size: 11px; color: #aeb2bb; margin: 0; }
 .department-textarea { width: 100%; min-height: 100px; padding: 9px 11px; border: 1px solid #ccd3da; border-radius: 6px; font: inherit; font-size: 13px; color: #26323d; resize: vertical; }
 .department-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .department-empty { grid-column: 1 / -1; text-align: center; padding: 40px 0; color: #b0b8c1; font-size: 14px; }
+.dept-sync-info { font-size: 11px; margin: 0; }
+.dept-sync-info--pending { color: #d97706; }
+.dept-sync-info--failed  { color: #ef4444; }
+.department-btn-retry { border: 1px solid #ef4444; color: #ef4444; background: #fff; font-size: 12px; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+.department-btn-retry:hover { background: #fee2e2; }
 
 .toast { position: fixed; z-index: 30; top: 22px; right: 24px; padding: 10px 14px; border-radius: 5px; background: #253341; color: #fff; font-size: 12px; box-shadow: 0 6px 18px rgba(0,0,0,.14); }
 .modal-backdrop { position: fixed; z-index: 40; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(20,28,36,.45); }
