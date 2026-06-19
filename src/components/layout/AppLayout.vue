@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
-import { RouterView } from 'vue-router'
+import { RouterView, useRoute } from 'vue-router'
 import Sidebar from './Sidebar.vue'
 import Header from './Header.vue'
 import { useDeptStore } from '@/stores/deptStore'
 
 const deptStore = useDeptStore()
+const route = useRoute()
 onMounted(() => deptStore.load())
 </script>
 
@@ -15,11 +16,17 @@ onMounted(() => deptStore.load())
     <div class="app-main">
       <Header />
       <main class="app-content">
-        <!-- 경로가 바뀌면 컴포넌트를 새로 마운트한다.
-             같은 라우트의 param만 변할 때(예: /worki/5 → /worki/questions/10) 컴포넌트 재사용으로
-             onMounted가 다시 안 돌아 데이터가 갱신되지 않는 문제를 막는다.
-             query만 바뀌는 경우(목록 페이지네이션 등)는 path가 같아 remount되지 않는다. -->
-        <RouterView :key="$route.path" />
+        <!-- meta.keepAlive=true인 뷰(SearchView 등)는 keep-alive로 인스턴스를 캐시해
+             상세 → 뒤로가기 시 검색 결과 등 상태를 그대로 유지한다.
+             나머지 뷰는 :key="route.path"로 경로 변경 시 항상 remount된다. -->
+        <RouterView v-slot="{ Component }">
+          <keep-alive :include="['SearchView']">
+            <component
+              :is="Component"
+              :key="route.meta?.keepAlive ? String(route.name) : route.path"
+            />
+          </keep-alive>
+        </RouterView>
       </main>
     </div>
   </div>

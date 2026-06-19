@@ -2,9 +2,9 @@ import http from './index'
 import type { PageResponse } from '@/types/common'
 import type { KnowledgeTicketCandidateResponse, KnowledgeDataResponse } from '@/types/knowledge'
 
-// ── 사용자 공개 API ───────────────────────────────────────────
-// 1-based 페이지네이션. size 기본값 10, 최대 100.
-export function getKnowledgeList(params: { page?: number; size?: number } = {}) {
+// 지식화 게시판 목록 조회 — USER 권한으로 접근 가능한 공개 지식 베이스
+// 1-based 페이지네이션. keyword 파라미터로 질문·답변 전문 검색 가능.
+export function getKnowledgeList(params: { page?: number; size?: number; keyword?: string } = {}) {
   return http.get<PageResponse<KnowledgeDataResponse>>('/knowledge-data', { params })
 }
 

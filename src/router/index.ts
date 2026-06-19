@@ -137,11 +137,12 @@ const router = createRouter({
           component: () => import('@/views/common/directdata/DirectDataDetailView.vue'),
         },
 
-        // 검색
+        // 검색 — keepAlive: true로 back 시 컴포넌트 인스턴스·검색 결과를 유지한다.
         {
           path: 'search',
           name: 'search',
           component: () => import('@/views/common/search/SearchView.vue'),
+          meta: { keepAlive: true },
         },
 
         // FAQ
