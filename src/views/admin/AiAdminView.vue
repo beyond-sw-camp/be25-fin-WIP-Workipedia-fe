@@ -8,7 +8,7 @@ import {
   editRoutingPromptInstruction,
   type AiTool, type ToolType, type HttpMethod,
 } from '@/api/aiAdminApi'
-import { getAdminDepartments, type AdminDepartment } from '@/api/adminApi'
+import { getAdminDepartments, updateAdminDepartment, type AdminDepartment } from '@/api/adminApi'
 
 type Section = 'prompt' | 'department' | 'tools'
 
@@ -77,10 +77,13 @@ async function savePrompt() {
 // ── 부서 티켓 배정 관리 ──────────────────────────────────────
 const adminDepts = ref<AdminDepartment[]>([])
 const deptSearch = ref('')
-const departmentModalOpen = ref(false)
-const editingDept = ref<AdminDepartment | null>(null)
-const deptForm = ref({ departmentId: 0, routingPrompt: '' })
+// 카드 인라인 편집 상태
+const editingDepartmentId = ref<number | null>(null)
+const editingRr = ref('')
 const deptSaving = ref(false)
+// AI 일괄 수정 상태
+const aiInstruction = ref('')
+const aiLoading = ref(false)
 
 const filteredDepts = computed(() => {
   const q = deptSearch.value.trim().toLowerCase()
@@ -89,7 +92,6 @@ const filteredDepts = computed(() => {
 })
 
 const deptWithPromptCount = computed(() => adminDepts.value.filter(d => d.routingPrompt).length)
-const unregisteredDepts = computed(() => adminDepts.value.filter(d => !d.routingPrompt))
 
 async function loadDepts() {
   try {
@@ -98,33 +100,49 @@ async function loadDepts() {
   } catch { }
 }
 
-function openAddDeptModal() {
-  editingDept.value = null
-  deptForm.value = { departmentId: 0, routingPrompt: '' }
-  departmentModalOpen.value = true
+function startDepartmentEdit(dept: AdminDepartment) {
+  editingDepartmentId.value = dept.departmentId
+  editingRr.value = dept.routingPrompt ?? ''
 }
 
-function openEditDeptModal(dept: AdminDepartment) {
-  editingDept.value = dept
-  deptForm.value = { departmentId: dept.departmentId, routingPrompt: dept.routingPrompt ?? '' }
-  departmentModalOpen.value = true
+function cancelDepartmentEdit() {
+  editingDepartmentId.value = null
+  editingRr.value = ''
 }
 
-async function saveDeptRouting() {
-  if (!deptForm.value.departmentId || deptSaving.value) return
-  const dept = adminDepts.value.find(d => d.departmentId === deptForm.value.departmentId)
-  if (!dept) return
+// PATCH /admin/departments/{id} 로 개별 부서 R&R 저장
+async function saveDepartmentEdit(dept: AdminDepartment) {
+  if (deptSaving.value) return
   deptSaving.value = true
   try {
-    const instruction = `${dept.departmentName}: ${deptForm.value.routingPrompt}`
-    const res = await editRoutingPromptInstruction(instruction)
-    adminDepts.value = res.data
-    departmentModalOpen.value = false
+    const res = await updateAdminDepartment(dept.departmentId, {
+      departmentName: dept.departmentName,
+      routingPrompt: editingRr.value.trim(),
+    })
+    const idx = adminDepts.value.findIndex(d => d.departmentId === dept.departmentId)
+    if (idx !== -1) adminDepts.value[idx] = res.data
+    cancelDepartmentEdit()
     showSaved('배정 기준을 저장했습니다.')
   } catch {
     showSaved('저장에 실패했습니다.')
   } finally {
     deptSaving.value = false
+  }
+}
+
+// PATCH /admin/departments/routing-prompt/instruction 로 AI 일괄 수정 후 전체 목록 갱신
+async function applyAiInstruction() {
+  if (!aiInstruction.value.trim() || aiLoading.value) return
+  aiLoading.value = true
+  try {
+    const res = await editRoutingPromptInstruction(aiInstruction.value.trim())
+    adminDepts.value = res.data
+    aiInstruction.value = ''
+    showSaved('AI가 배정 기준을 수정하고 저장했습니다.')
+  } catch {
+    showSaved('AI 수정에 실패했습니다.')
+  } finally {
+    aiLoading.value = false
   }
 }
 
@@ -342,51 +360,88 @@ onMounted(() => {
           <div class="workspace-title">
             <div>
               <h2>부서 티켓 배정 관리</h2>
-              <p>티켓을 담당 부서에 추천·배정할 때 사용하는 라우팅 기준을 관리합니다.</p>
+              <p>티켓을 담당 부서에 추천·배정할 때 사용하는 R&R 설명을 관리합니다.</p>
             </div>
-            <button class="button button--primary" @click="openAddDeptModal">배정 기준 추가</button>
           </div>
-          <div class="metric-row">
-            <div class="metric"><span>전체 부서</span><strong>{{ adminDepts.length }}</strong></div>
-            <div class="metric"><span>배정 기준 등록</span><strong>{{ deptWithPromptCount }}</strong></div>
-            <div class="metric"><span>미등록 부서</span><strong>{{ adminDepts.length - deptWithPromptCount }}</strong></div>
+
+          <!-- AI 일괄 수정 -->
+          <div class="department-ai-box">
+            <div class="setting-heading">
+              <div>
+                <h3>AI 일괄 수정</h3>
+                <p>수정 지침을 입력하면 AI가 모든 부서의 R&R을 자동으로 수정합니다.</p>
+              </div>
+            </div>
+            <div class="ai-input-row">
+              <input
+                v-model="aiInstruction"
+                class="department-ai-input"
+                placeholder="예: 각 부서 프롬프트에 응답 시간 기준(24시간 이내)을 추가해줘"
+                @keyup.enter="applyAiInstruction"
+              />
+              <button class="button button--primary" :disabled="!aiInstruction.trim() || aiLoading" @click="applyAiInstruction">
+                {{ aiLoading ? '적용 중...' : 'AI 수정 적용' }}
+              </button>
+            </div>
           </div>
-          <div class="toolbar">
+
+          <!-- 부서 목록 헤더 -->
+          <div class="department-section-header">
+            <div>
+              <h3>부서 목록</h3>
+              <span>총 {{ adminDepts.length }}개 부서 · 등록 {{ deptWithPromptCount }} · 미등록 {{ adminDepts.length - deptWithPromptCount }}</span>
+            </div>
             <input v-model="deptSearch" class="search-input" placeholder="부서명 검색" />
-            <span class="count-label">전체 {{ filteredDepts.length }}개 부서</span>
           </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>부서</th>
-                  <th>라우팅 프롬프트</th>
-                  <th>상태</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="dept in filteredDepts" :key="dept.departmentId">
-                  <td>
-                    <strong>{{ dept.departmentName }}</strong>
-                    <small>팀원 {{ dept.memberCount }}명</small>
-                  </td>
-                  <td>
-                    <span v-if="dept.routingPrompt" class="prompt-excerpt">{{ dept.routingPrompt }}</span>
-                    <span v-else style="color: #b0b8c1;">미등록</span>
-                  </td>
-                  <td>
-                    <span v-if="dept.routingPrompt" class="badge badge--green">활성</span>
-                    <span v-else class="badge badge--gray">미설정</span>
-                  </td>
-                  <td><button class="text-button" @click="openEditDeptModal(dept)">수정</button></td>
-                </tr>
-                <tr v-if="filteredDepts.length === 0">
-                  <td colspan="4" style="text-align: center; color: #b0b8c1; padding: 28px;">부서 데이터가 없습니다.</td>
-                </tr>
-              </tbody>
-            </table>
+
+          <!-- 부서 카드 그리드 -->
+          <div class="department-grid">
+            <article v-for="dept in filteredDepts" :key="dept.departmentId" class="department-card">
+              <div class="department-card-top">
+                <strong>{{ dept.departmentName }}</strong>
+                <span :class="['department-badge', dept.routingPrompt ? 'department-badge--active' : 'department-badge--empty']">
+                  {{ dept.routingPrompt ? '활성' : '미설정' }}
+                </span>
+              </div>
+
+              <!-- 편집 모드 -->
+              <template v-if="editingDepartmentId === dept.departmentId">
+                <textarea
+                  v-model="editingRr"
+                  class="department-textarea"
+                  placeholder="부서가 담당하는 역할·책임과 대표 티켓 범위를 입력하세요."
+                />
+                <div class="department-actions">
+                  <button class="button button--secondary" @click="cancelDepartmentEdit">취소</button>
+                  <button class="button button--primary" :disabled="deptSaving" @click="saveDepartmentEdit(dept)">
+                    {{ deptSaving ? '저장 중...' : '저장' }}
+                  </button>
+                </div>
+              </template>
+
+              <!-- 보기 모드 -->
+              <template v-else>
+                <p class="department-prompt" :class="{ 'department-prompt--empty': !dept.routingPrompt }">
+                  {{ dept.routingPrompt || '아직 R&R 프롬프트가 설정되지 않았습니다.' }}
+                </p>
+                <p class="department-member-count">팀원 {{ dept.memberCount }}명</p>
+                <div class="department-actions">
+                  <button
+                    class="button"
+                    :class="dept.routingPrompt ? 'button--secondary' : 'button--primary'"
+                    @click="startDepartmentEdit(dept)"
+                  >
+                    {{ dept.routingPrompt ? '편집' : 'R&R 작성' }}
+                  </button>
+                </div>
+              </template>
+            </article>
+
+            <div v-if="filteredDepts.length === 0" class="department-empty">
+              부서 데이터가 없습니다.
+            </div>
           </div>
+
           <div class="inline-note routing-note">
             부서 자체의 생성·삭제는 설정 페이지에서 수행합니다. 이 화면에서는 존재하는 부서를 선택해 AI 티켓 배정 기준만 등록합니다.
           </div>
@@ -451,53 +506,6 @@ onMounted(() => {
             </table>
           </div>
         </template>
-    </div>
-
-    <!-- ── 부서 배정 기준 모달 ── -->
-    <div v-if="departmentModalOpen" class="modal-backdrop" @click.self="departmentModalOpen = false">
-      <div class="modal modal--wide">
-        <div class="modal-header">
-          <div>
-            <h2>{{ editingDept ? '배정 기준 수정' : '배정 기준 추가' }}</h2>
-            <p>티켓 라우팅에 사용할 부서의 업무 범위를 등록합니다.</p>
-          </div>
-          <button aria-label="닫기" @click="departmentModalOpen = false">×</button>
-        </div>
-        <div class="modal-notice">선택 설정입니다. 미등록 부서와 신뢰도 기준을 통과하지 못한 티켓은 공통 접수 큐로 이동합니다.</div>
-
-        <label>대상 부서
-          <select v-model="deptForm.departmentId" :disabled="!!editingDept">
-            <option :value="0" disabled>부서를 선택하세요</option>
-            <template v-if="editingDept">
-              <option :value="editingDept.departmentId">{{ editingDept.departmentName }}</option>
-            </template>
-            <template v-else>
-              <option v-for="d in unregisteredDepts" :key="d.departmentId" :value="d.departmentId">
-                {{ d.departmentName }}
-              </option>
-              <option v-if="unregisteredDepts.length === 0" :value="0" disabled>미등록 부서가 없습니다.</option>
-            </template>
-          </select>
-        </label>
-
-        <label>R&amp;R 설명 (라우팅 프롬프트)
-          <textarea
-            v-model="deptForm.routingPrompt"
-            placeholder="예: 이 부서는 ERP 시스템 오류, 계정 권한, 배치 작업 관련 티켓을 처리합니다."
-          ></textarea>
-        </label>
-
-        <div class="modal-actions">
-          <button class="button button--secondary" @click="departmentModalOpen = false">취소</button>
-          <button
-            class="button button--primary"
-            :disabled="!deptForm.departmentId || !deptForm.routingPrompt.trim() || deptSaving"
-            @click="saveDeptRouting"
-          >
-            {{ deptSaving ? '저장 중...' : '저장' }}
-          </button>
-        </div>
-      </div>
     </div>
 
     <!-- ── API Tool 등록 모달 ── -->
@@ -621,6 +629,31 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
 .prompt-excerpt { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-width: 360px; color: #53606d; }
 .inline-note { margin: 14px 0; padding: 10px 12px; border-left: 3px solid #75a1cf; background: #f3f7fb; color: #687683; font-size: 11px; line-height: 1.55; }
 .routing-note { margin-top: 14px; }
+
+/* 부서 카드 그리드 레이아웃 */
+.department-ai-box { margin-bottom: 24px; padding: 20px 22px; border-radius: 8px; border: 1px solid #dde3ea; background: #f8fafc; }
+.department-ai-box .setting-heading { margin-bottom: 14px; }
+.department-ai-box h3 { font-size: 14px; font-weight: 700; color: #1f2430; margin: 0 0 3px; }
+.department-ai-box p { font-size: 12px; color: #6d7782; margin: 0; }
+.ai-input-row { display: flex; gap: 10px; }
+.department-ai-input { flex: 1; min-height: 38px; padding: 8px 12px; border: 1px solid #ccd3da; border-radius: 6px; font: inherit; font-size: 13px; color: #26323d; }
+.department-section-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.department-section-header h3 { font-size: 15px; font-weight: 700; color: #1f2430; margin: 0; }
+.department-section-header span { font-size: 12px; color: #8a939e; }
+.department-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; margin-bottom: 18px; }
+.department-card { padding: 18px 20px; border-radius: 8px; border: 1px solid #dde3ea; background: #fff; display: flex; flex-direction: column; gap: 10px; }
+.department-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.department-card-top strong { font-size: 14px; font-weight: 700; color: #1f2430; }
+.department-badge { padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.department-badge--active { background: #d1fae5; color: #059669; }
+.department-badge--empty { background: #f1f3f5; color: #8a939e; }
+.department-prompt { font-size: 13px; color: #404055; line-height: 1.65; margin: 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; flex: 1; }
+.department-prompt--empty { color: #b0b8c1; font-style: italic; }
+.department-member-count { font-size: 11px; color: #aeb2bb; margin: 0; }
+.department-textarea { width: 100%; min-height: 100px; padding: 9px 11px; border: 1px solid #ccd3da; border-radius: 6px; font: inherit; font-size: 13px; color: #26323d; resize: vertical; }
+.department-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.department-empty { grid-column: 1 / -1; text-align: center; padding: 40px 0; color: #b0b8c1; font-size: 14px; }
+
 .toast { position: fixed; z-index: 30; top: 22px; right: 24px; padding: 10px 14px; border-radius: 5px; background: #253341; color: #fff; font-size: 12px; box-shadow: 0 6px 18px rgba(0,0,0,.14); }
 .modal-backdrop { position: fixed; z-index: 40; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(20,28,36,.45); }
 .modal { width: min(480px, 100%); padding: 22px; border-radius: 7px; background: #fff; box-shadow: 0 16px 44px rgba(0,0,0,.22); display: flex; flex-direction: column; gap: 15px; }
