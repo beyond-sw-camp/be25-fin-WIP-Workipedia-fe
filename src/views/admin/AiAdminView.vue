@@ -97,25 +97,20 @@ const filteredDepts = computed(() => {
 
 const deptWithPromptCount = computed(() => adminDepts.value.filter(d => d.routingPrompt).length)
 
-// 저장 후 AI 동기화 상태를 로컬에서 추적 (페이지 재방문 시 초기화)
-// 'pending': PATCH 성공, AI 동기화 대기 중 / 'failed': PATCH 실패
-const deptSyncStatus = reactive<Record<number, 'pending' | 'failed'>>({})
+// PATCH 실패한 부서만 추적 (재시도 버튼 표시용)
+const deptSyncFailed = reactive<Record<number, boolean>>({})
+// 저장 성공 시각을 부서별로 로컬 추적 (BE가 제공하지 않으므로 세션 내에서만 유효)
+const deptLastSyncAt = reactive<Record<number, Date>>({})
 
 function deptBadge(dept: AdminDepartment): { text: string; cls: string } {
-  const sync = deptSyncStatus[dept.departmentId]
-  if (sync === 'pending') return { text: '동기화 대기', cls: 'department-badge--pending' }
-  if (sync === 'failed') return { text: '동기화 실패', cls: 'department-badge--failed' }
+  if (deptSyncFailed[dept.departmentId]) return { text: '동기화 실패', cls: 'department-badge--failed' }
   if (dept.routingPrompt) return { text: '활성', cls: 'department-badge--active' }
   return { text: '미설정', cls: 'department-badge--empty' }
 }
 
-// 동기화 완료(서버 반영)된 부서 수 — syncStatus 없고 routingPrompt 있는 경우
-const deptSyncedCount = computed(() =>
-  adminDepts.value.filter(d => d.routingPrompt && !deptSyncStatus[d.departmentId]).length
-)
-const deptPendingCount = computed(() =>
-  Object.values(deptSyncStatus).filter(s => s === 'pending').length
-)
+function formatSyncTime(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
 
 async function loadDepts() {
   try {
@@ -145,29 +140,31 @@ async function saveDepartmentEdit(dept: AdminDepartment) {
     })
     const idx = adminDepts.value.findIndex(d => d.departmentId === dept.departmentId)
     if (idx !== -1) adminDepts.value[idx]!.routingPrompt = editingRr.value.trim() || null
-    deptSyncStatus[dept.departmentId] = 'pending'
+    delete deptSyncFailed[dept.departmentId]
+    deptLastSyncAt[dept.departmentId] = new Date()
     cancelDepartmentEdit()
-    showSaved('R&R 프롬프트를 저장하고 동기화를 요청했습니다.')
+    showSaved('R&R 프롬프트를 저장했습니다.')
   } catch {
-    deptSyncStatus[dept.departmentId] = 'failed'
+    deptSyncFailed[dept.departmentId] = true
     showSaved('저장에 실패했습니다.', 'error')
   } finally {
     deptSaving.value = false
   }
 }
 
-// 동기화 실패 시 동일한 routingPrompt로 PATCH 재전송
+// 저장 실패 시 동일한 routingPrompt로 PATCH 재전송
 async function retrySyncDept(dept: AdminDepartment) {
-  deptSyncStatus[dept.departmentId] = 'pending'
+  delete deptSyncFailed[dept.departmentId]
   try {
     await updateAdminDepartment(dept.departmentId, {
       departmentName: dept.departmentName,
       routingPrompt: dept.routingPrompt ?? '',
     })
-    showSaved(`${dept.departmentName} 동기화를 다시 요청했습니다.`)
+    deptLastSyncAt[dept.departmentId] = new Date()
+    showSaved(`${dept.departmentName} R&R을 저장했습니다.`)
   } catch {
-    deptSyncStatus[dept.departmentId] = 'failed'
-    showSaved(`${dept.departmentName} 동기화 재시도에 실패했습니다.`, 'error')
+    deptSyncFailed[dept.departmentId] = true
+    showSaved(`${dept.departmentName} 저장에 실패했습니다.`, 'error')
   }
 }
 
@@ -178,12 +175,12 @@ async function applyAiInstruction() {
   try {
     await editRoutingPromptInstruction(aiInstruction.value.trim())
     await loadDepts()
-    // R&R이 있는 모든 부서를 동기화 대기로 표시
+    const now = new Date()
     adminDepts.value.forEach(d => {
-      if (d.routingPrompt) deptSyncStatus[d.departmentId] = 'pending'
+      if (d.routingPrompt) deptLastSyncAt[d.departmentId] = now
     })
     aiInstruction.value = ''
-    showSaved('AI가 R&R을 수정하고 동기화를 요청했습니다.')
+    showSaved('AI가 R&R을 수정했습니다.')
   } catch {
     showSaved('AI 수정에 실패했습니다.', 'error')
   } finally {
@@ -434,7 +431,7 @@ onMounted(() => {
           <div class="department-section-header">
             <div>
               <h3>부서 목록</h3>
-              <span>총 {{ adminDepts.length }}개 부서 · 완료 {{ deptSyncedCount }} · 대기 {{ deptPendingCount }} · 미설정 {{ adminDepts.length - deptWithPromptCount }}</span>
+              <span>총 {{ adminDepts.length }}개 부서 · 활성 {{ deptWithPromptCount }} · 미설정 {{ adminDepts.length - deptWithPromptCount }}</span>
             </div>
             <input v-model="deptSearch" class="search-input" placeholder="부서명 검색" />
           </div>
@@ -469,16 +466,15 @@ onMounted(() => {
                 <p class="department-prompt" :class="{ 'department-prompt--empty': !dept.routingPrompt }">
                   {{ dept.routingPrompt || '아직 R&R 프롬프트가 설정되지 않았습니다.' }}
                 </p>
-                <p class="department-member-count">팀원 {{ dept.memberCount }}명</p>
-                <p v-if="deptSyncStatus[dept.departmentId] === 'pending'" class="dept-sync-info dept-sync-info--pending">
-                  동기화 대기 중…
+                <p class="department-member-count">
+                  마지막 동기화: {{ deptLastSyncAt[dept.departmentId] ? formatSyncTime(deptLastSyncAt[dept.departmentId]!) : '-' }}
                 </p>
-                <p v-else-if="deptSyncStatus[dept.departmentId] === 'failed'" class="dept-sync-info dept-sync-info--failed">
-                  동기화 실패 — 재시도 버튼을 눌러주세요.
+                <p v-if="deptSyncFailed[dept.departmentId]" class="dept-sync-info dept-sync-info--failed">
+                  저장 실패 — 재시도 버튼을 눌러주세요.
                 </p>
                 <div class="department-actions">
                   <button
-                    v-if="deptSyncStatus[dept.departmentId] === 'failed'"
+                    v-if="deptSyncFailed[dept.departmentId]"
                     class="button department-btn-retry"
                     @click="retrySyncDept(dept)"
                   >
