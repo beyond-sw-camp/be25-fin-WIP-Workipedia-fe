@@ -89,8 +89,11 @@ export function getAdminDepartments() {
 export function createAdminDepartment(body: { departmentName: string }) {
   return http.post<AdminDepartment>('/admin/departments', body)
 }
-export function updateAdminDepartment(departmentId: number, body: { departmentName: string; routingPrompt?: string }) {
+export function updateAdminDepartment(departmentId: number, body: { departmentName: string }) {
   return http.patch<AdminDepartment>(`/admin/departments/${departmentId}`, body)
+}
+export function updateDepartmentRoutingPrompt(departmentId: number, body: { routingPrompt: string }) {
+  return http.patch<AdminDepartment>(`/admin/departments/${departmentId}/routing-prompt`, body)
 }
 export function deleteAdminDepartment(departmentId: number) {
   return http.delete<ApiResponse<null>>(`/admin/departments/${departmentId}`)

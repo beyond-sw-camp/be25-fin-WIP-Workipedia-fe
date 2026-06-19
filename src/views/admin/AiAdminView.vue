@@ -9,7 +9,7 @@ import {
   editRoutingPromptInstruction,
   type AiTool, type ToolType, type HttpMethod,
 } from '@/api/aiAdminApi'
-import { getAdminDepartments, updateAdminDepartment, type AdminDepartment } from '@/api/adminApi'
+import { getAdminDepartments, updateDepartmentRoutingPrompt, type AdminDepartment } from '@/api/adminApi'
 
 type Section = 'prompt' | 'department' | 'tools'
 
@@ -134,8 +134,7 @@ async function saveDepartmentEdit(dept: AdminDepartment) {
   if (deptSaving.value) return
   deptSaving.value = true
   try {
-    await updateAdminDepartment(dept.departmentId, {
-      departmentName: dept.departmentName,
+    await updateDepartmentRoutingPrompt(dept.departmentId, {
       routingPrompt: editingRr.value.trim(),
     })
     const idx = adminDepts.value.findIndex(d => d.departmentId === dept.departmentId)
@@ -156,8 +155,7 @@ async function saveDepartmentEdit(dept: AdminDepartment) {
 async function retrySyncDept(dept: AdminDepartment) {
   delete deptSyncFailed[dept.departmentId]
   try {
-    await updateAdminDepartment(dept.departmentId, {
-      departmentName: dept.departmentName,
+    await updateDepartmentRoutingPrompt(dept.departmentId, {
       routingPrompt: dept.routingPrompt ?? '',
     })
     deptLastSyncAt[dept.departmentId] = new Date()
