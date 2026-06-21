@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>고객사 시연 페이지</title>
+  <style>
+    body { margin: 0; font-family: -apple-system, sans-serif; background: #f5f7fa; color: #1f2430; }
+    .hero { max-width: 720px; margin: 120px auto; text-align: center; padding: 0 24px; }
+    h1 { font-size: 36px; font-weight: 800; margin-bottom: 16px; }
+    p { font-size: 16px; color: #6d7782; line-height: 1.7; }
+    .badge { display: inline-block; margin-top: 32px; padding: 8px 18px; border-radius: 99px; background: #e8f0fe; color: #1769c2; font-size: 13px; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <h1>가짜 고객사 사이트</h1>
+    <p>이 페이지는 Workipedia 챗봇 위젯이 외부 웹사이트에 주입되는 방식을 시연하기 위한 더미 페이지입니다.<br/>우측 하단의 버블 버튼을 눌러 위젯을 확인하세요.</p>
+    <span class="badge">npm run build:widget → 새로고침</span>
+  </div>
+
+  <!-- Workipedia 챗봇 위젯 삽입 -->
+  <link rel="stylesheet" href="/workipedia-chat.css" />
+  <script src="/workipedia-chat.iife.js" async></script>
+</body>
+</html>
