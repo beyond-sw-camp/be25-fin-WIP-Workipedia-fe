@@ -2,30 +2,20 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  BookOpen, Search, Clock3, FileText, Upload, Plus, X, Building2,
-  History, Eye, Download, ExternalLink, CheckCircle, Trash2, Edit2,
+  BookOpen, Search, Clock3, FileText, X, Building2,
+  History, Eye, Download, ExternalLink,
 } from '@lucide/vue'
 import { getManuals, type ManualSortType } from '@/api/manualApi'
 import {
-  createAdminManual, deleteAdminManual, getAdminManualVersions,
-  updateAdminManual, updateAdminManualMeta,
+  getAdminManualVersions,
   type AdminManualVersion,
 } from '@/api/adminApi'
 import { useDeptStore } from '@/stores/deptStore'
 import { useAuthStore } from '@/stores/authStore'
 import { ROLES } from '@/constants/roles'
-import type { ManualSummaryResponse, ManualStatus } from '@/types/manual'
+import type { ManualSummaryResponse } from '@/types/manual'
 
 type ManualTab = 'recent' | 'all'
-type ManualForm = {
-  id?: number
-  title: string
-  description: string
-  status: Exclude<ManualStatus, 'DELETED'>
-  sourceUrl: string
-  updateReason: string
-  departmentId: number | null
-}
 
 const router = useRouter()
 const deptStore = useDeptStore()
@@ -39,28 +29,12 @@ const versions = ref<Record<number, AdminManualVersion[]>>({})
 const page = ref(1)
 const totalPages = ref(0)
 const loading = ref(false)
-const saving = ref(false)
 const error = ref('')
 
-const modalOpen = ref(false)
 const detailOpen = ref(false)
 const selectedManual = ref<ManualSummaryResponse | null>(null)
 const selectedVersions = ref<AdminManualVersion[]>([])
 const versionsLoading = ref(false)
-const pendingSyncIds = ref<Set<number>>(new Set())
-const deleteId = ref<number | null>(null)
-
-const form = ref<ManualForm>({
-  title: '',
-  description: '',
-  status: 'PUBLISHED',
-  sourceUrl: '',
-  updateReason: '최초 등록',
-  departmentId: null,
-})
-const uploadedFiles = ref<File[]>([])
-const fileInputRef = ref<HTMLInputElement | null>(null)
-const fileError = ref(false)
 
 const isSystemAdmin = computed(() => auth.role === ROLES.SYSTEM_ADMIN)
 
@@ -189,12 +163,6 @@ function latestChange(m: ManualSummaryResponse) {
   return versionChangeText(v) || m.description || '최근 변경사항이 아직 기록되지 않았습니다.'
 }
 
-function markPending(id: number) {
-  const next = new Set(pendingSyncIds.value)
-  next.add(id)
-  pendingSyncIds.value = next
-}
-
 async function loadVersions(manualId: number, force = false) {
   if (!isSystemAdmin.value) return
   if (!force && versions.value[manualId]) return
@@ -237,121 +205,11 @@ function switchTab(tab: ManualTab) {
   fetchPage(1)
 }
 
-function openCreate() {
-  form.value = {
-    title: '',
-    description: '',
-    status: 'PUBLISHED',
-    sourceUrl: '',
-    updateReason: '최초 등록',
-    departmentId: null,
-  }
-  uploadedFiles.value = []
-  fileError.value = false
-  modalOpen.value = true
-}
-
-function openEdit(m: ManualSummaryResponse) {
-  form.value = {
-    id: m.manualId,
-    title: m.title,
-    description: m.description ?? '',
-    status: (m.status === 'DELETED' ? 'ARCHIVED' : m.status) as Exclude<ManualStatus, 'DELETED'>,
-    sourceUrl: m.sourceUrl ?? '',
-    updateReason: '',
-    departmentId: m.departmentId ?? null,
-  }
-  uploadedFiles.value = []
-  fileError.value = false
-  modalOpen.value = true
-}
-
-function handleFiles(e: Event) {
-  const files = (e.target as HTMLInputElement).files
-  uploadedFiles.value = files ? Array.from(files) : []
-  fileError.value = false
-}
-
-async function saveManual() {
-  if (!isSystemAdmin.value || saving.value) return
-  if (!form.value.title.trim()) return
-  if (!form.value.id && uploadedFiles.value.length === 0) {
-    fileError.value = true
-    return
-  }
-  saving.value = true
-  let savedManualId: number | null = null
-  let savedManual: ManualSummaryResponse | null = null
-  try {
-    if (form.value.id) {
-      savedManualId = form.value.id
-      if (uploadedFiles.value.length > 0) {
-        const fd = new FormData()
-        fd.append('title', form.value.title)
-        fd.append('description', form.value.description)
-        fd.append('status', form.value.status)
-        if (form.value.sourceUrl.trim()) fd.append('sourceUrl', form.value.sourceUrl.trim())
-        if (form.value.departmentId != null) fd.append('departmentId', String(form.value.departmentId))
-        uploadedFiles.value.forEach((file) => fd.append('file', file))
-        const res = await updateAdminManual(form.value.id, fd)
-        savedManual = res.data as ManualSummaryResponse
-      } else {
-        const res = await updateAdminManualMeta(form.value.id, {
-          title: form.value.title,
-          description: form.value.description,
-          status: form.value.status,
-          sourceUrl: form.value.sourceUrl.trim(),
-          updateReason: form.value.updateReason.trim() || '메타데이터 수정',
-          departmentId: form.value.departmentId,
-        })
-        savedManual = res.data as ManualSummaryResponse
-      }
-      markPending(form.value.id)
-    } else {
-      const fd = new FormData()
-      fd.append('title', form.value.title)
-      fd.append('description', form.value.description)
-      fd.append('status', form.value.status)
-      if (form.value.sourceUrl.trim()) fd.append('sourceUrl', form.value.sourceUrl.trim())
-      if (form.value.departmentId != null) fd.append('departmentId', String(form.value.departmentId))
-      uploadedFiles.value.forEach((file) => fd.append('file', file))
-      const res = await createAdminManual(fd)
-      savedManualId = res.data.manualId ?? null
-      savedManual = res.data as ManualSummaryResponse
-      if (res.data.manualId) markPending(res.data.manualId)
-    }
-    modalOpen.value = false
-    uploadedFiles.value = []
-    if (savedManualId) {
-      const { [savedManualId]: _stale, ...rest } = versions.value
-      versions.value = rest
-    }
-    await fetchPage(1)
-    if (savedManualId) {
-      if (savedManual) {
-        manuals.value = manuals.value.map((m) =>
-          m.manualId === savedManualId ? { ...m, ...savedManual } : m
-        )
-      }
-      await loadVersions(savedManualId, true)
-    }
-  } finally {
-    saving.value = false
-  }
-}
-
 async function openDetail(m: ManualSummaryResponse) {
   selectedManual.value = m
   selectedVersions.value = versions.value[m.manualId] ?? []
   detailOpen.value = true
   await loadVersions(m.manualId, true)
-}
-
-async function confirmDelete() {
-  if (!deleteId.value || !isSystemAdmin.value) return
-  await deleteAdminManual(deleteId.value)
-  manuals.value = manuals.value.filter((m) => m.manualId !== deleteId.value)
-  deleteId.value = null
 }
 
 onMounted(() => {
@@ -393,64 +251,119 @@ onMounted(() => {
       {{ query.trim() ? '검색 결과가 없습니다' : '등록된 매뉴얼이 없습니다' }}
     </div>
 
-    <div v-else class="manual-gallery">
-      <article v-for="m in visibleManuals" :key="m.manualId" class="manual-card" @click="router.push(`/manuals/${m.manualId}`)">
-        <div :class="['manual-card-bar', statusClass(m.status)]" />
-        <div class="manual-card-body">
-          <div class="manual-card-head">
-            <div class="manual-title-wrap">
-              <div class="manual-icon"><FileText :size="18" /></div>
-              <div>
-                <h3>{{ m.title }}</h3>
-                <p><Building2 :size="12" /> {{ deptName(m.departmentId) }}</p>
+    <template v-else>
+      <!-- 최근 탭: 카드 그리드 -->
+      <div v-if="activeTab === 'recent'" class="manual-gallery">
+        <article v-for="m in visibleManuals" :key="m.manualId" class="manual-card" @click="router.push(`/manuals/${m.manualId}`)">
+          <div :class="['manual-card-bar', statusClass(m.status)]" />
+          <div class="manual-card-body">
+            <div class="manual-card-head">
+              <div class="manual-title-wrap">
+                <div class="manual-icon"><FileText :size="18" /></div>
+                <div>
+                  <h3>{{ m.title }}</h3>
+                  <p><Building2 :size="12" /> {{ deptName(m.departmentId) }}</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="manual-change-box">
+              <div class="change-label"><Clock3 :size="12" /> 최근 변경사항</div>
+              <p>{{ latestChange(m) }}</p>
+              <span>{{ formatDate(latestVersion(m.manualId)?.createdAt ?? m.updatedAt) }} · {{ fileSummary(m) }}</span>
+              <div v-if="fileUrlsOf(m).length > 0" class="manual-file-list">
+                <a
+                  v-for="(url, index) in fileUrlsOf(m)"
+                  :key="`${m.manualId}-${index}-${url}`"
+                  :href="url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  @click.stop
+                >
+                  <FileText :size="12" />
+                  {{ fileName(url) || `파일 ${index + 1}` }}
+                </a>
               </div>
             </div>
           </div>
 
-          <div class="manual-change-box">
-            <div class="change-label"><Clock3 :size="12" /> 최근 변경사항</div>
-            <p>{{ latestChange(m) }}</p>
-            <span>{{ formatDate(latestVersion(m.manualId)?.createdAt ?? m.updatedAt) }} · {{ fileSummary(m) }}</span>
-            <div v-if="fileUrlsOf(m).length > 0" class="manual-file-list">
+          <div class="manual-card-footer">
+            <div class="manual-version">
+              <History :size="13" />
+              <strong>{{ fmtVersion(m.version) }}</strong>
+              <span>· {{ versions[m.manualId]?.length ?? 0 }}개 이력</span>
+            </div>
+            <div class="manual-actions" @click.stop>
+              <button class="icon-btn" title="상세" @click="router.push(`/manuals/${m.manualId}`)"><Eye :size="15" /></button>
+              <button class="icon-btn" title="버전 이력" @click="openDetail(m)"><History :size="15" /></button>
               <a
                 v-for="(url, index) in fileUrlsOf(m)"
-                :key="`${m.manualId}-${index}-${url}`"
+                :key="`download-${m.manualId}-${index}-${url}`"
+                class="icon-btn"
+                :title="`파일 ${index + 1} 열기`"
                 :href="url"
                 target="_blank"
                 rel="noopener noreferrer"
-                @click.stop
               >
-                <FileText :size="12" />
-                {{ fileName(url) || `파일 ${index + 1}` }}
+                <Download :size="15" />
               </a>
             </div>
           </div>
-        </div>
+        </article>
+      </div>
 
-        <div class="manual-card-footer">
-          <div class="manual-version">
-            <History :size="13" />
-            <strong>{{ fmtVersion(m.version) }}</strong>
-            <span>· {{ versions[m.manualId]?.length ?? 0 }}개 이력</span>
-          </div>
-          <div class="manual-actions" @click.stop>
-            <button class="icon-btn" title="상세" @click="router.push(`/manuals/${m.manualId}`)"><Eye :size="15" /></button>
-            <button class="icon-btn" title="버전 이력" @click="openDetail(m)"><History :size="15" /></button>
-            <a
-              v-for="(url, index) in fileUrlsOf(m)"
-              :key="`download-${m.manualId}-${index}-${url}`"
-              class="icon-btn"
-              :title="`파일 ${index + 1} 열기`"
-              :href="url"
-              target="_blank"
-              rel="noopener noreferrer"
+      <!-- 전체 탭: 목록 리스트 -->
+      <div v-else class="manual-list-wrap">
+        <table class="manual-list-table">
+          <thead>
+            <tr>
+              <th>제목</th>
+              <th>부서</th>
+              <th>상태</th>
+              <th>버전</th>
+              <th>수정일</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="m in visibleManuals"
+              :key="m.manualId"
+              class="manual-list-row"
+              @click="router.push(`/manuals/${m.manualId}`)"
             >
-              <Download :size="15" />
-            </a>
-          </div>
-        </div>
-      </article>
-    </div>
+              <td>
+                <div class="list-title-cell">
+                  <div class="list-file-icon"><FileText :size="14" /></div>
+                  <span>{{ m.title }}</span>
+                </div>
+              </td>
+              <td class="list-meta">{{ deptName(m.departmentId) }}</td>
+              <td>
+                <span :class="['list-status-badge', statusClass(m.status)]">{{ statusLabel(m.status) }}</span>
+              </td>
+              <td class="list-meta">{{ fmtVersion(m.version) }}</td>
+              <td class="list-meta">{{ formatDate(m.updatedAt) }}</td>
+              <td>
+                <div class="list-actions" @click.stop>
+                  <button class="icon-btn" title="상세" @click="router.push(`/manuals/${m.manualId}`)"><Eye :size="15" /></button>
+                  <button class="icon-btn" title="버전 이력" @click="openDetail(m)"><History :size="15" /></button>
+                  <a
+                    v-for="(url, idx) in fileUrlsOf(m)"
+                    :key="`dl-${m.manualId}-${idx}`"
+                    class="icon-btn"
+                    :title="`파일 ${idx + 1} 열기`"
+                    :href="url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  ><Download :size="15" /></a>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </template>
 
     <div v-if="activeTab === 'all' && totalPages > 1 && !query.trim()" class="pagination">
       <button class="btn" :disabled="page === 1 || loading" @click="fetchPage(page - 1)">이전</button>
@@ -593,9 +506,12 @@ onMounted(() => {
   font-size: 13px;
   line-height: 1.45;
   color: #374151;
+  /* stylelint-disable property-no-vendor-prefix */
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
+  /* stylelint-enable property-no-vendor-prefix */
   overflow: hidden;
 }
 .manual-change-box span { display: block; margin-top: 6px; font-size: 11px; color: #94a3b8; }
@@ -751,11 +667,48 @@ onMounted(() => {
   font-weight: 700;
 }
 
+/* 전체 탭: 목록 리스트 */
+.manual-list-wrap { width: 100%; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+.manual-list-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.manual-list-table thead th {
+  padding: 11px 16px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  white-space: nowrap;
+}
+.manual-list-table thead th:last-child { width: 110px; }
+.manual-list-row { border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.12s, box-shadow 0.12s; }
+.manual-list-row:last-child { border-bottom: none; }
+.manual-list-row:hover { background: #f0f9ff; box-shadow: inset 3px 0 0 #10b981; }
+.manual-list-table td { padding: 14px 16px; vertical-align: middle; }
+.list-title-cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.list-file-icon {
+  width: 32px; height: 32px; flex-shrink: 0;
+  border-radius: 8px; background: #ecfdf5; color: #0a8a43;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid #d1fae5;
+}
+.list-title-cell span { font-size: 14px; font-weight: 600; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 400px; }
+.list-meta { color: #64748b; font-size: 12.5px; white-space: nowrap; }
+.list-status-badge { display: inline-block; padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 700; }
+.list-status-badge.green { background: #d1fae5; color: #065f46; }
+.list-status-badge.orange { background: #fef3c7; color: #b45309; }
+.list-status-badge.gray { background: #f3f4f6; color: #6b7280; }
+.list-actions { display: flex; gap: 3px; justify-content: flex-end; opacity: 0.45; transition: opacity 0.12s; }
+.manual-list-row:hover .list-actions { opacity: 1; }
+
 @media (max-width: 1180px) {
   .manual-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 760px) {
   .manual-head, .manual-card-head, .manual-card-footer { align-items: flex-start; flex-direction: column; }
   .manual-gallery, .form-grid { grid-template-columns: 1fr; }
+  .list-title-cell span { max-width: 160px; }
 }
 </style>
