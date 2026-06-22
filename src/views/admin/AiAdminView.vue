@@ -160,8 +160,8 @@ function deptBadge(dept: AdminDepartment): { text: string; cls: string } {
 // SYNCED/FAILED는 syncInfo(BE 제공 날짜 문자열)를 포함해 표시하고, syncInfo가 null이면 날짜 없이 표시한다.
 // EMPTY는 routingPrompt가 한 번도 등록된 적 없으므로 문구를 표시하지 않는다.
 function deptSyncLabel(dept: AdminDepartment): string | null {
-  if (dept.syncStatus === 'SYNCED')  return dept.syncInfo ? `마지막 동기화: ${dept.syncInfo}` : '동기화 완료'
-  if (dept.syncStatus === 'PENDING') return '동기화 대기 중'
+  if (dept.syncStatus === 'SYNCED')  return dept.syncInfo ?? '동기화 완료'
+  if (dept.syncStatus === 'PENDING') return dept.syncInfo ?? '동기화 대기 중'
   if (dept.syncStatus === 'FAILED')  return dept.syncInfo ? `마지막 동기화 실패: ${dept.syncInfo}` : '동기화 실패'
   return null // EMPTY — 미표시
 }
@@ -262,16 +262,16 @@ const deleteManualId = ref<number | null>(null)
 
 // 상태 레이블·클래스는 파이프라인 순서(미적재→PENDING→PROCESSING→SYNCED/FAILED)를 반영한다.
 const AI_STATUS_LABEL: Record<ManualAiSyncStatus, string> = {
-  SYNCED: 'SYNCED', PENDING: 'PENDING', PROCESSING: 'PROCESSING', FAILED: 'FAILED', NONE: '미적재',
+  SYNCED: 'SYNCED', PENDING: 'PENDING', PROCESSING: 'PROCESSING', FAILED: 'FAILED', EMPTY: '미적재',
 }
 const AI_STATUS_CLS: Record<ManualAiSyncStatus, string> = {
   SYNCED: 'badge--ai-synced', PENDING: 'badge--ai-pending',
-  PROCESSING: 'badge--ai-processing', FAILED: 'badge--ai-failed', NONE: 'badge--ai-none',
+  PROCESSING: 'badge--ai-processing', FAILED: 'badge--ai-failed', EMPTY: 'badge--ai-none',
 }
 
-// BE가 syncStatus를 반환하지 않는 구 문서는 NONE(미적재)으로 처리한다.
+// BE가 syncStatus를 반환하지 않는 구 문서는 EMPTY(미적재)로 처리한다.
 function manualAiStatus(m: AdminManual): ManualAiSyncStatus {
-  return m.syncStatus ?? 'NONE'
+  return m.syncStatus ?? 'EMPTY'
 }
 
 // presigned URL에는 ?X-Amz-... 쿼리스트링이 붙으므로 경로 부분만 떼어 확장자를 판단한다.
@@ -840,7 +840,7 @@ onMounted(() => {
               <option value="PENDING">PENDING</option>
               <option value="PROCESSING">PROCESSING</option>
               <option value="FAILED">FAILED</option>
-              <option value="NONE">미적재</option>
+              <option value="EMPTY">미적재</option>
             </select>
             <button class="button button--secondary" @click="manualSearch = ''; manualAiFilter = ''">전체 보기</button>
             <button class="button button--primary" @click="loadManuals()">조회</button>
