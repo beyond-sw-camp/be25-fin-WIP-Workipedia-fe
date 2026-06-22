@@ -160,8 +160,8 @@ function deptBadge(dept: AdminDepartment): { text: string; cls: string } {
 // SYNCED/FAILED는 syncInfo(BE 제공 날짜 문자열)를 포함해 표시하고, syncInfo가 null이면 날짜 없이 표시한다.
 // EMPTY는 routingPrompt가 한 번도 등록된 적 없으므로 문구를 표시하지 않는다.
 function deptSyncLabel(dept: AdminDepartment): string | null {
-  if (dept.syncStatus === 'SYNCED')  return dept.syncInfo ? `마지막 동기화: ${dept.syncInfo}` : '동기화 완료'
-  if (dept.syncStatus === 'PENDING') return '동기화 대기 중'
+  if (dept.syncStatus === 'SYNCED')  return dept.syncInfo ?? '동기화 완료'
+  if (dept.syncStatus === 'PENDING') return dept.syncInfo ?? '동기화 대기 중'
   if (dept.syncStatus === 'FAILED')  return dept.syncInfo ? `마지막 동기화 실패: ${dept.syncInfo}` : '동기화 실패'
   return null // EMPTY — 미표시
 }
