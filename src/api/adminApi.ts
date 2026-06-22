@@ -45,7 +45,7 @@ export function updateUserStatus(userId: number, status: 'ACTIVE' | 'INACTIVE') 
 }
 
 // ── 매뉴얼 관리 ────────────────────────────────────────────────
-export type ManualAiSyncStatus = 'SYNCED' | 'PENDING' | 'PROCESSING' | 'FAILED' | 'NONE'
+export type ManualAiSyncStatus = 'SYNCED' | 'PENDING' | 'PROCESSING' | 'FAILED' | 'EMPTY'
 
 export interface AdminManual {
   manualId: number
