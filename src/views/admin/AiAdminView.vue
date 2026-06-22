@@ -242,6 +242,11 @@ const toolForm = ref({
 })
 // parametersSchema 는 BE가 JSON 문자열로 요구하므로 저장 전 JSON 형식만 검증한다.
 const toolParamsText = ref('')
+// 입력 파라미터가 없는 Tool(예: 인자 없이 호출하는 조회 API)을 명시적으로 표시한다.
+// 체크 시 빈 properties 스키마를 저장하고, 미체크 시에는 properties 1개 이상을 강제해
+// "실수로 비운 것"과 "의도적으로 없는 것"을 구분한다(#121).
+const EMPTY_PARAMS_SCHEMA = '{"type":"object","properties":{}}'
+const toolNoParams = ref(false)
 
 const TOOL_TYPE_LABEL: Record<string, string> = { HTTP_API: 'HTTP API', DB_QUERY: 'DB Query' }
 const APPROVAL_LABEL: Record<string, string> = { DRAFT: '검토 전', APPROVED: '승인', REJECTED: '반려' }
@@ -281,6 +286,7 @@ function resetToolForm() {
     maxResultCount: 100,
   }
   toolParamsText.value = ''
+  toolNoParams.value = false
 }
 
 function readApiErrorMessage(error: unknown) {
@@ -301,6 +307,30 @@ function isHttpEndpoint(value: string) {
   }
 }
 
+// parametersSchema 검증. 문제 없으면 null, 있으면 사용자에게 보여줄 메시지를 반환한다.
+// "입력 파라미터 없음"(toolNoParams)이면 빈 properties를 허용하고, 아니면 1개 이상을 강제해
+// 실수로 비운 채 등록돼 Tool이 무동작하는 것을 막는다(#121).
+function validateParamsSchema(text: string): string | null {
+  if (!text) return 'Parameters JSON Schema를 입력하세요. (파라미터가 없는 Tool이면 "입력 파라미터 없음"을 체크하세요)'
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return 'Parameters JSON 형식이 올바르지 않습니다.'
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return 'Parameters JSON Schema는 객체 형식이어야 합니다.'
+  }
+  const properties = (parsed as Record<string, unknown>).properties
+  if (typeof properties !== 'object' || properties === null || Array.isArray(properties)) {
+    return 'Parameters JSON Schema에 properties 객체가 있어야 합니다.'
+  }
+  if (Object.keys(properties).length === 0) {
+    return 'properties에 파라미터를 1개 이상 정의하세요. (파라미터가 없는 Tool이면 "입력 파라미터 없음"을 체크하세요)'
+  }
+  return null
+}
+
 async function saveTool() {
   if (toolSaving.value) return
 
@@ -316,15 +346,17 @@ async function saveTool() {
     return
   }
 
-  // BE는 parametersSchema를 JSON 문자열로 받고 @NotBlank로 검증한다.
-  const parametersSchema = toolParamsText.value.trim() || '{}'
-  if (parametersSchema) {
-    try {
-      JSON.parse(parametersSchema)
-    } catch {
-      showSaved('Parameters JSON 형식이 올바르지 않습니다.')
+  // "입력 파라미터 없음"이면 빈 properties 스키마를 그대로 저장하고, 아니면 검증을 거친다(#121).
+  let parametersSchema: string
+  if (toolNoParams.value) {
+    parametersSchema = EMPTY_PARAMS_SCHEMA
+  } else {
+    const schemaError = validateParamsSchema(toolParamsText.value.trim())
+    if (schemaError) {
+      showSaved(schemaError)
       return
     }
+    parametersSchema = toolParamsText.value.trim()
   }
 
   toolSaving.value = true
@@ -637,14 +669,19 @@ onMounted(() => {
             placeholder="SELECT name FROM employee_vacations WHERE employee_id = :employeeId LIMIT 1"
           ></textarea>
         </label>
-        <label>Parameters JSON Schema
-          <textarea v-model="toolParamsText" class="code-input" placeholder='{"type":"object","properties":{}}'></textarea>
+        <label class="checkbox-row">
+          <input v-model="toolNoParams" type="checkbox" />
+          <span>입력 파라미터 없음 (인자 없이 호출하는 Tool)</span>
+        </label>
+        <label v-if="!toolNoParams">Parameters JSON Schema
+          <textarea v-model="toolParamsText" class="code-input" placeholder='{"type":"object","properties":{"employeeId":{"type":"string","required":true}}}'></textarea>
+          <small class="field-hint">필수 파라미터는 각 속성 안에 <code>"required": true</code>로 표기하세요. (BE 검증기는 최상위 <code>required</code> 배열을 인식하지 않습니다)</small>
         </label>
         <div class="modal-actions">
           <button class="button button--secondary" @click="toolModalOpen = false; resetToolForm()">취소</button>
           <button
             class="button button--primary"
-            :disabled="!toolForm.name.trim() || !toolForm.description.trim() || (toolForm.toolType === 'HTTP_API' ? !toolForm.endpointUrl.trim() : !toolForm.datasourceKey.trim() || !toolForm.queryTemplate.trim()) || toolSaving"
+            :disabled="!toolForm.name.trim() || !toolForm.description.trim() || (!toolNoParams && !toolParamsText.trim()) || (toolForm.toolType === 'HTTP_API' ? !toolForm.endpointUrl.trim() : !toolForm.datasourceKey.trim() || !toolForm.queryTemplate.trim()) || toolSaving"
             @click="saveTool"
           >
             {{ toolSaving ? '등록 중...' : '등록' }}
@@ -766,6 +803,10 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
 .modal input, .modal select, .modal textarea { width: 100%; min-height: 38px; padding: 9px 10px; border: 1px solid #ccd3da; border-radius: 5px; background: #fff; color: #26323d; font: inherit; font-size: 12px; }
 .modal textarea { min-height: 86px; resize: vertical; }
 .modal .code-input { min-height: 120px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.field-hint { display: block; margin-top: 6px; color: #667787; font-size: 11px; line-height: 1.5; }
+.field-hint code { padding: 1px 4px; border-radius: 3px; background: #eef1f5; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; }
+.modal .checkbox-row { flex-direction: row; align-items: center; gap: 8px; font-size: 12px; color: #26323d; }
+.modal .checkbox-row input { width: auto; min-height: 0; }
 .modal--wide { width: min(620px, 100%); }
 .modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
