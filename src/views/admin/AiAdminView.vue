@@ -3,19 +3,24 @@ import { computed, ref, watch, onMounted } from 'vue'
 import { isAxiosError } from 'axios'
 import { Bot } from '@lucide/vue'
 import BaseToast from '@/components/common/BaseToast.vue'
+import BaseModal from '@/components/common/BaseModal.vue'
 import {
   getAiPromptSettings, updateAiPromptSettings,
   getAiTools, createAiTool, updateAiTool,
   editRoutingPromptInstruction,
   type AiTool, type ToolType, type HttpMethod,
 } from '@/api/aiAdminApi'
-import { getAdminDepartments, updateDepartmentRoutingPrompt, type AdminDepartment } from '@/api/adminApi'
+import {
+  getAdminDepartments, updateDepartmentRoutingPrompt, type AdminDepartment,
+  getAdminManuals, updateAdminManualMeta, deleteAdminManual, type AdminManual, type ManualAiSyncStatus,
+} from '@/api/adminApi'
 
-type Section = 'prompt' | 'department' | 'tools'
+type Section = 'prompt' | 'department' | 'manual' | 'tools'
 
 const sections: { id: Section; label: string; group: string }[] = [
   { id: 'prompt', label: '프롬프트 관리', group: 'AI 설정' },
   { id: 'department', label: '부서 티켓 배정 관리', group: 'AI 설정' },
+  { id: 'manual', label: '매뉴얼 문서 관리', group: 'AI 설정' },
   { id: 'tools', label: 'API Tool 관리', group: 'AI 설정' },
 ]
 
@@ -32,6 +37,12 @@ const sectionNotices: Record<Section, { label: string; tone: 'optional' | 'requi
     title: '배정 기준을 등록하지 않아도 티켓 기능은 정상 동작합니다.',
     description: '추천 근거가 없거나 점수가 부족한 티켓은 공통 접수 티켓으로 이동하며, 관리자가 담당 부서를 지정합니다.',
   },
+  manual: {
+    label: '선택 설정',
+    tone: 'optional',
+    title: '매뉴얼 문서가 없어도 AI 서비스는 구동됩니다.',
+    description: '매뉴얼 RAG에서 답을 찾지 못하면 Tool, 해결 티켓 이력, 티켓 생성 제안으로 다음 경로를 진행합니다.',
+  },
   tools: {
     label: '선택 설정',
     tone: 'optional',
@@ -42,11 +53,14 @@ const sectionNotices: Record<Section, { label: string; tone: 'optional' | 'requi
 
 // localStorage에 마지막 활성 탭을 저장해 새로고침 후에도 탭을 유지한다.
 // 저장된 값이 유효한 Section이 아닌 경우(직접 조작 등) 기본값 'prompt'로 폴백한다.
-const VALID_SECTIONS: Section[] = ['prompt', 'department', 'tools']
+const VALID_SECTIONS: Section[] = ['prompt', 'department', 'manual', 'tools']
 const TAB_LS_KEY = 'workipedia_ai_admin_tab'
 const storedTab = localStorage.getItem(TAB_LS_KEY) as Section | null
 const activeSection = ref<Section>(storedTab && VALID_SECTIONS.includes(storedTab) ? storedTab : 'prompt')
-watch(activeSection, (s) => localStorage.setItem(TAB_LS_KEY, s))
+watch(activeSection, (s) => {
+  localStorage.setItem(TAB_LS_KEY, s)
+  if (s === 'manual') loadManuals()
+})
 
 // ── 토스트 (BaseToast 공통 컴포넌트 사용) ──────────────────────
 const toastVisible = ref(false)
@@ -224,6 +238,139 @@ async function applyAiInstruction() {
   }
 }
 
+// ── 매뉴얼 문서 관리 ──────────────────────────────────────────
+// 매뉴얼의 AI Vector Store 적재 상태를 모니터링하고 FAILED 문서를 재시도한다.
+// 문서 등록·메타데이터 편집(제목·버전·부서)은 설정 관리 > 매뉴얼 탭에서 수행한다.
+const adminManuals = ref<AdminManual[]>([])
+const manualSearch = ref('')
+const manualAiFilter = ref<ManualAiSyncStatus | ''>('')
+const manualCurrentPage = ref(1)
+const MANUAL_PAGE_SIZE = 5
+// null이면 모달 닫힘, 숫자면 해당 manualId의 삭제 확인 모달이 열림.
+const deleteManualId = ref<number | null>(null)
+
+// 상태 레이블·클래스는 파이프라인 순서(미적재→PENDING→PROCESSING→SYNCED/FAILED)를 반영한다.
+const AI_STATUS_LABEL: Record<ManualAiSyncStatus, string> = {
+  SYNCED: 'SYNCED', PENDING: 'PENDING', PROCESSING: 'PROCESSING', FAILED: 'FAILED', NONE: '미적재',
+}
+const AI_STATUS_CLS: Record<ManualAiSyncStatus, string> = {
+  SYNCED: 'badge--ai-synced', PENDING: 'badge--ai-pending',
+  PROCESSING: 'badge--ai-processing', FAILED: 'badge--ai-failed', NONE: 'badge--ai-none',
+}
+
+// BE가 syncStatus를 반환하지 않는 구 문서는 NONE(미적재)으로 처리한다.
+function manualAiStatus(m: AdminManual): ManualAiSyncStatus {
+  return m.syncStatus ?? 'NONE'
+}
+
+// presigned URL에는 ?X-Amz-... 쿼리스트링이 붙으므로 경로 부분만 떼어 확장자를 판단한다.
+// 끝 앵커($)를 사용해 쿼리스트링 내부의 우연한 매칭을 방지한다.
+function manualFileType(m: AdminManual): string {
+  const path = (m.fileUrls?.[0] ?? m.fileUrl ?? m.sourceUrl ?? '').split('?')[0] ?? ''
+  if (/\.pdf$/i.test(path)) return 'PDF'
+  if (/\.txt$/i.test(path)) return '텍스트'
+  if (/\.docx?$/i.test(path)) return 'DOCX'
+  return '문서'
+}
+
+// SYNCED일 때만 적재 완료 시각을 표시한다.
+// PENDING/PROCESSING은 아직 미완료, FAILED의 시각은 오류 툴팁에서 표시한다.
+function manualSyncTime(m: AdminManual): string {
+  if (manualAiStatus(m) === 'SYNCED' && m.syncedAt) {
+    return m.syncedAt.slice(0, 16).replace('T', ' ')
+  }
+  return '—'
+}
+
+// FAILED일 때 오류 열에 표시할 짧은 텍스트 (최대 28자).
+function manualErrorText(m: AdminManual): string | null {
+  if (manualAiStatus(m) !== 'FAILED') return null
+  return m.syncError ?? null
+}
+
+// 오류 텍스트를 28자로 잘라 말줄임표를 붙인다. 템플릿에서 반복 호출을 줄이기 위해 분리.
+function manualErrorShort(m: AdminManual): string | null {
+  const err = manualErrorText(m)
+  if (!err) return null
+  return err.length > 28 ? err.slice(0, 28) + '…' : err
+}
+
+// FAILED 오류 툴팁: 마지막 실패 시각(syncedAt) + 에러 메시지 조합.
+// syncedAt은 SYNCED에서는 성공 시각, FAILED에서는 마지막 실패 시각으로 사용된다.
+function manualErrorTooltip(m: AdminManual): string {
+  const parts: string[] = []
+  if (m.syncedAt)   parts.push(`${m.syncedAt.slice(0, 16).replace('T', ' ')}에 마지막 실패`)
+  if (m.syncError)  parts.push(m.syncError)
+  return parts.join('\n')
+}
+
+// 검색어·상태 필터는 클라이언트 사이드로 처리한다(전체 목록을 한 번에 로드).
+// filteredManuals 변경 시 페이지를 1로 리셋해 이전 페이지 빈 결과를 방지한다.
+const filteredManuals = computed(() => {
+  const q = manualSearch.value.trim().toLowerCase()
+  let list = adminManuals.value
+  if (manualAiFilter.value) list = list.filter(m => manualAiStatus(m) === manualAiFilter.value)
+  if (!q) return list
+  return list.filter(m => m.title.toLowerCase().includes(q))
+})
+
+const manualTotalPages = computed(() => Math.max(1, Math.ceil(filteredManuals.value.length / MANUAL_PAGE_SIZE)))
+const pagedManuals = computed(() => {
+  const start = (manualCurrentPage.value - 1) * MANUAL_PAGE_SIZE
+  return filteredManuals.value.slice(start, start + MANUAL_PAGE_SIZE)
+})
+watch(filteredManuals, () => { manualCurrentPage.value = 1 })
+
+async function loadManuals() {
+  try {
+    // BasePageRequest @Max(100) 제약으로 size 최대값은 100이다.
+    // 매뉴얼이 100개를 초과하는 시점에 전 페이지 순회 방식으로 전환해야 한다.
+    const res = await getAdminManuals({ size: 100 })
+    adminManuals.value = res.data.content ?? []
+  } catch {
+    showSaved('매뉴얼 목록을 불러오지 못했습니다.', 'error')
+  }
+}
+
+async function retryManualSync(m: AdminManual) {
+  // 낙관적 업데이트: API 호출 전에 UI를 즉시 PENDING으로 전환해 응답 대기 중 피드백을 준다.
+  // 실패하면 이전 상태로 되돌린다.
+  // 현재 updateAdminManualMeta를 통한 우회 방식으로 동작한다.
+  // AdminManualService.update()가 항상 AiSync를 enqueue하므로 실질적으로는 재적재가 트리거되지만,
+  // 전용 재적재 엔드포인트(POST /admin/manuals/{id}/retry 등)가 생기면 해당 엔드포인트로 교체해야 한다.
+  const prevStatus = m.syncStatus
+  const prevError = m.syncError
+  const prevSyncedAt = m.syncedAt
+  m.syncStatus = 'PENDING'
+  m.syncError = null
+  m.syncedAt = null
+  try {
+    await updateAdminManualMeta(m.manualId, { status: m.status })
+    showSaved(`${m.title} 재적재를 요청했습니다.`)
+  } catch {
+    m.syncStatus = prevStatus
+    m.syncError = prevError
+    m.syncedAt = prevSyncedAt
+    showSaved('재시도에 실패했습니다.', 'error')
+  }
+}
+
+async function confirmDeleteManual() {
+  if (deleteManualId.value === null) return
+  const id = deleteManualId.value
+  // 모달을 API 호출 전에 먼저 닫는다.
+  // 실패 시 아이템이 목록에 남아 있으므로 사용자가 다시 삭제를 시도할 수 있다.
+  deleteManualId.value = null
+  try {
+    await deleteAdminManual(id)
+    // 서버 재요청 없이 로컬 목록에서 즉시 제거한다.
+    adminManuals.value = adminManuals.value.filter(m => m.manualId !== id)
+    showSaved('문서를 삭제했습니다.')
+  } catch {
+    showSaved('삭제에 실패했습니다.', 'error')
+  }
+}
+
 // ── API Tool 관리 ─────────────────────────────────────────────
 const tools = ref<AiTool[]>([])
 const toolFilter = ref('전체')
@@ -398,6 +545,7 @@ async function saveTool() {
 onMounted(() => {
   loadPromptSettings()
   loadDepts()
+  if (activeSection.value === 'manual') loadManuals()
   loadTools()
 })
 </script>
@@ -571,6 +719,103 @@ onMounted(() => {
           </div>
         </template>
 
+        <!-- ── 매뉴얼 문서 관리 ── -->
+        <template v-else-if="activeSection === 'manual'">
+          <div class="workspace-title">
+            <div>
+              <h2>매뉴얼 문서 관리</h2>
+              <p>문서의 AI 적재(Vector Store 반영) 상태를 확인하고 실패한 문서를 재시도합니다.</p>
+            </div>
+          </div>
+
+          <!-- 툴바 -->
+          <div class="manual-toolbar">
+            <input v-model="manualSearch" class="search-input" placeholder="제목 검색" />
+            <select v-model="manualAiFilter" class="manual-filter-select">
+              <option value="">전체 AI 상태</option>
+              <option value="SYNCED">SYNCED</option>
+              <option value="PENDING">PENDING</option>
+              <option value="PROCESSING">PROCESSING</option>
+              <option value="FAILED">FAILED</option>
+              <option value="NONE">미적재</option>
+            </select>
+            <button class="button button--secondary" @click="manualSearch = ''; manualAiFilter = ''">전체 보기</button>
+            <button class="button button--primary" @click="loadManuals()">조회</button>
+          </div>
+
+          <!-- 문서 테이블 -->
+          <div class="table-wrap">
+            <table class="manual-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>제목</th>
+                  <th>파일 유형</th>
+                  <th>버전</th>
+                  <th>AI 적재 상태</th>
+                  <th>적재 시간</th>
+                  <th>오류</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="m in pagedManuals" :key="m.manualId">
+                  <td>{{ m.manualId }}</td>
+                  <td>
+                    <div class="manual-title-cell">
+                      <span class="manual-file-icon">📄</span>
+                      {{ m.title }}
+                    </div>
+                  </td>
+                  <td>{{ manualFileType(m) }}</td>
+                  <td>{{ m.version ?? 'v1' }}</td>
+                  <td>
+                    <span :class="['manual-ai-badge', AI_STATUS_CLS[manualAiStatus(m)]]">
+                      {{ AI_STATUS_LABEL[manualAiStatus(m)] }}
+                    </span>
+                  </td>
+                  <td>{{ manualSyncTime(m) }}</td>
+                  <td>
+                    <span v-if="manualErrorShort(m)" class="manual-error-text" :title="manualErrorTooltip(m)">
+                      {{ manualErrorShort(m) }}
+                    </span>
+                    <span v-else>—</span>
+                  </td>
+                  <td>
+                    <div class="manual-actions">
+                      <button
+                        v-if="manualAiStatus(m) === 'FAILED'"
+                        class="manual-btn-retry"
+                        @click="retryManualSync(m)"
+                      >재시도</button>
+                      <button class="manual-btn-delete" @click="deleteManualId = m.manualId">삭제</button>
+                    </div>
+                  </td>
+                </tr>
+                <tr v-if="pagedManuals.length === 0">
+                  <td colspan="8" style="text-align: center; color: #b0b8c1; padding: 28px;">등록된 문서가 없습니다.</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <!-- 페이지네이션 -->
+            <div v-if="manualTotalPages > 1" class="manual-pagination">
+              <button class="manual-page-btn" :disabled="manualCurrentPage === 1" @click="manualCurrentPage--">‹</button>
+              <button
+                v-for="p in manualTotalPages"
+                :key="p"
+                :class="['manual-page-btn', { 'manual-page-btn--active': p === manualCurrentPage }]"
+                @click="manualCurrentPage = p"
+              >{{ p }}</button>
+              <button class="manual-page-btn" :disabled="manualCurrentPage === manualTotalPages" @click="manualCurrentPage++">›</button>
+            </div>
+          </div>
+
+          <div class="inline-note routing-note">
+            제목·버전·부서 등 메타데이터 수정은 설정 관리 &gt; 매뉴얼 탭에서 수행합니다.
+          </div>
+        </template>
+
         <!-- ── API Tool 관리 ── -->
         <template v-else-if="activeSection === 'tools'">
           <div class="workspace-title">
@@ -630,6 +875,18 @@ onMounted(() => {
             </table>
           </div>
         </template>
+
+        <!-- 탭 전환 시 마운트 해제를 피하기 위해 v-else-if 블록 밖에 배치한다.
+             deleteManualId가 null이면 모달이 열리지 않으므로 다른 탭에서도 무해하다. -->
+        <BaseModal
+          :model-value="deleteManualId !== null"
+          title="문서 삭제"
+          message="삭제된 문서는 복구할 수 없으며 AI 검색에서 제거됩니다."
+          confirm-label="삭제"
+          :danger="true"
+          @update:model-value="(v) => { if (!v) deleteManualId = null }"
+          @confirm="confirmDeleteManual"
+        />
     </div>
 
     <!-- ── API Tool 등록 모달 ── -->
@@ -790,6 +1047,28 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
 .dept-sync-info--failed  { color: #ef4444; }
 .department-btn-retry { border: 1px solid #ef4444; color: #ef4444; background: #fff; font-size: 12px; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
 .department-btn-retry:hover { background: #fee2e2; }
+
+/* 매뉴얼 문서 관리 */
+.manual-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.manual-filter-select { min-height: 36px; padding: 0 10px; border: 1px solid #ccd3da; border-radius: 5px; background: #fff; color: #34404c; font: inherit; font-size: 12px; }
+.manual-title-cell { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #26323e; }
+.manual-file-icon { font-size: 15px; flex-shrink: 0; }
+.manual-ai-badge { display: inline-block; padding: 2px 9px; border-radius: 99px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.badge--ai-synced     { background: #d1fae5; color: #065f46; }
+.badge--ai-pending    { background: #fef3c7; color: #b45309; }
+.badge--ai-processing { background: #dbeafe; color: #1d4ed8; }
+.badge--ai-failed     { background: #fee2e2; color: #b91c1c; }
+.badge--ai-none       { background: #f3f4f6; color: #888; }
+.manual-error-text { font-size: 12px; color: #ef4444; cursor: default; }
+.manual-actions { display: flex; gap: 6px; align-items: center; justify-content: flex-end; white-space: nowrap; }
+.manual-btn-retry        { height: 28px; padding: 0 12px; border-radius: 5px; border: none; font-size: 12px; font-weight: 600; cursor: pointer; background: #fee2e2; color: #b91c1c; }
+.manual-btn-retry:hover  { background: #fecaca; }
+.manual-btn-delete       { height: 28px; padding: 0 12px; border-radius: 5px; border: none; font-size: 12px; font-weight: 600; cursor: pointer; background: #f3f4f6; color: #6b7280; }
+.manual-btn-delete:hover { background: #fee2e2; color: #b91c1c; }
+.manual-pagination { display: flex; justify-content: center; align-items: center; gap: 6px; padding: 16px 0; }
+.manual-page-btn { width: 30px; height: 30px; border-radius: 5px; border: 1px solid #e5e7eb; background: #fff; font-size: 12px; cursor: pointer; }
+.manual-page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.manual-page-btn--active { background: #1769c2; color: #fff; border-color: #1769c2; }
 
 .toast { position: fixed; z-index: 30; top: 22px; right: 24px; padding: 10px 14px; border-radius: 5px; background: #253341; color: #fff; font-size: 12px; box-shadow: 0 6px 18px rgba(0,0,0,.14); }
 .modal-backdrop { position: fixed; z-index: 40; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(20,28,36,.45); }
