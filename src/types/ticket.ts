@@ -52,7 +52,16 @@ export interface TicketResponse {
 // BE: ticket.dto.TicketAnswerCreateRequest
 export interface TicketAnswerRequest {
   content: string
-  fileKey?: string | null
+  fileKeys?: string[]
+}
+
+// BE: ticket.dto.AnswerFileInfo — 복수 첨부파일 항목
+export interface AnswerFileInfo {
+  fileKey: string
+  fileUrl: string | null
+  fileName: string | null
+  fileContentType: string | null
+  fileSize: number | null
 }
 
 // BE: ticket.dto.TicketAnswerResponse
@@ -64,11 +73,14 @@ export interface TicketAnswerResponse {
   authorNickname: string | null
   authorDepartmentId: number | null
   authorDepartmentName: string | null
+  // 단일 파일 필드 (하위 호환, BE가 files[]를 지원하면 이쪽은 첫 번째 파일만 채워짐)
   fileKey: string | null
   fileUrl: string | null
   fileName: string | null
   fileContentType: string | null
   fileSize: number | null
+  // 복수 첨부파일 (BE fileKeys 지원 이후 채워짐)
+  files?: AnswerFileInfo[]
   answeredAt: string
 }
 

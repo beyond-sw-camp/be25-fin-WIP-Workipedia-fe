@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ChevronLeft, Building2 } from '@lucide/vue'
+import { ChevronLeft, Building2, Paperclip } from '@lucide/vue'
 import { getMyTicketDetail } from '@/api/mypageApi'
+import { getLatestAnswer } from '@/api/ticketApi'
 import type { MyTicketDetailResponse } from '@/types/mypage'
+import type { AnswerFileInfo } from '@/types/ticket'
 
 const router = useRouter()
 const route = useRoute()
 
 const ticket = ref<MyTicketDetailResponse | null>(null)
+const answerFiles = ref<AnswerFileInfo[]>([])
 const loading = ref(false)
 const error = ref('')
 
@@ -27,10 +30,27 @@ onMounted(async () => {
   if (!Number.isFinite(id)) { error.value = '잘못된 접근입니다.'; return }
   loading.value = true
   try {
-    const res = await getMyTicketDetail(id)
-    ticket.value = res.data
-  } catch {
-    error.value = '티켓을 불러오지 못했습니다.'
+    const [ticketRes, answerRes] = await Promise.allSettled([
+      getMyTicketDetail(id),
+      getLatestAnswer(id),
+    ])
+    if (ticketRes.status === 'fulfilled') {
+      ticket.value = ticketRes.value.data
+    } else {
+      error.value = '티켓을 불러오지 못했습니다.'
+    }
+    if (answerRes.status === 'fulfilled') {
+      const a = answerRes.value.data
+      if (a.files?.length) {
+        answerFiles.value = a.files.filter(f => !!f.fileUrl)
+      } else if (a.fileUrl) {
+        answerFiles.value = [{ fileKey: a.fileKey ?? '', fileUrl: a.fileUrl, fileName: a.fileName, fileContentType: a.fileContentType, fileSize: a.fileSize }]
+      }
+      // a.fileUrl이 null이면 이 답변에는 첨부 파일이 없음 (fallback 유지)
+    } else {
+      // DevTools Network 탭에서 GET /tickets/{id}/answers/latest 응답 코드를 확인하세요.
+      console.warn('[MyIssuedTicketDetailView] getLatestAnswer 실패 (ticketId=%d):', id, (answerRes as PromiseRejectedResult).reason)
+    }
   } finally {
     loading.value = false
   }
@@ -77,6 +97,11 @@ onMounted(async () => {
           </div>
           <p class="detail-content answer-content">{{ ticket.answer.content }}</p>
           <div class="answer-date">{{ formatDateTime(ticket.answer.answeredAt) }}</div>
+          <a v-for="f in answerFiles" :key="f.fileKey" :href="f.fileUrl ?? '#'" target="_blank" rel="noopener noreferrer" class="answer-file">
+            <Paperclip :size="13" />
+            <span>{{ f.fileName ?? '첨부 파일' }}</span>
+            <span v-if="f.fileSize" class="answer-file-size">({{ (f.fileSize / 1024).toFixed(1) }}KB)</span>
+          </a>
         </div>
 
         <!-- Meta -->
@@ -114,4 +139,13 @@ onMounted(async () => {
 .answer-date { font-size: 12px; color: #aeb2bb; }
 
 .detail-meta { font-size: 12px; color: #aeb2bb; border-top: 1px solid var(--line); padding-top: 16px; }
+
+.answer-file {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 12px; border: 1px solid #bbf7d0; border-radius: 8px;
+  font-size: 13px; color: #00a63e; text-decoration: none;
+  transition: background 0.12s;
+}
+.answer-file:hover { background: #f0fdf4; }
+.answer-file-size { color: #aeb2bb; font-size: 12px; }
 </style>

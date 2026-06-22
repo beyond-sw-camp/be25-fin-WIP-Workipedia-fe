@@ -38,8 +38,12 @@ export function assignTicket(ticketId: number, data: TicketAssigneeRequest) {
 }
 
 // 답변 등록 — BE에서 티켓 상태를 COMPLETED로 전환하고 AI 지식화 초안을 생성한다.
-export function answerTicket(ticketId: number, content: string) {
-  return http.post<TicketAnswerResponse>(`/tickets/${ticketId}/answers`, { content })
+// 파일은 storageApi.uploadFilesToStorage로 먼저 업로드한 뒤 objectKey를 전달한다.
+// BE TicketAnswerCreateRequest는 fileKey: String(단수)만 지원한다.
+// 멀티파일을 첨부해도 첫 번째 objectKey만 전달하고, BE가 fileKeys: List<String>을 지원하면 그때 확장한다.
+export function answerTicket(ticketId: number, content: string, fileKey?: string) {
+  if (!fileKey) return http.post<TicketAnswerResponse>(`/tickets/${ticketId}/answers`, { content })
+  return http.post<TicketAnswerResponse>(`/tickets/${ticketId}/answers`, { content, fileKey })
 }
 
 // 최신 답변 단건 조회 — 처리 완료 티켓 상세 다이얼로그에서 기존 답변 내용을 표시하기 위해 사용한다.

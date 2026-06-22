@@ -14,6 +14,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { Ticket, Clock, CheckCircle2, Bot, UserCheck, Paperclip, X, ChevronLeft, ChevronRight } from '@lucide/vue'
 import { getTickets, answerTicket, getLatestAnswer } from '@/api/ticketApi'
+import { uploadFilesToStorage } from '@/api/storageApi'
 import { useAuthStore } from '@/stores/authStore'
 import type { TicketResponse, TicketAnswerResponse } from '@/types/ticket'
 import BaseToast from '@/components/common/BaseToast.vue'
@@ -108,19 +109,6 @@ function openFilesDB(): Promise<IDBDatabase> {
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
   })
-}
-
-// ticketId를 키로 File 배열을 IDB에 저장. 실패해도 UX를 막지 않도록 오류를 삼킨다.
-async function saveToIDB(ticketId: number, files: File[]): Promise<void> {
-  try {
-    const db = await openFilesDB()
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(IDB_STORE, 'readwrite')
-      tx.objectStore(IDB_STORE).put({ files }, ticketId)
-      tx.oncomplete = () => resolve()
-      tx.onerror = () => reject(tx.error)
-    })
-  } catch {}
 }
 
 // IDB에서 File 배열을 꺼내 blob URL로 변환. 데이터가 없거나 오류면 빈 배열 반환.
@@ -253,7 +241,6 @@ function closeAnswer() {
   submitError.value = ''
 }
 
-// 파일 input의 change 이벤트 → 기존 목록에 누적 추가, input 값은 매번 초기화해 같은 파일 재선택 허용
 function onFileChange(e: Event) {
   const inp = e.target as HTMLInputElement
   uploadedFiles.value = [...uploadedFiles.value, ...Array.from(inp.files ?? [])]
@@ -278,10 +265,9 @@ async function submitAnswer() {
   try {
     const ticketId = selectedTicket.value.ticketId
     const files = [...uploadedFiles.value]
-    await answerTicket(ticketId, answerText.value.trim())
-    // 메모리(blob URL) + IDB(File 객체, 새로고침 후 복원용) 동시 저장
-    sessionFiles[ticketId] = files.map(f => ({ name: f.name, size: f.size, url: URL.createObjectURL(f) }))
-    await saveToIDB(ticketId, files)
+
+    const fileKey = files.length ? (await uploadFilesToStorage(files))[0] : undefined
+    await answerTicket(ticketId, answerText.value.trim(), fileKey)
     answeredInSession.add(ticketId)
     try { localStorage.setItem(ANSWERED_KEY, JSON.stringify([...answeredInSession])) } catch {}
     closeAnswer()
@@ -545,7 +531,7 @@ function ticketSender(content: string) {
               ref="fileInputEl"
               type="file"
               multiple
-              accept=".pdf,.txt,.docx"
+              accept=".pdf,.txt,.docx,image/*"
               class="hidden-input"
               @change="onFileChange"
             />
@@ -623,30 +609,34 @@ function ticketSender(content: string) {
                 {{ detailMode === 'my' ? '아직 답변이 작성되지 않았습니다.' : '답변 내용을 불러올 수 없습니다.' }}
               </div>
             </div>
-            <!-- 첨부 파일: BE fileUrl 또는 sessionFiles (IDB 복원 포함) -->
-            <template v-if="latestAnswer?.fileUrl || sessionFiles[detailTicket.ticketId]?.length">
+            <!-- 첨부 파일: files[] 우선, 없으면 단일 fileUrl fallback -->
+            <template v-if="latestAnswer?.files?.length || latestAnswer?.fileUrl">
               <div class="detail-files-label">첨부 파일</div>
               <div class="file-list">
+                <template v-if="latestAnswer?.files?.length">
+                  <a
+                    v-for="f in latestAnswer.files"
+                    :key="f.fileKey"
+                    :href="f.fileUrl ?? '#'"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="file-item file-item--link"
+                  >
+                    <Paperclip :size="13" style="color:#aeb2bb;flex-shrink:0;" />
+                    <span class="file-name">{{ f.fileName ?? '첨부 파일' }}</span>
+                    <span v-if="f.fileSize" class="file-size">({{ (f.fileSize / 1024).toFixed(1) }}KB)</span>
+                  </a>
+                </template>
                 <a
-                  v-if="latestAnswer?.fileUrl"
+                  v-else-if="latestAnswer?.fileUrl"
                   :href="latestAnswer.fileUrl"
                   target="_blank"
+                  rel="noopener noreferrer"
                   class="file-item file-item--link"
                 >
                   <Paperclip :size="13" style="color:#aeb2bb;flex-shrink:0;" />
                   <span class="file-name">{{ latestAnswer.fileName ?? '첨부 파일' }}</span>
                   <span v-if="latestAnswer.fileSize" class="file-size">({{ (latestAnswer.fileSize / 1024).toFixed(1) }}KB)</span>
-                </a>
-                <a
-                  v-for="(f, i) in sessionFiles[detailTicket.ticketId] ?? []"
-                  :key="i"
-                  :href="f.url"
-                  target="_blank"
-                  class="file-item file-item--link"
-                >
-                  <Paperclip :size="13" style="color:#aeb2bb;flex-shrink:0;" />
-                  <span class="file-name">{{ f.name }}</span>
-                  <span class="file-size">({{ (f.size / 1024).toFixed(1) }}KB)</span>
                 </a>
               </div>
             </template>

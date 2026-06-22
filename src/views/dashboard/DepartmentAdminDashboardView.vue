@@ -19,7 +19,8 @@ import {
   Ticket, Clock, CheckCircle2, Bot, UserCheck, Paperclip, X,
   ChevronLeft, ChevronRight, Edit2, Send, ArrowRightLeft, TrendingUp, XCircle,
 } from '@lucide/vue'
-import { getTickets, answerTicket, transferTicket, getLatestAnswer } from '@/api/ticketApi'
+import { getTickets, getTicketDetail, answerTicket, transferTicket, getLatestAnswer } from '@/api/ticketApi'
+import { uploadFilesToStorage } from '@/api/storageApi'
 import {
   getTeamKnowledgeCandidates, approveKnowledgeCandidate, rejectKnowledgeCandidate,
   getKnowledgeTrend, getChatbotTicketTrend,
@@ -27,7 +28,7 @@ import {
 import { useKnowledgeStore } from '@/stores/useKnowledgeStore'
 import { useAuthStore } from '@/stores/authStore'
 import { ROLES } from '@/constants/roles'
-import type { TicketResponse, TicketAnswerResponse } from '@/types/ticket'
+import type { TicketResponse, TicketAnswerResponse, AnswerFileInfo } from '@/types/ticket'
 import type { KnowledgeTicketCandidateResponse } from '@/types/knowledge'
 import BaseToast from '@/components/common/BaseToast.vue'
 import LineChart from '@/components/common/LineChart.vue'
@@ -114,9 +115,13 @@ const submitError = ref('')
 const transferError = ref('')
 const fileInputEl = ref<HTMLInputElement | null>(null)
 
-// BE가 파일 첨부를 미지원하므로 blob URL로 세션 메모리에만 저장
+// BE fileUrl 우선, 없으면 blob URL(세션 메모리)로 폴백한다.
 type SavedFile = { name: string; size: number; url: string }
 const sessionFiles = reactive<Record<number, SavedFile[]>>({})
+// 지식화 승인 카드에서 원본 답변 첨부파일을 표시하기 위해 ticketId별로 캐싱한다.
+const kAnswerFiles = ref<Record<number, AnswerFileInfo[]>>({})
+// k-card에 원본 티켓 본문을 표시하기 위해 ticketId별로 캐싱한다.
+const kTicketBodies = reactive<Record<number, string>>({})
 
 // 이관 가능 여부: AI가 자동 배정(AUTO_ASSIGNED)한 ASSIGNED 티켓에 한해 허용한다.
 // 시스템 관리자가 공동 접수 큐에서 부서를 직접 선택해 배정(ADMIN_REVIEW)한 티켓은
@@ -165,6 +170,24 @@ async function loadKnowledge() {
   try {
     const res = await getTeamKnowledgeCandidates()
     knowledgeQueue.value = res.data.content
+    // 각 후보의 원본 티켓 본문과 첨부파일 정보를 병렬로 가져온다.
+    await Promise.all(res.data.content.map(async (item) => {
+      const [ansRes, ticketRes] = await Promise.allSettled([
+        getLatestAnswer(item.ticketId),
+        getTicketDetail(item.ticketId),
+      ])
+      if (ansRes.status === 'fulfilled') {
+        const a = ansRes.value.data
+        if (a.files?.length) {
+          kAnswerFiles.value[item.ticketId] = a.files
+        } else if (a.fileUrl) {
+          kAnswerFiles.value[item.ticketId] = [{ fileKey: a.fileKey ?? '', fileUrl: a.fileUrl, fileName: a.fileName, fileContentType: a.fileContentType, fileSize: a.fileSize }]
+        }
+      }
+      if (ticketRes.status === 'fulfilled') {
+        kTicketBodies[item.ticketId] = ticketBody(ticketRes.value.data.content)
+      }
+    }))
   } catch {
     knowledgeQueue.value = []
     showToast('지식화 후보 목록을 불러올 수 없습니다', '', 'error')
@@ -297,7 +320,7 @@ function removeFile(i: number) {
 }
 
 // 답변 등록 시 BE가 티켓 상태를 COMPLETED로 전환하고 AI 지식화 초안을 생성한다.
-// 파일 첨부는 BE 미지원으로 blob URL로 세션 메모리에만 보관하며 페이지 새로고침 시 사라진다.
+// 파일이 있으면 multipart로 전송한다. BE가 fileUrl을 반환하면 blob URL 폴백을 사용하지 않는다.
 // 답변 후 loadTickets + loadKnowledge를 재호출해 티켓 목록과 지식화 큐를 즉시 갱신한다.
 async function submitAnswer() {
   if (!selectedTicket.value || !answerText.value.trim()) return
@@ -305,10 +328,10 @@ async function submitAnswer() {
   submitError.value = ''
   try {
     const ticketId = selectedTicket.value.ticketId
-    await answerTicket(ticketId, answerText.value.trim())
-    sessionFiles[ticketId] = uploadedFiles.value.map(f => ({
-      name: f.name, size: f.size, url: URL.createObjectURL(f),
-    }))
+    const files = [...uploadedFiles.value]
+
+    const fileKey = files.length ? (await uploadFilesToStorage(files))[0] : undefined
+    await answerTicket(ticketId, answerText.value.trim(), fileKey)
     await loadTickets()
     // loadTickets()는 myDoneTickets를 assigneeId === auth.userId 로 필터링한다.
     // assigneeId가 null인 미배정 티켓에 DEPT_ADMIN·SYSTEM_ADMIN이 답변할 경우 BE가
@@ -473,6 +496,7 @@ function ticketSender(content: string) {
               <span class="k-who">{{ fromNow(item.answeredAt) }}</span>
             </div>
             <p class="k-text">{{ item.question }}</p>
+            <p v-if="kTicketBodies[item.ticketId]" class="k-original-body">{{ kTicketBodies[item.ticketId] }}</p>
           </div>
           <div class="k-block">
             <div class="k-block-head">
@@ -494,6 +518,26 @@ function ticketSender(content: string) {
             </div>
             <div v-else class="k-draft-box">
               <p class="k-text" style="white-space:pre-line;">{{ item.answer }}</p>
+            </div>
+          </div>
+          <!-- 원본 답변 첨부 파일 -->
+          <div v-if="kAnswerFiles[item.ticketId]?.length" class="k-block">
+            <div class="k-block-head">
+              <span class="badge gray">첨부 파일</span>
+            </div>
+            <div class="file-list">
+              <a
+                v-for="f in kAnswerFiles[item.ticketId]"
+                :key="f.fileKey"
+                :href="f.fileUrl ?? '#'"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="file-item file-item--link"
+              >
+                <Paperclip :size="13" style="color:#aeb2bb;" />
+                <span class="file-name">{{ f.fileName ?? '첨부 파일' }}</span>
+                <span v-if="f.fileSize" class="file-size">({{ (f.fileSize / 1024).toFixed(1) }}KB)</span>
+              </a>
             </div>
           </div>
           <div class="k-actions">
@@ -668,20 +712,23 @@ function ticketSender(content: string) {
                   <span class="answer-time">{{ fromNow(detailAnswer.answeredAt) }}</span>
                 </div>
                 <div class="detail-content" style="white-space:pre-line;">{{ detailAnswer.content }}</div>
-                <!-- 첨부 파일: BE fileUrl 우선, 없으면 세션 임시 파일(blob URL) -->
-                <div v-if="detailAnswer.fileUrl || sessionFiles[selectedTicket.ticketId]?.length" class="file-list" style="margin-top:8px;">
-                  <a v-if="detailAnswer.fileUrl" :href="detailAnswer.fileUrl" target="_blank" class="file-item file-item--link">
-                    <Paperclip :size="13" style="color:#aeb2bb;" />
-                    <span class="file-name">{{ detailAnswer.fileName ?? '첨부 파일' }}</span>
-                    <span v-if="detailAnswer.fileSize" class="file-size">({{ (detailAnswer.fileSize / 1024).toFixed(1) }}KB)</span>
-                  </a>
-                  <!-- 세션 임시 파일 (BE 파일 미지원 → blob URL, 새로고침 시 초기화) -->
-                  <a v-for="f in sessionFiles[selectedTicket.ticketId] ?? []" :key="f.name" :href="f.url" target="_blank" class="file-item file-item--link">
-                    <Paperclip :size="13" style="color:#aeb2bb;" />
-                    <span class="file-name">{{ f.name }}</span>
-                    <span class="file-size">({{ (f.size / 1024).toFixed(1) }}KB)</span>
-                  </a>
-                </div>
+                <!-- 첨부 파일: files[] 우선, 없으면 단일 fileUrl fallback -->
+                <template v-if="detailAnswer.files?.length || detailAnswer.fileUrl">
+                  <div class="file-list" style="margin-top:8px;">
+                    <template v-if="detailAnswer.files?.length">
+                      <a v-for="f in detailAnswer.files" :key="f.fileKey" :href="f.fileUrl ?? '#'" target="_blank" rel="noopener noreferrer" class="file-item file-item--link">
+                        <Paperclip :size="13" style="color:#aeb2bb;" />
+                        <span class="file-name">{{ f.fileName ?? '첨부 파일' }}</span>
+                        <span v-if="f.fileSize" class="file-size">({{ (f.fileSize / 1024).toFixed(1) }}KB)</span>
+                      </a>
+                    </template>
+                    <a v-else-if="detailAnswer.fileUrl" :href="detailAnswer.fileUrl" target="_blank" rel="noopener noreferrer" class="file-item file-item--link">
+                      <Paperclip :size="13" style="color:#aeb2bb;" />
+                      <span class="file-name">{{ detailAnswer.fileName ?? '첨부 파일' }}</span>
+                      <span v-if="detailAnswer.fileSize" class="file-size">({{ (detailAnswer.fileSize / 1024).toFixed(1) }}KB)</span>
+                    </a>
+                  </div>
+                </template>
               </div>
               <div v-else class="answer-box" style="color:#aeb2bb;font-size:13px;text-align:center;padding:20px 0;">
                 답변 정보를 불러오지 못했습니다.
@@ -729,7 +776,7 @@ function ticketSender(content: string) {
           </div>
           <div class="field">
             <label class="field-label">파일 첨부</label>
-            <input ref="fileInputEl" type="file" multiple accept=".pdf,image/*" class="hidden-input" @change="onFileChange" />
+            <input ref="fileInputEl" type="file" multiple accept=".pdf,.txt,.docx,image/*" class="hidden-input" @change="onFileChange" />
             <button class="btn btn-outline" @click="fileInputEl?.click()">
               <Paperclip :size="13" /> 파일 선택
             </button>
@@ -842,6 +889,7 @@ function ticketSender(content: string) {
 .k-block-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .k-who { font-size: 12px; color: #aeb2bb; }
 .k-text { font-size: 13px; color: #6b7280; line-height: 1.6; }
+.k-original-body { font-size: 12.5px; color: #9ca3af; line-height: 1.55; white-space: pre-line; border-left: 2px solid #e5e7eb; padding-left: 8px; margin-top: 2px; }
 .k-draft-box { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px 14px; }
 .k-edit-area { display: flex; flex-direction: column; gap: 8px; }
 .k-edit-btns { display: flex; gap: 8px; }
