@@ -84,3 +84,4 @@ export function updateAiTool(aiToolId: number, body: UpdateAiToolRequest) {
 export function editRoutingPromptInstruction(instruction: string) {
   return http.patch<AdminDepartment[]>('/admin/departments/routing-prompt/instruction', { instruction })
 }
+
