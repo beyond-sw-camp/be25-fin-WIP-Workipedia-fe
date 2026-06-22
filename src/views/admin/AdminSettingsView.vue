@@ -536,16 +536,29 @@ const ttlSeconds = computed(() => messageTTL.value % 60)
 const bannedWordsText = ref('')
 const savedBannedWords = ref<string[]>([])
 const sendCooldownSeconds = ref(0)
+const chatPolicySaving = ref(false)
+let chatPolicyRequestSeq = 0
+
+function applyChatPolicy(policy: {
+  messageTtlSeconds: number
+  sendCooldownSeconds: number
+  bannedWords: string[] | null
+}) {
+  const words = policy.bannedWords ?? []
+  messageTTL.value = policy.messageTtlSeconds
+  sendCooldownSeconds.value = policy.sendCooldownSeconds
+  savedBannedWords.value = words
+  localStorage.setItem(CHAT_TTL_KEY, String(policy.messageTtlSeconds))
+}
 
 // 탭 최초 진입 시 서버에서 정책을 불러와 TTL·금지어를 채운다.
 // localStorage에도 TTL을 기록해 ChatView.vue가 같은 값을 참조하도록 동기화한다.
 async function loadChatPolicy() {
+  const requestSeq = ++chatPolicyRequestSeq
   try {
     const res = await getChatPolicy()
-    messageTTL.value = res.data.messageTtlSeconds
-    sendCooldownSeconds.value = res.data.sendCooldownSeconds
-    savedBannedWords.value = res.data.bannedWords ?? []
-    localStorage.setItem(CHAT_TTL_KEY, String(res.data.messageTtlSeconds))
+    if (requestSeq !== chatPolicyRequestSeq || chatPolicySaving.value) return
+    applyChatPolicy(res.data)
   } catch { /* silent */ }
 }
 // API는 세 필드를 항상 함께 받으므로 저장 시마다 현재 상태 전체를 조립해서 전송한다.
@@ -554,35 +567,50 @@ function currentPolicy() {
 }
 async function saveTTL() {
   if (messageTTL.value < 60) { showToast('최소 60초 이상 설정해주세요.', '', 'error'); return }
+  if (chatPolicySaving.value) return
+  chatPolicySaving.value = true
+  ++chatPolicyRequestSeq
   try {
-    await updateChatPolicy(currentPolicy())
-    localStorage.setItem(CHAT_TTL_KEY, String(messageTTL.value))
+    const res = await updateChatPolicy(currentPolicy())
+    applyChatPolicy(res.data)
     showToast('메시지 TTL이 저장되었습니다.', `Flash Chat 메시지가 ${ttlMinutes.value}분 ${ttlSeconds.value}초 후 삭제됩니다.`)
   } catch {
     showToast('TTL 저장에 실패했습니다.', '', 'error')
+  } finally {
+    chatPolicySaving.value = false
   }
 }
 async function removeBannedWord(word: string) {
+  if (chatPolicySaving.value) return
   const next = savedBannedWords.value.filter(w => w !== word)
+  chatPolicySaving.value = true
+  ++chatPolicyRequestSeq
   try {
-    await updateChatPolicy({ ...currentPolicy(), bannedWords: next })
-    savedBannedWords.value = next
+    const res = await updateChatPolicy({ ...currentPolicy(), bannedWords: next })
+    applyChatPolicy(res.data)
     showToast('금지어가 삭제되었습니다.')
   } catch {
     showToast('금지어 삭제에 실패했습니다.', '', 'error')
+  } finally {
+    chatPolicySaving.value = false
   }
 }
 async function saveBannedWords() {
+  if (chatPolicySaving.value) return
   const parsed = bannedWordsText.value.split(',').map(w => w.trim()).filter(Boolean)
   if (parsed.length === 0) return
   const next = [...new Set([...savedBannedWords.value, ...parsed])]
+  chatPolicySaving.value = true
+  ++chatPolicyRequestSeq
   try {
-    await updateChatPolicy({ ...currentPolicy(), bannedWords: next })
-    savedBannedWords.value = next
+    const res = await updateChatPolicy({ ...currentPolicy(), bannedWords: next })
+    applyChatPolicy(res.data)
     bannedWordsText.value = ''
     showToast('금지어 목록이 저장되었습니다.')
   } catch {
     showToast('금지어 저장에 실패했습니다.', '', 'error')
+  } finally {
+    chatPolicySaving.value = false
   }
 }
 
@@ -693,19 +721,24 @@ async function confirmDeleteKnowledge() {
 // ── Init ───────────────────────────────────────────────────────
 // 사용자·포인트 탭은 처음 진입할 때만 API를 호출한다. 매뉴얼·부서는 onMounted에서 미리 로드한다.
 const loadedTabs = new Set<Tab>()
-watch(activeTab, (tab) => {
+function loadTabData(tab: Tab) {
   if (loadedTabs.has(tab)) return
   loadedTabs.add(tab)
   if (tab === 'users') loadUsers()
   if (tab === 'points') loadPoints()
   if (tab === 'chat') loadChatPolicy()
   if (tab === 'knowledge') loadKnowledge()
+}
+
+watch(activeTab, (tab) => {
+  loadTabData(tab)
 })
 
 onMounted(() => {
   loadDashboard()
   loadManuals()
   loadDepts()
+  loadTabData(activeTab.value)
 })
 </script>
 
@@ -1100,7 +1133,7 @@ onMounted(() => {
           = {{ ttlMinutes }}분 {{ ttlSeconds }}초 후 삭제
         </div>
         <div style="padding-top:20px;">
-          <button class="btn primary" @click="saveTTL">저장</button>
+          <button class="btn primary" :disabled="chatPolicySaving" @click="saveTTL">저장</button>
         </div>
       </div>
 
@@ -1121,7 +1154,7 @@ onMounted(() => {
           placeholder="비속어1, 광고문구, 스팸단어, 금지어..."
         />
         <div class="btn-row">
-          <button class="btn primary" @click="saveBannedWords">저장</button>
+          <button class="btn primary" :disabled="chatPolicySaving" @click="saveBannedWords">저장</button>
         </div>
       </div>
 
@@ -1134,7 +1167,7 @@ onMounted(() => {
       <div v-else class="banned-words">
         <div v-for="word in savedBannedWords" :key="word" class="banned-word-chip">
           <span>{{ word }}</span>
-          <button @click="removeBannedWord(word)"><X :size="12" /></button>
+          <button :disabled="chatPolicySaving" @click="removeBannedWord(word)"><X :size="12" /></button>
         </div>
       </div>
 

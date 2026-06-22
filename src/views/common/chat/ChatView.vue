@@ -56,6 +56,23 @@ function scheduleDelete(msg: ChatMsg) {
 // SockJS는 WebSocket이 차단된 환경을 위한 fallback 라이브러리이며, 동적 import로 번들을 분리한다.
 // VITE_API_BASE_URL에서 origin만 추출해 /ws/flash-chat 엔드포인트를 구성한다.
 let stompClient: Client | null = null
+const chatError = ref('')
+let chatErrorTimer: ReturnType<typeof setTimeout> | null = null
+
+function removeMessage(messageId: string) {
+  clearTimeout(timeouts.get(messageId))
+  timeouts.delete(messageId)
+  msgs.value = msgs.value.filter(m => m.id !== messageId)
+}
+
+function showChatError(message: string) {
+  chatError.value = message
+  if (chatErrorTimer) clearTimeout(chatErrorTimer)
+  chatErrorTimer = setTimeout(() => {
+    chatError.value = ''
+    chatErrorTimer = null
+  }, 3000)
+}
 
 async function connectStomp() {
   const sockjsMod = await import('sockjs-client')
@@ -72,9 +89,7 @@ async function connectStomp() {
 
         // 관리자 삭제 등 서버 주도 메시지 제거. 로컬 타이머도 함께 정리한다.
         if (raw.type === 'DELETE') {
-          clearTimeout(timeouts.get(raw.id))
-          timeouts.delete(raw.id)
-          msgs.value = msgs.value.filter(m => m.id !== raw.id)
+          removeMessage(raw.id)
           return
         }
 
@@ -91,27 +106,14 @@ async function connectStomp() {
             : null,
         }
 
-        // Optimistic dedup: 내가 보낸 메시지가 서버 echo로 돌아오면 __tmp_ 임시 메시지를 실제 메시지로 교체한다.
-        // 내용 기반 매칭이므로 동일 내용의 연속 전송 시 첫 번째 임시 메시지만 교체된다.
-        if (msg.me) {
-          const tmpIdx = msgs.value.findIndex(
-            m => m.id.startsWith('__tmp_') && m.content === msg.content
-          )
-          if (tmpIdx !== -1) {
-            const tmpMsg = msgs.value[tmpIdx]
-            if (tmpMsg) {
-              clearTimeout(timeouts.get(tmpMsg.id))
-              timeouts.delete(tmpMsg.id)
-            }
-            msgs.value.splice(tmpIdx, 1, msg)
-            scheduleDelete(msg)
-            return
-          }
-        }
-
         msgs.value.push(msg)
         scheduleDelete(msg)
         scroll()
+      })
+
+      stompClient!.subscribe('/user/queue/errors', (frame) => {
+        const raw = JSON.parse(frame.body)
+        showChatError(raw.message ?? '메시지를 전송할 수 없습니다.')
       })
     },
   })
@@ -150,6 +152,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   clearInterval(ticker)
+  if (chatErrorTimer) clearTimeout(chatErrorTimer)
   timeouts.forEach(h => clearTimeout(h))
   timeouts.clear()
   stompClient?.deactivate()
@@ -182,33 +185,17 @@ function send() {
   val.value = ''
   replyTo.value = null
 
-  // Optimistic UI: STOMP 전송 전에 임시 메시지(__tmp_)를 즉시 추가해 지연 없이 표시한다.
-  // 서버 echo가 돌아오면 onConnect 핸들러가 임시 메시지를 실제 메시지로 교체한다.
-  const tempId = `__tmp_${Date.now()}`
-  const optimistic: ChatMsg = {
-    id: tempId,
-    userId: auth.userId as number,
-    me: true,
-    name: auth.nickname ?? '',
-    initial: (auth.nickname ?? '?').slice(0, 1),
-    content,
-    createdAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + parseInt(localStorage.getItem('chat_message_ttl_seconds') ?? '600') * 1000).toISOString(),
-    replyTo: replyRefNow
-      ? { id: replyRefNow.id, name: replyRefNow.name, content: replyRefNow.content }
-      : null,
-  }
-  msgs.value.push(optimistic)
-  scheduleDelete(optimistic)
-  scroll()
-
   try {
-    stompClient?.publish({
+    if (!stompClient?.connected) {
+      showChatError('메시지를 전송할 수 없습니다.')
+      return
+    }
+    stompClient.publish({
       destination: '/app/flash-chat/send',
       body: JSON.stringify({ content, replyToId: replyRefNow?.id ?? null }),
     })
   } catch {
-    // STOMP 연결 전 전송 시 무시 (optimistic 메시지는 이미 표시됨)
+    showChatError('메시지를 전송할 수 없습니다.')
   }
 }
 
@@ -276,6 +263,8 @@ function isContinuation(i: number): boolean {
         </div>
       </div>
     </div>
+
+    <div v-if="chatError" class="chat-error">{{ chatError }}</div>
 
     <div v-if="replyTo" class="reply-bar">
       <div class="reply-bar-inner">
@@ -417,6 +406,19 @@ function isContinuation(i: number): boolean {
 }
 .chat-row:hover .reply-btn { visibility: visible; opacity: 1; }
 .reply-btn:hover { color: #2b7fff; background: #f0f4ff; }
+
+.chat-error {
+  margin: 0 auto 10px;
+  max-width: 1100px;
+  width: calc(100% - 4%);
+  padding: 10px 14px;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fef2f2;
+  color: #dc2626;
+  font-size: 14px;
+  font-weight: 600;
+}
 
 /* 답장 미리보기 바 */
 .reply-bar {
