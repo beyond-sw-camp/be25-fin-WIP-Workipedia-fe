@@ -9,6 +9,8 @@ export interface ManualSummaryResponse {
   description?: string
   status: ManualStatus
   sourceUrl: string | null
+  fileUrl?: string | null
+  fileUrls?: string[]
   version: string | null
   createdBy: number | null
   createdAt: string
@@ -19,4 +21,5 @@ export interface ManualSummaryResponse {
 export interface ManualDetailResponse extends ManualSummaryResponse {
   content: string
   fileUrl: string | null
+  fileUrls: string[]
 }

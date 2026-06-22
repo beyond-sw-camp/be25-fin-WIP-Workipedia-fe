@@ -47,33 +47,66 @@ export function updateUserStatus(userId: number, status: 'ACTIVE' | 'INACTIVE') 
 // ── 매뉴얼 관리 ────────────────────────────────────────────────
 export interface AdminManual {
   manualId: number
+  departmentId: number | null
   title: string
   description?: string
   category?: string
   status: string
   version: string | null
-  departmentId: number | null
+  sourceUrl?: string | null
   fileUrl?: string | null
+  fileUrls?: string[]
+  createdBy?: number | null
+  createdAt?: string
   updatedAt: string
+}
+export interface AdminManualVersion {
+  manualVersionId: number
+  manualId: number
+  userId: number | null
+  manualNum: string
+  updateReason: string | null
+  title: string | null
+  description: string | null
+  contentDiff: string | null
+  status: string
+  sourceUrl: string | null
+  version: string | null
+  createdAt: string
 }
 export interface AdminManualPage {
   content: AdminManual[]
   pageInfo: { page: number; size: number; totalElements: number; totalPages: number; hasNext: boolean; hasPrevious: boolean }
 }
-export function getAdminManuals() {
-  return http.get<AdminManualPage>('/admin/manuals')
+export function getAdminManuals(params: PageParams & { status?: string } = {}) {
+  return http.get<AdminManualPage>('/admin/manuals', { params })
 }
 export function createAdminManual(formData: FormData) {
-  return http.post<AdminManual>('/admin/manuals', formData)
+  return http.post<AdminManual>('/admin/manuals/pdf', formData)
 }
 export function updateAdminManual(manualId: number, formData: FormData) {
-  return http.put<AdminManual>(`/admin/manuals/${manualId}`, formData)
+  return http.patch<AdminManual>(`/admin/manuals/${manualId}/pdf`, formData)
 }
-export function updateAdminManualMeta(manualId: number, body: { title?: string; version?: string; departmentId?: number | null }) {
-  return http.patch<ApiResponse<AdminManual>>(`/admin/manuals/${manualId}`, body)
+export function updateAdminManualMeta(manualId: number, body: {
+  title?: string
+  description?: string
+  content?: string
+  version?: string
+  status?: string
+  sourceUrl?: string
+  updateReason?: string
+  departmentId?: number | null
+}) {
+  return http.patch<AdminManual>(`/admin/manuals/${manualId}`, body)
+}
+export function getAdminManualDetail(manualId: number) {
+  return http.get<AdminManual>(`/admin/manuals/${manualId}`)
+}
+export function getAdminManualVersions(manualId: number) {
+  return http.get<AdminManualVersion[]>(`/admin/manuals/${manualId}/versions`)
 }
 export function deleteAdminManual(manualId: number) {
-  return http.delete<ApiResponse<null>>(`/admin/manuals/${manualId}`)
+  return http.delete<void>(`/admin/manuals/${manualId}`)
 }
 
 // ── 부서 관리 (추가/삭제/수정) ──────────────────────────────────
