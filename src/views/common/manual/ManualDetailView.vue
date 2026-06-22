@@ -25,12 +25,22 @@ function fmtVersion(v: string | null | undefined): string | null {
 }
 
 // presigned URL 은 쿼리스트링(?X-Amz-...)이 붙으므로 경로 부분만 떼어 확장자를 본다.
-const isPdf = computed(() => {
-  const url = manual.value?.fileUrl
+const fileUrls = computed(() => {
+  if (!manual.value) return []
+  if (manual.value.fileUrls?.length) return manual.value.fileUrls.filter(Boolean)
+  return manual.value.fileUrl ? [manual.value.fileUrl] : []
+})
+
+const previewPdfUrl = computed(() => fileUrls.value.find((url) => {
   if (!url) return false
   const path = url.split(/[?#]/)[0] ?? url
   return /\.pdf$/i.test(path)
-})
+}) ?? null)
+
+function fileName(url: string | null | undefined) {
+  if (!url) return ''
+  try { return decodeURIComponent(url.split('/').pop()?.split('?')[0] ?? '') } catch { return '' }
+}
 
 function formatDate(iso: string) {
   const d = new Date(iso)
@@ -98,13 +108,13 @@ onMounted(async () => {
             <ExternalLink :size="14" /> 원문 보기
           </a>
           <a
-            v-if="manual.fileUrl"
+            v-if="fileUrls[0]"
             class="btn"
             style="padding: 8px 14px; font-size: 13px; text-decoration: none;"
-            :href="manual.fileUrl"
+            :href="fileUrls[0]"
             download
           >
-            <FileDown :size="14" /> 파일 다운로드
+            <FileDown :size="14" /> {{ fileUrls.length > 1 ? `파일 ${fileUrls.length}개` : '파일 다운로드' }}
           </a>
         </div>
       </div>
@@ -112,7 +122,24 @@ onMounted(async () => {
       <h1 class="header-title">{{ manual.title }}</h1>
       <div class="header-meta"><Calendar :size="13" /> 최종 수정 {{ formatDate(manual.updatedAt) }}</div>
 
-      <div v-if="!(manual.fileUrl && isPdf)" class="card content-card">
+      <div v-if="fileUrls.length > 0" class="card content-card file-card">
+        <div class="content-label">첨부 파일</div>
+        <div class="detail-file-list">
+          <a
+            v-for="(url, index) in fileUrls"
+            :key="`${index}-${url}`"
+            :href="url"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <FileText :size="15" />
+            <span>{{ fileName(url) || `파일 ${index + 1}` }}</span>
+            <FileDown :size="14" />
+          </a>
+        </div>
+      </div>
+
+      <div v-if="!previewPdfUrl" class="card content-card">
         <div class="content-label">매뉴얼 내용</div>
         <div class="manual-body">{{ manual.content }}</div>
       </div>
@@ -125,7 +152,7 @@ onMounted(async () => {
           <a
             class="btn"
             style="padding: 6px 12px; font-size: 12.5px; text-decoration: none;"
-            :href="manual.fileUrl"
+            :href="previewPdfUrl"
             target="_blank"
             rel="noopener noreferrer"
           >
@@ -134,7 +161,7 @@ onMounted(async () => {
         </div>
         <iframe
           class="pdf-frame"
-          :src="manual.fileUrl"
+          :src="previewPdfUrl"
           title="매뉴얼 PDF 미리보기"
         ></iframe>
       </div>
@@ -157,6 +184,34 @@ onMounted(async () => {
 .content-label {
   font-size: 12.5px; font-weight: 600; color: #aeb2bb;
   text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px;
+}
+.file-card { margin-bottom: 16px; }
+.detail-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.detail-file-list a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #2563eb;
+  background: #f8fafc;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 700;
+}
+.detail-file-list a:hover { background: #eff6ff; border-color: #bfdbfe; }
+.detail-file-list span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .manual-body {
   font-size: 15px; color: #404055;

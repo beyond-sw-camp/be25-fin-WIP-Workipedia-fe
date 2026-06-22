@@ -269,7 +269,7 @@ async function handleManualFileUpload(e: Event) {
   if (files && files.length > 0) {
     uploadedFiles.value = Array.from(files)
     fileError.value = false
-    await checkFileDuplicates(uploadedFiles.value)
+    fileConflict.value = false
   }
 }
 function fmtDate(dt: string) {
@@ -350,35 +350,30 @@ async function saveManual() {
       uploadedFiles.value = []
       await loadManuals()
     } else {
-      // 여러 파일 선택 시 파일마다 별도 매뉴얼을 생성하고 각각 레지스트리에 등록한다.
-      const newManuals: AdminManual[] = []
+      // 여러 PDF 파일은 같은 제목의 매뉴얼 하나에 첨부 파일 목록으로 저장한다.
+      const formData = new FormData()
+      formData.append('title', editingManual.value.title)
+      formData.append('description', editingManual.value.description)
+      formData.append('version', 'v1.0')
       for (const file of uploadedFiles.value) {
-        const formData = new FormData()
-        formData.append('title', editingManual.value.title)
-        formData.append('description', editingManual.value.description)
-        formData.append('version', 'v1.0')
         formData.append('file', file)
-        if (editingManual.value.departmentId != null) {
-          formData.append('departmentId', String(editingManual.value.departmentId))
-        }
-        const createRes = await createAdminManual(formData)
-        const created = createRes.data
-        if (created?.manualId) {
-          newManuals.push(created)
-          await registerManualFile(created.manualId, created.title, file)
-        }
       }
+      if (editingManual.value.departmentId != null) {
+        formData.append('departmentId', String(editingManual.value.departmentId))
+      }
+      const createRes = await createAdminManual(formData)
+      const created = createRes.data
       const fileCount = uploadedFiles.value.length
       editingManual.value = null
       uploadedFiles.value = []
       fileConflict.value = false
-      if (newManuals.length > 0) {
-        adminManuals.value = [...adminManuals.value, ...newManuals]
+      if (created?.manualId) {
+        adminManuals.value = [...adminManuals.value, created]
       } else {
         await loadManuals()
       }
       showToast(fileCount > 1
-        ? `${fileCount}개의 매뉴얼이 추가되었습니다.`
+        ? `새 매뉴얼에 ${fileCount}개 파일이 추가되었습니다.`
         : '새 매뉴얼이 추가되었습니다.'
       )
     }
@@ -399,7 +394,6 @@ async function confirmDeleteManual() {
   if (!deleteManualId.value) return
   try {
     await deleteAdminManual(deleteManualId.value)
-    unregisterManualFiles(deleteManualId.value)
     adminManuals.value = adminManuals.value.filter(m => m.manualId !== deleteManualId.value)
     showToast('매뉴얼이 삭제되었습니다.')
   } catch {
@@ -811,9 +805,6 @@ onMounted(() => {
                 <ExternalLink :size="13" /> 보기
               </a>
             </template>
-            <template v-else-if="getRegistryFilesByManualId(editingManual.id).length > 0">
-              <span class="current-file-name">{{ getRegistryFilesByManualId(editingManual.id).join(', ') }}</span>
-            </template>
             <template v-else>
               <span class="current-file-unknown">불러오는 중...</span>
             </template>
@@ -837,7 +828,7 @@ onMounted(() => {
           </div>
         </div>
         <div class="btn-row">
-          <button class="btn primary" :disabled="fileConflict || manualSubmitting" @click="saveManual">
+          <button class="btn primary" :disabled="manualSubmitting" @click="saveManual">
             {{ manualSubmitting ? '저장 중...' : '저장' }}
           </button>
           <button class="btn" @click="editingManual = null; uploadedFiles = []; fileError = false; fileConflict = false">취소</button>
