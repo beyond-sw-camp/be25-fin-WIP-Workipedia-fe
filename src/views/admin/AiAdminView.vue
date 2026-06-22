@@ -282,6 +282,26 @@ function isHttpEndpoint(value: string) {
   }
 }
 
+// parametersSchema 검증. 문제 없으면 null, 있으면 사용자에게 보여줄 메시지를 반환한다.
+// 빈 스키마({}/properties 없음)는 AI가 입력 인자를 못 채워 Tool이 무동작하므로 막는다(#121).
+function validateParamsSchema(text: string): string | null {
+  if (!text) return 'Parameters JSON Schema를 입력하세요. 비어 있으면 AI가 입력 인자를 채울 수 없습니다.'
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return 'Parameters JSON 형식이 올바르지 않습니다.'
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return 'Parameters JSON Schema는 객체 형식이어야 합니다.'
+  }
+  const properties = (parsed as Record<string, unknown>).properties
+  if (typeof properties !== 'object' || properties === null || Array.isArray(properties) || Object.keys(properties).length === 0) {
+    return 'properties에 파라미터를 1개 이상 정의하세요. (예: {"type":"object","properties":{"employeeId":{"type":"string","required":true}}})'
+  }
+  return null
+}
+
 async function saveTool() {
   if (toolSaving.value) return
 
@@ -297,16 +317,14 @@ async function saveTool() {
     return
   }
 
-  // BE는 parametersSchema를 JSON 문자열로 받고 @NotBlank로 검증한다.
-  const parametersSchema = toolParamsText.value.trim() || '{}'
-  if (parametersSchema) {
-    try {
-      JSON.parse(parametersSchema)
-    } catch {
-      showSaved('Parameters JSON 형식이 올바르지 않습니다.')
-      return
-    }
+  // parametersSchema가 비면 AI가 채울 입력 인자가 없어 외부 API가 파라미터 없이 호출된다(#121).
+  // 그래서 빈 '{}' 통과를 막고 properties에 1개 이상 정의돼 있는지까지 검증한다.
+  const schemaError = validateParamsSchema(toolParamsText.value.trim())
+  if (schemaError) {
+    showSaved(schemaError)
+    return
   }
+  const parametersSchema = toolParamsText.value.trim()
 
   toolSaving.value = true
   try {
@@ -614,13 +632,14 @@ onMounted(() => {
           ></textarea>
         </label>
         <label>Parameters JSON Schema
-          <textarea v-model="toolParamsText" class="code-input" placeholder='{"type":"object","properties":{}}'></textarea>
+          <textarea v-model="toolParamsText" class="code-input" placeholder='{"type":"object","properties":{"employeeId":{"type":"string","required":true}}}'></textarea>
+          <small class="field-hint">필수 파라미터는 각 속성 안에 <code>"required": true</code>로 표기하세요. (BE 검증기는 최상위 <code>required</code> 배열을 인식하지 않습니다)</small>
         </label>
         <div class="modal-actions">
           <button class="button button--secondary" @click="toolModalOpen = false; resetToolForm()">취소</button>
           <button
             class="button button--primary"
-            :disabled="!toolForm.name.trim() || !toolForm.description.trim() || (toolForm.toolType === 'HTTP_API' ? !toolForm.endpointUrl.trim() : !toolForm.datasourceKey.trim() || !toolForm.queryTemplate.trim()) || toolSaving"
+            :disabled="!toolForm.name.trim() || !toolForm.description.trim() || !toolParamsText.trim() || (toolForm.toolType === 'HTTP_API' ? !toolForm.endpointUrl.trim() : !toolForm.datasourceKey.trim() || !toolForm.queryTemplate.trim()) || toolSaving"
             @click="saveTool"
           >
             {{ toolSaving ? '등록 중...' : '등록' }}
@@ -742,6 +761,8 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
 .modal input, .modal select, .modal textarea { width: 100%; min-height: 38px; padding: 9px 10px; border: 1px solid #ccd3da; border-radius: 5px; background: #fff; color: #26323d; font: inherit; font-size: 12px; }
 .modal textarea { min-height: 86px; resize: vertical; }
 .modal .code-input { min-height: 120px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.field-hint { display: block; margin-top: 6px; color: #667787; font-size: 11px; line-height: 1.5; }
+.field-hint code { padding: 1px 4px; border-radius: 3px; background: #eef1f5; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; }
 .modal--wide { width: min(620px, 100%); }
 .modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
