@@ -6,15 +6,18 @@ import { useDeptStore } from '@/stores/deptStore'
 import http from '@/api/index'
 
 const router = useRouter()
+// deptStore는 App 진입 시 미리 로드되므로 여기서 추가 fetch 없이 바로 departments를 사용할 수 있다.
 const deptStore = useDeptStore()
 
 const title = ref('')
 const category = ref('')
 const targetDeptId = ref<number | null>(null)
 const body = ref('')
+// 중복 제출 방지 플래그 — API 응답 전에 버튼이 재클릭되는 경우를 막는다.
 const submitting = ref(false)
 const error = ref('')
 
+// 카테고리는 현재 프론트엔드 하드코딩. 어드민 설정 API 연동 전까지 이 배열로 관리한다.
 const categories = ['IT장비', 'IT시스템', 'HR', '재무', '시설', '총무', '기타']
 
 async function submit() {
@@ -41,7 +44,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="content-inner" style="max-width: 760px;">
+  <div class="content-inner">
     <button class="btn" style="margin-bottom: 20px;" @click="router.back()">
       <ChevronLeft :size="16" /> 목록으로
     </button>

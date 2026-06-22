@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
-import { Sparkles, Leaf, Award, Bell } from '@lucide/vue'
+import { Sparkles, Leaf, Award, Bell, ChevronRight } from '@lucide/vue'
 import { getMyProfile, updateNotificationSettings } from '@/api/mypageApi'
 
 const router = useRouter()
@@ -95,10 +95,16 @@ onMounted(async () => {
 
     <!-- Stats -->
     <div class="stat-row">
-      <div class="card stat-card stat-card--link" @click="router.push('/my/tickets')">
+      <button
+        type="button"
+        class="card stat-card stat-card--link"
+        aria-label="내 발행 티켓 목록으로 이동"
+        @click="router.push('/my/tickets')"
+      >
+        <ChevronRight class="stat-link-icon" :size="18" aria-hidden="true" />
         <div class="stat-val" style="color:#2b7fff;">{{ issuedTicketCount ?? 0 }}</div>
-        <div class="stat-lbl">내 발행 티켓 🎫</div>
-      </div>
+        <div class="stat-lbl">내 발행 티켓 확인 🎟️</div>
+      </button>
       <div class="card stat-card">
         <div class="stat-val" style="color:#f97316;">{{ currentPoint.toLocaleString() }}P</div>
         <div class="stat-lbl">현재 포인트 ⭐</div>
@@ -264,8 +270,31 @@ onMounted(async () => {
 /* ── Stats ── */
 .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 .stat-card { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 24px 16px; }
-.stat-card--link { cursor: pointer; transition: box-shadow 0.15s; }
-.stat-card--link:hover { box-shadow: 0 4px 16px rgba(43,127,255,0.12); }
+.stat-card--link {
+  position: relative;
+  border: 1px solid var(--line);
+  width: 100%;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.stat-card--link:hover {
+  border-color: #93c5fd;
+  box-shadow: 0 6px 18px rgba(43,127,255,0.14);
+  transform: translateY(-1px);
+}
+.stat-card--link:focus-visible {
+  outline: 3px solid rgba(43,127,255,0.25);
+  outline-offset: 2px;
+}
+.stat-link-icon {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  color: #2b7fff;
+  transition: transform 0.15s;
+}
+.stat-card--link:hover .stat-link-icon { transform: translateX(2px); }
 .stat-val { font-size: 28px; font-weight: 800; }
 .stat-lbl { font-size: 13px; color: #aeb2bb; }
 

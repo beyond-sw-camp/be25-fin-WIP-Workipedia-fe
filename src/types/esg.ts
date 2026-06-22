@@ -22,11 +22,20 @@ export interface EsgLeaderboardResponse {
   acceptedAnswerCount?: number
 }
 
+export interface EnvironmentImpact {
+  savedWorkHours: number | null
+  electricitySavedKwh: number | null
+  co2SavedKg: number | null
+  smartphoneChargeEquivalentCount: number | null
+}
+
 // BE: leaderboard.dto.LeaderboardResponse (상위 랭커 + 내 순위)
 export interface EsgLeaderboardPageResponse {
   rankingPeriodStart: string | null
+  periodStart?: string | null
   calculatedAt: string | null
   topRankers: EsgLeaderboardResponse[]
   mySummary: EsgLeaderboardResponse | null
   totalEsgScore: number
+  environmentImpact?: EnvironmentImpact | null
 }

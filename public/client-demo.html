@@ -1,0 +1,1379 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Workipedia API — 사내 지식을 스마트하게</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --violet: #7c5cfc;
+      --violet-light: #a78bfa;
+      --violet-dark: #5b21b6;
+      --violet-bg: rgba(124,92,252,0.09);
+      --ink: #0a0a0a;
+      --ink-2: #1a1a2e;
+      --muted: #717182;
+      --border: #e9eaee;
+      --bg: #ffffff;
+      --bg-soft: #f7f7fc;
+      --nav-h: 60px;
+    }
+
+    html, body { height: 100%; overflow: hidden; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Noto Sans KR', 'Segoe UI', sans-serif; }
+
+    /* ── Fixed nav ─────────────────────────────────────────── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: var(--nav-h);
+      z-index: 200;
+      background: rgba(255,255,255,0.9);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 32px;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .nav-logo-icon {
+      width: 34px; height: 34px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--violet), var(--violet-dark));
+      color: #fff; font-weight: 800; font-size: 16px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .nav-logo-text { font-size: 17px; font-weight: 800; color: var(--ink); }
+    .nav-links { display: flex; align-items: center; gap: 6px; }
+    .nav-link {
+      padding: 7px 14px;
+      border-radius: 8px;
+      border: none;
+      background: transparent;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--muted);
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      font-family: inherit;
+    }
+    .nav-link:hover { background: var(--bg-soft); color: var(--ink); }
+    .nav-link.active { color: var(--violet); font-weight: 600; background: var(--violet-bg); }
+    .nav-btn {
+      padding: 9px 20px;
+      border-radius: 10px;
+      border: none;
+      background: var(--violet-dark);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 800;
+      cursor: pointer;
+      font-family: inherit;
+      letter-spacing: -0.01em;
+      transition: background 0.15s, transform 0.1s;
+      margin-left: 8px;
+    }
+    .nav-btn:hover { background: #4c1a9e; transform: translateY(-1px); }
+
+    /* ── Slider ────────────────────────────────────────────── */
+    .slider {
+      position: fixed;
+      top: var(--nav-h);
+      left: 0; right: 0; bottom: 0;
+      overflow: hidden;
+    }
+
+    /* ── Slides ────────────────────────────────────────────── */
+    .slide {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      will-change: transform;
+    }
+    .slide:not([data-index="0"]) { transform: translateY(100%); }
+
+    /* ─── Slide 1: Hero ───── */
+    #slide-0 {
+      background: linear-gradient(160deg, #ede8ff 0%, #f5f5fd 55%, #e8f7ef 100%);
+      padding: 40px 32px 32px;
+      gap: 40px;
+    }
+    .hero-top { text-align: center; max-width: 680px; }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 14px;
+      border-radius: 99px;
+      background: rgba(124,92,252,0.12);
+      color: var(--violet);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      margin-bottom: 22px;
+    }
+    .hero-h1 {
+      font-size: clamp(32px, 4.5vw, 52px);
+      font-weight: 800;
+      line-height: 1.2;
+      color: var(--ink-2);
+      letter-spacing: -0.02em;
+      margin-bottom: 18px;
+    }
+    .hero-h1 em {
+      font-style: normal;
+      background: linear-gradient(90deg, var(--violet), #a78bfa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero-desc { font-size: 16px; color: var(--muted); line-height: 1.7; margin-bottom: 30px; }
+    .hero-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .btn-violet {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 12px 26px;
+      border-radius: 12px;
+      background: var(--violet);
+      color: #fff;
+      font-size: 14px; font-weight: 700;
+      border: none; cursor: pointer; font-family: inherit;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .btn-violet:hover { background: var(--violet-dark); transform: translateY(-1px); }
+    .btn-outline {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 12px 26px;
+      border-radius: 12px;
+      background: transparent;
+      color: var(--ink-2);
+      font-size: 14px; font-weight: 600;
+      border: 1.5px solid var(--border);
+      cursor: pointer; font-family: inherit;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .btn-outline:hover { background: #fff; border-color: #ccc; }
+
+    /* Stats row */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      width: 100%;
+      max-width: 840px;
+    }
+    .stat-card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px 16px;
+      text-align: center;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    }
+    .stat-val { font-size: 28px; font-weight: 800; color: var(--ink-2); margin-bottom: 4px; }
+    .stat-val .acc { color: var(--violet); }
+    .stat-lbl { font-size: 12px; color: var(--muted); font-weight: 500; }
+
+    /* ─── Slide 2: Features ───── */
+    #slide-1 {
+      background: var(--bg);
+      padding: 32px;
+      gap: 32px;
+    }
+    .features-head { text-align: center; }
+    .section-eyebrow {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 99px;
+      background: var(--violet-bg);
+      color: var(--violet);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    .section-title { font-size: 28px; font-weight: 800; color: var(--ink-2); margin-bottom: 8px; letter-spacing: -0.01em; }
+    .section-sub { font-size: 15px; color: var(--muted); }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      width: 100%;
+      max-width: 900px;
+    }
+    .feat-card {
+      background: var(--bg-soft);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px;
+      transition: box-shadow 0.2s, transform 0.2s;
+    }
+    .feat-card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.09); transform: translateY(-2px); }
+    .feat-icon {
+      width: 42px; height: 42px;
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+      margin-bottom: 14px;
+    }
+    .icon-v { background: rgba(124,92,252,0.12); }
+    .icon-g { background: rgba(5,150,105,0.12); }
+    .icon-b { background: rgba(43,127,255,0.1); }
+    .icon-a { background: rgba(245,192,0,0.12); }
+    .feat-title { font-size: 15px; font-weight: 700; color: var(--ink-2); margin-bottom: 7px; }
+    .feat-desc { font-size: 13px; color: var(--muted); line-height: 1.65; }
+
+    /* ─── Slide 3: Install ───── */
+    #slide-2 {
+      background: var(--bg-soft);
+      padding: 32px;
+      gap: 0;
+    }
+    .install-wrap {
+      width: 100%;
+      max-width: 740px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      text-align: center;
+    }
+    .code-block {
+      background: #0f1117;
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .code-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .code-dots { display: flex; gap: 6px; }
+    .code-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .code-dot:nth-child(1) { background: #ff5f56; }
+    .code-dot:nth-child(2) { background: #febc2e; }
+    .code-dot:nth-child(3) { background: #28c840; }
+    .code-right { display: flex; align-items: center; gap: 10px; }
+    .code-fname { color: rgba(255,255,255,0.3); font-size: 11px; font-family: monospace; }
+    .copy-btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.07);
+      color: rgba(255,255,255,0.55);
+      font-size: 11px; font-weight: 500;
+      cursor: pointer; font-family: inherit;
+      transition: background 0.15s, color 0.15s;
+    }
+    .copy-btn:hover { background: rgba(124,92,252,0.3); color: #c4b5fd; }
+    .copy-btn.copied { background: rgba(5,150,105,0.25); color: #34d399; border-color: rgba(5,150,105,0.4); }
+    .code-body {
+      padding: 20px 22px;
+      font-family: 'JetBrains Mono','Fira Code','Menlo',monospace;
+      font-size: 13px; line-height: 1.8;
+      color: #e2e8f0;
+    }
+    .ct { color: rgba(255,255,255,0.28); }
+    .tg { color: #a78bfa; }
+    .at { color: #7dd3fc; }
+    .st { color: #86efac; }
+    .install-actions { display: flex; justify-content: center; gap: 12px; }
+    .btn-sm {
+      padding: 10px 22px; border-radius: 10px;
+      font-size: 13px; font-weight: 600;
+      cursor: pointer; font-family: inherit;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .btn-sm-fill { background: var(--violet); color: #fff; border: none; }
+    .btn-sm-fill:hover { background: var(--violet-dark); transform: translateY(-1px); }
+    .btn-sm-out { background: transparent; color: var(--violet); border: 1.5px solid rgba(124,92,252,0.4); }
+    .btn-sm-out:hover { background: var(--violet-bg); }
+
+    /* ─── Slide 4: CTA + Footer ───── */
+    #slide-3 {
+      background: linear-gradient(140deg, #3d0f9e 0%, #7c5cfc 55%, #a78bfa 100%);
+      padding: 0;
+      align-items: stretch;
+      justify-content: space-between;
+      overflow: hidden;
+    }
+    .cta-deco {
+      position: absolute;
+      border-radius: 50%;
+      pointer-events: none;
+    }
+    .cta-deco-1 { width: 520px; height: 520px; top: -160px; right: -100px; background: rgba(255,255,255,0.06); }
+    .cta-deco-2 { width: 340px; height: 340px; bottom: 40px; left: -100px; background: rgba(255,255,255,0.05); }
+    .cta-deco-3 { width: 200px; height: 200px; top: 40%; left: 18%; background: rgba(255,255,255,0.04); }
+    .cta-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 48px 32px 40px;
+      position: relative;
+      z-index: 1;
+    }
+    .cta-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 14px; border-radius: 99px;
+      background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.9);
+      font-size: 12px; font-weight: 600; letter-spacing: 0.03em; margin-bottom: 24px;
+    }
+    .cta-h2 {
+      font-size: clamp(36px, 5vw, 54px); font-weight: 800; color: #fff;
+      margin-bottom: 16px; letter-spacing: -0.02em; line-height: 1.15;
+    }
+    .cta-p { font-size: 17px; color: rgba(255,255,255,0.72); margin-bottom: 36px; max-width: 440px; line-height: 1.65; }
+    .btn-white {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 14px 32px; border-radius: 14px;
+      background: #fff; color: var(--violet);
+      font-size: 15px; font-weight: 800;
+      border: none; cursor: pointer; font-family: inherit;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .btn-white:hover { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(0,0,0,0.25); }
+    .footer-block {
+      padding: 22px 64px;
+      background: rgba(0,0,0,0.28);
+      backdrop-filter: blur(8px);
+      border-top: 1px solid rgba(255,255,255,0.1);
+      position: relative; z-index: 1; flex-shrink: 0;
+    }
+    .footer-inner {
+      max-width: 1100px; margin: 0 auto;
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 16px;
+    }
+    .footer-logo { display: flex; align-items: center; gap: 8px; }
+    .footer-logo-icon {
+      width: 26px; height: 26px; border-radius: 7px;
+      background: rgba(255,255,255,0.2); color: #fff; font-size: 12px; font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .footer-logo-text { color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 700; }
+    .footer-links { display: flex; gap: 20px; flex-wrap: wrap; }
+    .footer-links a { color: rgba(255,255,255,0.45); font-size: 12px; text-decoration: none; transition: color 0.15s; }
+    .footer-links a:hover { color: rgba(255,255,255,0.85); }
+    .footer-copy { color: rgba(255,255,255,0.3); font-size: 12px; }
+
+    /* ── Side dots ─────────────────────────────────────────── */
+    .side-dots {
+      position: fixed;
+      right: 24px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 150;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .side-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(124,92,252,0.25);
+      cursor: pointer;
+      transition: background 0.2s, transform 0.2s;
+      padding: 0;
+    }
+    .side-dot:hover { transform: scale(1.3); background: rgba(124,92,252,0.5); }
+    .side-dot.active { background: var(--violet); transform: scale(1.2); }
+
+    /* ══════════════════════════════════════════════════════
+       Inline Chat Widget
+    ══════════════════════════════════════════════════════ */
+    #wk-root {
+      position: fixed;
+      bottom: 24px; right: 24px;
+      z-index: 99999;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 12px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Noto Sans KR', 'Segoe UI', sans-serif;
+    }
+    #wkPanel {
+      width: 370px; height: 560px;
+      border-radius: 16px;
+      overflow: hidden;
+      flex-direction: column;
+      background: #0f1117;
+      border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 24px 64px rgba(0,0,0,0.45), 0 0 0 1px rgba(124,92,252,0.2);
+    }
+    /* Header */
+    .wk-hdr {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 16px; height: 52px; flex-shrink: 0;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      background: #0f1117;
+    }
+    .wk-logo-wrap { display: flex; align-items: center; gap: 10px; }
+    .wk-logo-dot {
+      width: 32px; height: 32px; border-radius: 9px;
+      background: linear-gradient(135deg, #7c5cfc, #5b21b6);
+      color: #fff; font-weight: 800; font-size: 14px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .wk-logo-name { font-size: 14px; font-weight: 700; color: #f0f0f8; line-height: 1.2; }
+    .wk-logo-sub { font-size: 11px; color: #8d8fa8; }
+    .wk-close-btn {
+      width: 28px; height: 28px; border-radius: 8px; border: none;
+      background: rgba(255,255,255,0.07); color: #8d8fa8;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s, color 0.15s;
+    }
+    .wk-close-btn:hover { background: rgba(255,255,255,0.12); color: #f0f0f8; }
+    /* Tabs */
+    .wk-tabs { display: flex; border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0; }
+    .wk-tab {
+      flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
+      padding: 10px 0; font-size: 12px; font-weight: 600; font-family: inherit;
+      border: none; background: transparent; color: #8d8fa8;
+      cursor: pointer; border-bottom: 2px solid transparent;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .wk-tab:hover { color: #f0f0f8; }
+    .wk-tab.wk-tab-active { color: #7c5cfc; border-bottom-color: #7c5cfc; }
+    /* Body */
+    .wk-body { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+    .wk-content { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+    /* Messages */
+    .wk-msgs {
+      flex: 1; overflow-y: auto; padding: 14px 14px 8px;
+      display: flex; flex-direction: column; gap: 10px;
+      min-height: 0;
+    }
+    .wk-msgs::-webkit-scrollbar { width: 4px; }
+    .wk-msgs::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+    .wk-msg { display: flex; flex-direction: column; max-width: 86%; }
+    .wk-msg-bot { align-self: flex-start; }
+    .wk-msg-user { align-self: flex-end; align-items: flex-end; }
+    .wk-msg-bubble {
+      padding: 9px 12px; border-radius: 12px;
+      font-size: 13px; line-height: 1.55; color: #f0f0f8;
+    }
+    .wk-msg-bot .wk-msg-bubble {
+      background: #1a1d27; border: 1px solid rgba(255,255,255,0.06);
+      border-bottom-left-radius: 4px;
+    }
+    .wk-msg-user .wk-msg-bubble { background: #7c5cfc; border-bottom-right-radius: 4px; }
+    .wk-msg-meta { font-size: 10px; color: #8d8fa8; margin-top: 4px; padding: 0 3px; }
+    /* Typing indicator */
+    .wk-typing { padding: 0 14px 8px; flex-shrink: 0; }
+    .wk-typing-inner {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 9px 13px; background: #1a1d27;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px; border-bottom-left-radius: 4px;
+    }
+    .wk-typing-inner span {
+      width: 6px; height: 6px; border-radius: 50%; background: #7c5cfc;
+      animation: wkBounce 1.2s infinite;
+    }
+    .wk-typing-inner span:nth-child(2) { animation-delay: 0.2s; }
+    .wk-typing-inner span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes wkBounce {
+      0%, 60%, 100% { transform: translateY(0); opacity: 0.6; }
+      30% { transform: translateY(-5px); opacity: 1; }
+    }
+    /* Input zone */
+    .wk-input-zone { padding: 8px 12px 12px; flex-shrink: 0; border-top: 1px solid rgba(255,255,255,0.06); }
+    .wk-input-wrap {
+      display: flex; align-items: center; gap: 8px;
+      background: #1a1d27; border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 12px; padding: 7px 7px 7px 13px; transition: border-color 0.15s;
+    }
+    .wk-input-wrap:focus-within { border-color: rgba(124,92,252,0.6); }
+    .wk-input {
+      flex: 1; background: transparent; border: none; outline: none;
+      font-size: 13px; color: #f0f0f8; font-family: inherit;
+    }
+    .wk-input::placeholder { color: #8d8fa8; }
+    .wk-send-btn {
+      width: 30px; height: 30px; border-radius: 8px; border: none;
+      background: #7c5cfc; color: #fff; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    .wk-send-btn:hover { background: #6d4fee; }
+    /* Guide / FAQ */
+    .wk-guide-head {
+      display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.06); flex-shrink: 0;
+    }
+    .wk-guide-icon {
+      width: 40px; height: 40px; border-radius: 12px;
+      background: rgba(124,92,252,0.15); color: #7c5cfc;
+      font-weight: 800; font-size: 22px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .wk-guide-title { font-size: 14px; font-weight: 700; color: #f0f0f8; }
+    .wk-guide-sub { font-size: 11px; color: #8d8fa8; margin-top: 2px; }
+    .wk-faq { flex: 1; overflow-y: auto; padding: 8px 10px 10px; min-height: 0; }
+    .wk-faq::-webkit-scrollbar { width: 4px; }
+    .wk-faq::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+    .wk-faq-item {
+      border-radius: 10px; background: #1a1d27;
+      border: 1px solid rgba(255,255,255,0.06); margin-bottom: 7px; overflow: hidden;
+    }
+    .wk-faq-q {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 11px 13px; cursor: pointer; background: transparent; border: none; width: 100%;
+      text-align: left; font-family: inherit; color: #e0e0f0; font-size: 12.5px; font-weight: 500;
+    }
+    .wk-faq-q:hover { color: #f0f0f8; }
+    .wk-faq-chev { flex-shrink: 0; color: #8d8fa8; transition: transform 0.22s; }
+    .wk-faq-ans {
+      max-height: 0; overflow: hidden; transition: max-height 0.3s ease;
+      padding: 0 13px; font-size: 12px; line-height: 1.65; color: #8d8fa8;
+    }
+    .wk-faq-item.wk-open .wk-faq-chev { transform: rotate(90deg); }
+    .wk-faq-item.wk-open .wk-faq-ans { padding-bottom: 11px; }
+    /* Mypage */
+    .wk-mp-scroll {
+      flex: 1; overflow-y: auto; padding: 12px 10px;
+      display: flex; flex-direction: column; gap: 10px;
+      min-height: 0;
+    }
+    .wk-mp-scroll::-webkit-scrollbar { width: 4px; }
+    .wk-mp-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+    .wk-profile-row {
+      display: flex; align-items: center; gap: 11px; padding: 11px 12px;
+      background: #1a1d27; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06);
+    }
+    .wk-avatar {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: linear-gradient(135deg, #7c5cfc, #a78bfa);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; font-weight: 700; color: #fff; flex-shrink: 0;
+    }
+    .wk-profile-name { font-size: 14px; font-weight: 700; color: #f0f0f8; }
+    .wk-profile-dept { font-size: 11px; color: #8d8fa8; margin-top: 2px; }
+    .wk-stars { display: flex; gap: 1px; margin-top: 4px; }
+    .wk-card { border-radius: 12px; padding: 13px 14px; }
+    .wk-card-v {
+      background: linear-gradient(135deg, rgba(124,92,252,0.22), rgba(92,33,252,0.12));
+      border: 1px solid rgba(124,92,252,0.28);
+    }
+    .wk-card-g {
+      background: linear-gradient(135deg, rgba(34,197,94,0.14), rgba(22,163,74,0.07));
+      border: 1px solid rgba(34,197,94,0.22);
+    }
+    .wk-card-row { display: flex; justify-content: space-between; align-items: flex-start; }
+    .wk-card-lbl { font-size: 10px; color: #8d8fa8; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .wk-card-val { font-size: 26px; font-weight: 800; line-height: 1; margin: 5px 0 2px; }
+    .wk-card-v .wk-card-val { color: #a78bfa; }
+    .wk-card-g .wk-card-val { color: #4ade80; }
+    .wk-card-sub { font-size: 11px; color: #8d8fa8; }
+    .wk-card-ico {
+      width: 32px; height: 32px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center; font-size: 16px;
+    }
+    .wk-card-v .wk-card-ico { background: rgba(124,92,252,0.18); }
+    .wk-card-g .wk-card-ico { background: rgba(34,197,94,0.14); }
+    .wk-hist-hd { font-size: 11px; font-weight: 600; color: #8d8fa8; padding: 0 2px; }
+    .wk-hist-list { display: flex; flex-direction: column; gap: 5px; }
+    .wk-hist-item {
+      display: flex; align-items: center; gap: 9px; padding: 8px 11px;
+      background: #1a1d27; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);
+    }
+    .wk-hist-dot {
+      width: 26px; height: 26px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 13px;
+    }
+    .wk-hist-earn { background: rgba(34,197,94,0.11); }
+    .wk-hist-use { background: rgba(124,92,252,0.11); }
+    .wk-hist-desc { flex: 1; font-size: 12px; color: #c0c0d8; }
+    .wk-hist-date { font-size: 10px; color: #8d8fa8; margin-top: 2px; }
+    .wk-hist-pts { font-size: 13px; font-weight: 700; flex-shrink: 0; }
+    .wk-hist-pts-earn { color: #4ade80; }
+    .wk-hist-pts-use { color: #a78bfa; }
+    /* ── Flash Chat ── */
+    .wk-fc-head {
+      padding: 9px 14px; border-bottom: 1px solid rgba(255,255,255,0.06);
+      flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;
+    }
+    .wk-fc-channel { font-size: 13px; font-weight: 700; color: #f0f0f8; display: flex; align-items: center; gap: 4px; }
+    .wk-fc-online { font-size: 11px; color: #4ade80; display: flex; align-items: center; gap: 5px; }
+    .wk-fc-online-dot { width: 7px; height: 7px; border-radius: 50%; background: #4ade80; flex-shrink: 0; }
+    .wk-fc-msgs {
+      flex: 1; overflow-y: auto; padding: 12px 12px 6px;
+      display: flex; flex-direction: column; gap: 10px; min-height: 0;
+    }
+    .wk-fc-msgs::-webkit-scrollbar { width: 4px; }
+    .wk-fc-msgs::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+    .wk-fc-msg { display: flex; gap: 8px; align-items: flex-start; }
+    .wk-fc-av {
+      width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #fff;
+    }
+    .wk-fc-body { display: flex; flex-direction: column; max-width: 80%; }
+    .wk-fc-meta { display: flex; align-items: baseline; gap: 5px; margin-bottom: 3px; }
+    .wk-fc-name { font-size: 11px; font-weight: 600; color: #c0c0d8; }
+    .wk-fc-time { font-size: 10px; color: #8d8fa8; }
+    .wk-fc-bubble {
+      padding: 7px 11px; border-radius: 12px; border-top-left-radius: 4px;
+      background: #1a1d27; border: 1px solid rgba(255,255,255,0.06);
+      font-size: 12.5px; line-height: 1.52; color: #e8e8f0; display: inline-block;
+    }
+    .wk-fc-msg-me { flex-direction: row-reverse; }
+    .wk-fc-msg-me .wk-fc-body { align-items: flex-end; }
+    .wk-fc-msg-me .wk-fc-meta { flex-direction: row-reverse; }
+    .wk-fc-msg-me .wk-fc-name { display: none; }
+    .wk-fc-msg-me .wk-fc-bubble {
+      background: #7c5cfc; border-color: transparent;
+      border-radius: 12px; border-top-right-radius: 4px;
+    }
+    .wk-fc-input-zone { padding: 8px 12px 12px; flex-shrink: 0; border-top: 1px solid rgba(255,255,255,0.06); }
+    /* Launcher */
+    .wk-launcher {
+      position: relative; width: 56px; height: 56px; border-radius: 16px;
+      border: 2.5px solid rgba(255,255,255,0.85);
+      background: #7c5cfc; color: #fff; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.35), 0 8px 32px rgba(124,92,252,0.55);
+      transition: transform 0.15s; flex-shrink: 0;
+    }
+    .wk-launcher:hover { transform: scale(1.06); }
+    .wk-launcher:active { transform: scale(0.94); }
+    .wk-ic { display: flex; align-items: center; justify-content: center; transition: transform 0.22s ease, opacity 0.22s ease; }
+    .wk-ic-x { position: absolute; opacity: 0; transform: rotate(-180deg); }
+
+  </style>
+</head>
+<body>
+
+  <!-- ── Fixed Nav ──────────────────────────────────────── -->
+  <nav>
+    <div class="nav-inner">
+      <div class="nav-logo" onclick="slider.goTo(0)">
+        <div class="nav-logo-icon">W</div>
+        <span class="nav-logo-text">Workipedia</span>
+      </div>
+      <div class="nav-links">
+        <button class="nav-link active" data-slide="0">Workipedia API</button>
+        <button class="nav-link" data-slide="1">핵심 기능</button>
+        <button class="nav-link" data-slide="2">간편 설치</button>
+        <button class="nav-link" data-slide="3">지금 바로 시작</button>
+        <button class="nav-btn" onclick="slider.goTo(2)">무료로 시작하기</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── Slider ─────────────────────────────────────────── -->
+  <div class="slider" id="sliderEl">
+
+    <!-- Slide 0: Hero + Stats -->
+    <section class="slide" id="slide-0" data-index="0">
+      <div class="hero-top">
+        <div class="hero-badge">✦ &nbsp;스크립트 한 줄로 연동 완료</div>
+        <h1 class="hero-h1">Workipedia API로<br /><em>더 스마트한 서비스</em>를 만드세요</h1>
+        <p class="hero-desc">
+          노잇 챗봇, 포인트 시스템, 마이페이지 기능을 여러분의 서비스에 바로 추가하세요.<br />
+          우측 하단 버튼을 클릭해 위젯을 직접 체험해보세요.
+        </p>
+        <div class="hero-actions">
+          <button class="btn-violet" onclick="wkToggle()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            위젯 미리보기
+          </button>
+          <button class="btn-outline" onclick="slider.goTo(2)">
+            설치 가이드
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-val"><span class="acc">98</span>%</div>
+          <div class="stat-lbl">AI 답변 정확도</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val"><span class="acc">3</span>초</div>
+          <div class="stat-lbl">평균 응답 시간</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val"><span class="acc">60</span>%</div>
+          <div class="stat-lbl">반복 문의 감소</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val"><span class="acc">1</span>줄</div>
+          <div class="stat-lbl">스크립트 설치</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 1: Features -->
+    <section class="slide" id="slide-1" data-index="1">
+      <div class="features-head">
+        <div class="section-eyebrow">핵심 기능</div>
+        <h2 class="section-title">Workipedia가 제공하는 모든 것</h2>
+        <p class="section-sub">AI 챗봇부터 포인트 시스템까지, 사내 지식 공유의 모든 기능을 한 번에</p>
+      </div>
+      <div class="features-grid">
+        <div class="feat-card">
+          <div class="feat-icon icon-v">🤖</div>
+          <div class="feat-title">AI 챗봇 '노잇'</div>
+          <div class="feat-desc">사내 문서와 FAQ를 학습한 AI가 반복 문의에 즉시 답변합니다. RAG 기반으로 항상 최신 정보를 유지합니다.</div>
+        </div>
+        <div class="feat-card">
+          <div class="feat-icon icon-g">🏆</div>
+          <div class="feat-title">포인트 & 리더보드</div>
+          <div class="feat-desc">지식 공유 활동에 포인트를 부여하여 조직 내 참여를 유도합니다. 실시간 리더보드로 건강한 경쟁을 만들어냅니다.</div>
+        </div>
+        <div class="feat-card">
+          <div class="feat-icon icon-b">⚡</div>
+          <div class="feat-title">Flash Chat</div>
+          <div class="feat-desc">팀원 간 실시간 채팅으로 빠른 소통을 지원합니다. 자유롭게 대화해 보세요.</div>
+        </div>
+        <div class="feat-card">
+          <div class="feat-icon icon-a">🌱</div>
+          <div class="feat-title">ESG 등급 시스템</div>
+          <div class="feat-desc">지식 공유로 탄소 발자국을 줄이고 ESG 점수를 높입니다. 사내 활동이 환경 기여로 이어집니다.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2: Install -->
+    <section class="slide" id="slide-2" data-index="2">
+      <div class="install-wrap">
+        <div class="features-head">
+          <div class="section-eyebrow">간편 설치</div>
+          <h2 class="section-title">스크립트 한 줄로 시작하세요</h2>
+          <p class="section-sub">복잡한 설정 없이 아래 코드 한 줄을 HTML에 추가하면 바로 사용할 수 있습니다</p>
+        </div>
+        <div class="code-block">
+          <div class="code-header">
+            <div class="code-dots">
+              <div class="code-dot"></div><div class="code-dot"></div><div class="code-dot"></div>
+            </div>
+            <div class="code-right">
+              <span class="code-fname">index.html</span>
+              <button class="copy-btn" id="copyBtn" onclick="copyScript()">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                복사
+              </button>
+            </div>
+          </div>
+          <div class="code-body">
+            <span class="ct">&lt;!-- body 닫는 태그 바로 위에 추가 --&gt;</span><br/>
+            <span class="tg">&lt;script</span> <span class="at">src</span>=<span class="st">"https://cdn.workipedia.io/widget/v1/workipedia-chat.iife.js"</span> <span class="at">async</span><span class="tg">&gt;&lt;/script&gt;</span>
+          </div>
+        </div>
+        <div class="install-actions">
+          <button class="btn-sm btn-sm-fill" onclick="wkToggle()">위젯 체험하기</button>
+          <button class="btn-sm btn-sm-out" onclick="slider.goTo(3)">지금 시작하기</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3: CTA + Footer -->
+    <section class="slide" id="slide-3" data-index="3">
+      <div class="cta-deco cta-deco-1"></div>
+      <div class="cta-deco cta-deco-2"></div>
+      <div class="cta-deco cta-deco-3"></div>
+
+      <div class="cta-content">
+        <div class="cta-badge">✦ &nbsp;무료로 시작하기</div>
+        <h2 class="cta-h2">지금 바로<br />시작해보세요</h2>
+        <p class="cta-p">우측 하단의 버튼을 눌러 Workipedia 위젯을 직접 체험해보세요.</p>
+        <button class="btn-white" onclick="wkToggle()">
+          위젯 체험하기 →
+        </button>
+      </div>
+
+      <div class="footer-block">
+        <div class="footer-inner">
+          <div class="footer-logo">
+            <div class="footer-logo-icon">W</div>
+            <span class="footer-logo-text">Workipedia</span>
+          </div>
+          <div class="footer-links">
+            <a href="#">노잇 챗봇</a>
+            <a href="#">포인트 시스템</a>
+            <a href="#">워키 게시판</a>
+            <a href="#">API 문서</a>
+            <a href="#">레퍼런스</a>
+          </div>
+          <span class="footer-copy">© 2026 Workipedia. BE25 파이널 프로젝트.</span>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ── Side dots ───────────────────────────────────────── -->
+  <div class="side-dots" id="sideDots">
+    <button class="side-dot active" data-goto="0" title="Workipedia API"></button>
+    <button class="side-dot" data-goto="1" title="핵심 기능"></button>
+    <button class="side-dot" data-goto="2" title="간편 설치"></button>
+    <button class="side-dot" data-goto="3" title="지금 바로 시작"></button>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════
+       Inline Chat Widget
+  ══════════════════════════════════════════════════════ -->
+  <div id="wk-root">
+
+    <!-- Panel (hidden by default) -->
+    <div id="wkPanel" style="display:none">
+      <!-- Header -->
+      <div class="wk-hdr">
+        <div class="wk-logo-wrap">
+          <div class="wk-logo-dot">W</div>
+          <div>
+            <div class="wk-logo-name">Workipedia</div>
+            <div class="wk-logo-sub">AI 업무 어시스턴트</div>
+          </div>
+        </div>
+        <button class="wk-close-btn" onclick="wkClose()" aria-label="닫기">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <!-- Tab bar -->
+      <div class="wk-tabs">
+        <button class="wk-tab wk-tab-active" data-wktab="chat" onclick="wkTab(this)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          노잇
+        </button>
+        <button class="wk-tab" data-wktab="flash" onclick="wkTab(this)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          Flash
+        </button>
+        <button class="wk-tab" data-wktab="guide" onclick="wkTab(this)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+          사용법
+        </button>
+        <button class="wk-tab" data-wktab="mypage" onclick="wkTab(this)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          마이
+        </button>
+      </div>
+
+      <!-- Content: all tabs in DOM, show/hide via JS -->
+      <div class="wk-body">
+
+        <!-- ── Chat tab ── -->
+        <div id="wk-tab-chat" class="wk-content">
+          <div id="wkMsgs" class="wk-msgs">
+            <div class="wk-msg wk-msg-bot">
+              <div class="wk-msg-bubble">안녕하세요! 저는 노잇이에요 👋<br>업무 관련 무엇이든 도와드릴게요!</div>
+              <div class="wk-msg-meta">오전 10:00</div>
+            </div>
+          </div>
+          <div id="wkTyping" class="wk-typing" style="display:none">
+            <div class="wk-typing-inner"><span></span><span></span><span></span></div>
+          </div>
+          <div class="wk-input-zone">
+            <div class="wk-input-wrap">
+              <input id="wkInput" class="wk-input" type="text" placeholder="노잇에게 무엇이든 물어보세요..." onkeydown="if(event.key==='Enter')wkSend()">
+              <button class="wk-send-btn" onclick="wkSend()" aria-label="전송">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Flash Chat tab ── -->
+        <div id="wk-tab-flash" class="wk-content" style="display:none">
+          <div class="wk-fc-head">
+            <div class="wk-fc-channel">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              전사 자유채팅
+            </div>
+            <div class="wk-fc-online"><span class="wk-fc-online-dot"></span>14명 온라인</div>
+          </div>
+          <div id="wkFcMsgs" class="wk-fc-msgs">
+            <div class="wk-fc-msg">
+              <div class="wk-fc-av" style="background:#f59e0b">도</div>
+              <div class="wk-fc-body">
+                <div class="wk-fc-meta"><span class="wk-fc-name">도전하는빌더</span><span class="wk-fc-time">오후 12:03</span></div>
+                <div class="wk-fc-bubble">오늘 점심 뭐 먹을지 추천해주세요 🍔</div>
+              </div>
+            </div>
+            <div class="wk-fc-msg">
+              <div class="wk-fc-av" style="background:#10b981">기</div>
+              <div class="wk-fc-body">
+                <div class="wk-fc-meta"><span class="wk-fc-name">기여하는아키텍트</span><span class="wk-fc-time">오후 12:04</span></div>
+                <div class="wk-fc-bubble">저번에 근처 새로 생긴 파스타집 진짜 맛있었어요! 🍝</div>
+              </div>
+            </div>
+            <div class="wk-fc-msg">
+              <div class="wk-fc-av" style="background:#f43f5e">연</div>
+              <div class="wk-fc-body">
+                <div class="wk-fc-meta"><span class="wk-fc-name">연결하는전략가</span><span class="wk-fc-time">오후 12:05</span></div>
+                <div class="wk-fc-bubble">저도 거기 갔는데 완전 맛집!! 웨이팅 있으니까 미리 가세요 ㅎㅎ</div>
+              </div>
+            </div>
+            <div class="wk-fc-msg">
+              <div class="wk-fc-av" style="background:#3b82f6">학</div>
+              <div class="wk-fc-body">
+                <div class="wk-fc-meta"><span class="wk-fc-name">학습하는조력자</span><span class="wk-fc-time">오후 12:06</span></div>
+                <div class="wk-fc-bubble">저 다이어트 중이라 샐러드 먹으러 혼자 갈게요... 😭</div>
+              </div>
+            </div>
+            <div class="wk-fc-msg">
+              <div class="wk-fc-av" style="background:#f59e0b">도</div>
+              <div class="wk-fc-body">
+                <div class="wk-fc-meta"><span class="wk-fc-name">도전하는빌더</span><span class="wk-fc-time">오후 12:07</span></div>
+                <div class="wk-fc-bubble">ㅋㅋㅋㅋ 파스타도 다이어트식이에요 (우겨봄)</div>
+              </div>
+            </div>
+            <div class="wk-fc-msg">
+              <div class="wk-fc-av" style="background:#10b981">기</div>
+              <div class="wk-fc-body">
+                <div class="wk-fc-meta"><span class="wk-fc-name">기여하는아키텍트</span><span class="wk-fc-time">오후 12:07</span></div>
+                <div class="wk-fc-bubble">😂😂😂 같이 가요 학습하는조력자님!</div>
+              </div>
+            </div>
+          </div>
+          <div class="wk-fc-input-zone">
+            <div class="wk-input-wrap">
+              <input id="wkFcInput" class="wk-input" type="text" placeholder="전체에게 메시지 보내기..." onkeydown="if(event.key==='Enter')wkFcSend()">
+              <button class="wk-send-btn" onclick="wkFcSend()" aria-label="전송">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Guide tab ── -->
+        <div id="wk-tab-guide" class="wk-content" style="display:none">
+          <div class="wk-guide-head">
+            <div class="wk-guide-icon">?</div>
+            <div>
+              <div class="wk-guide-title">자주 묻는 질문</div>
+              <div class="wk-guide-sub">Workipedia 이용에 도움이 되는 FAQ</div>
+            </div>
+          </div>
+          <div class="wk-faq" id="wkFaq"></div>
+        </div>
+
+        <!-- ── Mypage tab ── -->
+        <div id="wk-tab-mypage" class="wk-content" style="display:none">
+          <div class="wk-mp-scroll">
+            <!-- Profile -->
+            <div class="wk-profile-row">
+              <div class="wk-avatar">공</div>
+              <div>
+                <div class="wk-profile-name">공유하는개척자</div>
+                <div class="wk-profile-dept">개발팀 · LV3</div>
+                <div class="wk-stars">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="#fde68a" stroke="#fde68a" stroke-width="0"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="#fde68a" stroke="#fde68a" stroke-width="0"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="#fde68a" stroke="#fde68a" stroke-width="0"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.15)" stroke-width="0"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.15)" stroke-width="0"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                </div>
+              </div>
+            </div>
+            <!-- Points card -->
+            <div class="wk-card wk-card-v">
+              <div class="wk-card-row">
+                <div>
+                  <div class="wk-card-lbl">보유 포인트</div>
+                  <div class="wk-card-val">1,240</div>
+                  <div class="wk-card-sub">이번 달 +320P 적립</div>
+                </div>
+                <div class="wk-card-ico">🏆</div>
+              </div>
+            </div>
+            <!-- ESG card -->
+            <div class="wk-card wk-card-g">
+              <div class="wk-card-row">
+                <div>
+                  <div class="wk-card-lbl">ESG 등급</div>
+                  <div class="wk-card-val">LV3</div>
+                  <div class="wk-card-sub">다음 등급까지 60P</div>
+                </div>
+                <div class="wk-card-ico">🌱</div>
+              </div>
+            </div>
+            <!-- History -->
+            <div class="wk-hist-hd">포인트 내역</div>
+            <div class="wk-hist-list" id="wkHistory"></div>
+          </div>
+        </div>
+
+      </div><!-- .wk-body -->
+    </div><!-- #wkPanel -->
+
+    <!-- Launcher button -->
+    <button class="wk-launcher" id="wkLauncher" onclick="wkToggle()" aria-label="Workipedia 위젯 열기">
+      <span class="wk-ic" id="wkIcMsg">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      </span>
+      <span class="wk-ic wk-ic-x" id="wkIcX">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </span>
+    </button>
+
+  </div><!-- #wk-root -->
+
+  <script>
+    /* ─────────────────────────────────────────────────────
+       Page Slider
+       scroll-snap 대신 JS로 직접 translateY를 제어한다.
+       scroll-snap은 자연스러운 전환보다 브라우저 기본 동작에 의존해
+       타이밍 커스터마이징이 어렵고, 모바일에서 오동작이 잦아 JS 방식을 채택했다.
+    ───────────────────────────────────────────────────── */
+    const TOTAL = 4
+    const EASE = 'cubic-bezier(0.77, 0, 0.175, 1)'
+    const DUR = 680
+
+    class PageSlider {
+      constructor() {
+        this.slides  = [...document.querySelectorAll('.slide')]
+        this.dots    = [...document.querySelectorAll('.side-dot')]
+        this.navBtns = [...document.querySelectorAll('.nav-link')]
+        this.current = 0
+        this.busy    = false
+
+        // 초기 위치: 첫 슬라이드는 제자리, 나머지는 화면 아래에 숨겨 둔다.
+        // transition을 'none'으로 먼저 설정해 초기 배치 시 애니메이션이 재생되지 않게 한다.
+        this.slides.forEach((s, i) => {
+          s.style.transition = 'none'
+          s.style.transform  = i === 0 ? 'translateY(0)' : 'translateY(100%)'
+        })
+        this._updateUI()
+      }
+
+      goTo(next) {
+        if (this.busy || next === this.current || next < 0 || next >= TOTAL) return
+        this.busy = true
+
+        const dir  = next > this.current ? 1 : -1
+        const curr = this.slides[this.current]
+        const tgt  = this.slides[next]
+
+        // 목표 슬라이드를 transition 없이 진입 방향 끝으로 순간이동 시킨 뒤,
+        // getBoundingClientRect()로 강제 리플로우를 일으켜 브라우저가 변경값을 반영하게 한다.
+        // 이 과정 없이 바로 transition을 켜면 시작 위치가 무시되고 애니메이션이 깨진다.
+        tgt.style.transition = 'none'
+        tgt.style.transform  = `translateY(${dir * 100}%)`
+        tgt.getBoundingClientRect()
+
+        const t = `transform ${DUR}ms ${EASE}`
+        curr.style.transition = t
+        tgt.style.transition  = t
+        curr.style.transform  = `translateY(${-dir * 100}%)`
+        tgt.style.transform   = 'translateY(0)'
+
+        this.current = next
+        this._updateUI()
+        // 애니메이션 완료 후 busy 해제 — 중간에 다음 goTo가 호출되면 무시된다
+        setTimeout(() => { this.busy = false }, DUR + 50)
+      }
+
+      _updateUI() {
+        const i = this.current
+        this.dots.forEach((d, j) => d.classList.toggle('active', j === i))
+        this.navBtns.forEach((b, j) => b.classList.toggle('active', j === i))
+      }
+    }
+
+    const slider = new PageSlider()
+
+    document.querySelectorAll('[data-slide]').forEach(btn => {
+      btn.addEventListener('click', () => slider.goTo(+btn.dataset.slide))
+    })
+    document.querySelectorAll('[data-goto]').forEach(dot => {
+      dot.addEventListener('click', () => slider.goTo(+dot.dataset.goto))
+    })
+
+    // passive:false 로 등록해야 preventDefault()를 호출할 수 있다.
+    // 단, 위젯(#wk-root) 위에서 발생한 휠 이벤트는 슬라이더가 가로채지 않는다.
+    // — 가로채면 위젯 내부 메시지/FAQ 스크롤이 동작하지 않기 때문이다.
+    let wheelLock = false
+    window.addEventListener('wheel', e => {
+      if (e.target.closest && e.target.closest('#wk-root')) return
+      e.preventDefault()
+      if (wheelLock) return
+      wheelLock = true
+      if (e.deltaY > 20)       slider.goTo(slider.current + 1)
+      else if (e.deltaY < -20) slider.goTo(slider.current - 1)
+      setTimeout(() => wheelLock = false, DUR + 100)
+    }, { passive: false })
+
+    window.addEventListener('keydown', e => {
+      if (e.key === 'ArrowDown' || e.key === 'PageDown') slider.goTo(slider.current + 1)
+      if (e.key === 'ArrowUp'   || e.key === 'PageUp')   slider.goTo(slider.current - 1)
+    })
+
+    let touchY = null
+    window.addEventListener('touchstart', e => { touchY = e.touches[0].clientY }, { passive: true })
+    window.addEventListener('touchend', e => {
+      if (touchY === null) return
+      const dy = touchY - e.changedTouches[0].clientY
+      if (Math.abs(dy) > 40) slider.goTo(slider.current + (dy > 0 ? 1 : -1))
+      touchY = null
+    }, { passive: true })
+
+    // CDN URL은 실제 배포 전 플레이스홀더다. 빌드 후 cdn.workipedia.io에 업로드된 경로로 교체한다.
+    function copyScript() {
+      const code = `<script src="https://cdn.workipedia.io/widget/v1/workipedia-chat.iife.js" async><\/script>`
+      navigator.clipboard.writeText(code).then(() => {
+        const btn = document.getElementById('copyBtn')
+        btn.classList.add('copied')
+        btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> 복사됨!`
+        setTimeout(() => {
+          btn.classList.remove('copied')
+          btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> 복사`
+        }, 2000)
+      })
+    }
+
+    /* ─────────────────────────────────────────────────────
+       Inline Chat Widget
+       IIFE 번들(WidgetApp.vue)을 async 로드하면 스크립트 실행 타이밍이
+       보장되지 않아 데모 페이지에서 위젯이 나타나지 않는 문제가 있었다.
+       데모 목적에 한해 동일한 UI를 순수 바닐라 JS로 인라인 구현한다.
+       실제 고객사 통합 시에는 IIFE 번들 한 줄 삽입 방식을 사용한다.
+    ───────────────────────────────────────────────────── */
+    var wkIsOpen  = false
+    var wkFaqOpen = null
+    var wkTyping  = false
+    var wkMsgIdx  = 0
+
+    var WK_REPLIES = [
+      '네, 도움 드릴 수 있어요! 더 자세한 내용을 알려주시면 정확하게 안내해 드릴게요.',
+      '좋은 질문이에요! Workipedia에서 해당 기능을 활용하면 효율적으로 처리할 수 있답니다.',
+      '이해했어요. 지금 바로 분석해드릴게요. 잠시만 기다려 주세요!',
+      '맞아요! 포인트를 활용하면 프리미엄 AI 분석도 이용하실 수 있어요.',
+    ]
+
+    var WK_FAQ = [
+      {
+        q: 'Workipedia는 어떻게 사용하나요?',
+        a: "Workipedia는 사내 지식 공유 플랫폼입니다. AI 챗봇 '노잇'을 통해 업무 관련 질문에 즉시 답변을 받을 수 있습니다."
+      },
+      {
+        q: '포인트는 어떻게 얻나요?',
+        a: '워키 작성(+20P), 댓글 작성(+5P), 좋아요 받기(+10P), 채택 답변(+50P), 티켓 처리(+30P) 등의 활동으로 포인트를 적립할 수 있습니다.'
+      },
+      {
+        q: '포인트는 어디에 사용하나요?',
+        a: '포인트는 사내 복지 상품 교환, 기프티콘 구매, 사내 카페 이용권 등에 사용할 수 있습니다.'
+      },
+      {
+        q: 'ESG 포인트와 레벨 시스템은 무엇인가요?',
+        a: 'ESG 포인트는 지식 공유를 통한 환경 기여도를 나타냅니다. LV1~LV4 단계로 구성되며, 단계가 높을수록 다양한 혜택을 받을 수 있습니다.'
+      }
+    ]
+
+    var WK_HISTORY = [
+      { earn: true,  desc: '일일 출석 체크',    pts: '+10P', date: '2026.05.26' },
+      { earn: true,  desc: '업무 완료 보상',    pts: '+50P', date: '2026.05.25' },
+      { earn: false, desc: 'AI 분석 요청',      pts: '-30P', date: '2026.05.24' },
+      { earn: true,  desc: '리뷰 작성',         pts: '+20P', date: '2026.05.23' },
+      { earn: false, desc: '프리미엄 기능 이용', pts: '-100P', date: '2026.05.22' },
+    ]
+
+    /* Init FAQ */
+    ;(function initFaq() {
+      var faqEl = document.getElementById('wkFaq')
+      var html = ''
+      WK_FAQ.forEach(function(item, i) {
+        html += '<div class="wk-faq-item" id="wkFaqItem' + i + '">'
+          + '<button class="wk-faq-q" onclick="wkFaqToggle(' + i + ')">'
+          + '<span>' + item.q + '</span>'
+          + '<span class="wk-faq-chev"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>'
+          + '</button>'
+          + '<div class="wk-faq-ans">' + item.a + '</div>'
+          + '</div>'
+      })
+      faqEl.innerHTML = html
+    })()
+
+    /* Init History */
+    ;(function initHistory() {
+      var el = document.getElementById('wkHistory')
+      var html = ''
+      WK_HISTORY.forEach(function(item) {
+        var cls = item.earn ? 'wk-hist-earn' : 'wk-hist-use'
+        var ptsCls = item.earn ? 'wk-hist-pts-earn' : 'wk-hist-pts-use'
+        var icon = item.earn ? '🏅' : '🕐'
+        html += '<div class="wk-hist-item">'
+          + '<div class="wk-hist-dot ' + cls + '">' + icon + '</div>'
+          + '<div><div class="wk-hist-desc">' + item.desc + '</div><div class="wk-hist-date">' + item.date + '</div></div>'
+          + '<div class="wk-hist-pts ' + ptsCls + '">' + item.pts + '</div>'
+          + '</div>'
+      })
+      el.innerHTML = html
+    })()
+
+    // 런처 버튼 클릭 시 패널 열기/닫기를 토글한다.
+    // 아이콘은 두 개의 span(wkIcMsg, wkIcX)을 겹쳐 놓고 opacity + rotate로
+    // 전환한다. v-if 대신 CSS transition을 써야 레이아웃 시프트 없이 부드럽게 바뀐다.
+    function wkToggle() {
+      if (wkIsOpen) {
+        wkClose()
+      } else {
+        wkOpen()
+      }
+    }
+
+    function wkOpen() {
+      wkIsOpen = true
+      var panel = document.getElementById('wkPanel')
+      panel.style.display = 'flex'
+      panel.style.flexDirection = 'column'
+      /* icon: hide chat, show X */
+      var icMsg = document.getElementById('wkIcMsg')
+      var icX   = document.getElementById('wkIcX')
+      icMsg.style.opacity   = '0'
+      icMsg.style.transform = 'rotate(180deg)'
+      icX.style.opacity     = '1'
+      icX.style.transform   = 'rotate(0deg)'
+    }
+
+    function wkClose() {
+      wkIsOpen = false
+      document.getElementById('wkPanel').style.display = 'none'
+      /* icon: show chat, hide X */
+      var icMsg = document.getElementById('wkIcMsg')
+      var icX   = document.getElementById('wkIcX')
+      icMsg.style.opacity   = '1'
+      icMsg.style.transform = 'rotate(0deg)'
+      icX.style.opacity     = '0'
+      icX.style.transform   = 'rotate(-180deg)'
+    }
+
+    // 탭 전환: 모든 콘텐츠 패널을 숨기고 선택된 탭만 flex로 표시한다.
+    function wkTab(btn) {
+      var tab = btn.getAttribute('data-wktab')
+      document.querySelectorAll('.wk-tab').forEach(function(b) { b.classList.remove('wk-tab-active') })
+      btn.classList.add('wk-tab-active')
+      document.getElementById('wk-tab-chat').style.display    = tab === 'chat'   ? 'flex' : 'none'
+      document.getElementById('wk-tab-flash').style.display   = tab === 'flash'  ? 'flex' : 'none'
+      document.getElementById('wk-tab-guide').style.display   = tab === 'guide'  ? 'flex' : 'none'
+      document.getElementById('wk-tab-mypage').style.display  = tab === 'mypage' ? 'flex' : 'none'
+    }
+
+    function wkNowTime() {
+      return new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+    }
+
+    function wkEsc(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    }
+
+    // 노잇 AI 챗: 사용자 메시지를 추가하고 1.4초 후 미리 준비된 답변을 순환 출력한다.
+    // wkTyping 플래그로 응답 중 중복 전송을 막는다.
+    function wkSend() {
+      if (wkTyping) return
+      var input = document.getElementById('wkInput')
+      var text  = input.value.trim()
+      if (!text) return
+      input.value = ''
+
+      var msgs = document.getElementById('wkMsgs')
+      msgs.innerHTML += '<div class="wk-msg wk-msg-user"><div class="wk-msg-bubble">' + wkEsc(text) + '</div><div class="wk-msg-meta">' + wkNowTime() + '</div></div>'
+      msgs.scrollTop = msgs.scrollHeight
+
+      wkTyping = true
+      document.getElementById('wkTyping').style.display = 'block'
+
+      setTimeout(function() {
+        var reply = WK_REPLIES[wkMsgIdx % WK_REPLIES.length]
+        wkMsgIdx++
+        document.getElementById('wkTyping').style.display = 'none'
+        wkTyping = false
+        msgs.innerHTML += '<div class="wk-msg wk-msg-bot"><div class="wk-msg-bubble">' + wkEsc(reply) + '</div><div class="wk-msg-meta">' + wkNowTime() + '</div></div>'
+        msgs.scrollTop = msgs.scrollHeight
+      }, 1400)
+    }
+
+    var wkFcReplyIdx = 0
+    var WK_FC_AUTO_REPLIES = [
+      { name: '기여하는아키텍트', color: '#10b981', text: '오 ㅋㅋㅋㅋ 공감해요 😂' },
+      { name: '연결하는전략가',   color: '#f43f5e', text: '저도요!! 완전 동의 👍' },
+      { name: '도전하는빌더',     color: '#f59e0b', text: 'ㅋㅋㅋㅋ 맞아요 진짜' },
+      { name: '학습하는조력자',   color: '#3b82f6', text: '😂😂 너무 웃겨요' },
+      { name: '기여하는아키텍트', color: '#10b981', text: '다음 주 금요일 회식 기대되는 사람 🙋' },
+      { name: '연결하는전략가',   color: '#f43f5e', text: '저요저요!! 🙋‍♀️ 어디 가요?' },
+    ]
+
+    // Flash Chat: 사용자 메시지 전송 후 800~1500ms 랜덤 딜레이로 팀원 자동 응답을 추가한다.
+    // WK_FC_AUTO_REPLIES를 순환하며 전사 자유채팅 분위기를 연출한다.
+    function wkFcSend() {
+      var input = document.getElementById('wkFcInput')
+      var text  = input.value.trim()
+      if (!text) return
+      input.value = ''
+
+      var msgs = document.getElementById('wkFcMsgs')
+      var now  = wkNowTime()
+      msgs.innerHTML += '<div class="wk-fc-msg wk-fc-msg-me">'
+        + '<div class="wk-fc-av" style="background:#7c5cfc">나</div>'
+        + '<div class="wk-fc-body">'
+        + '<div class="wk-fc-meta"><span class="wk-fc-name">나</span><span class="wk-fc-time">' + now + '</span></div>'
+        + '<div class="wk-fc-bubble">' + wkEsc(text) + '</div>'
+        + '</div></div>'
+      msgs.scrollTop = msgs.scrollHeight
+
+      setTimeout(function() {
+        var r   = WK_FC_AUTO_REPLIES[wkFcReplyIdx % WK_FC_AUTO_REPLIES.length]
+        wkFcReplyIdx++
+        var now2 = wkNowTime()
+        msgs.innerHTML += '<div class="wk-fc-msg">'
+          + '<div class="wk-fc-av" style="background:' + r.color + '">' + r.name[0] + '</div>'
+          + '<div class="wk-fc-body">'
+          + '<div class="wk-fc-meta"><span class="wk-fc-name">' + r.name + '</span><span class="wk-fc-time">' + now2 + '</span></div>'
+          + '<div class="wk-fc-bubble">' + wkEsc(r.text) + '</div>'
+          + '</div></div>'
+        msgs.scrollTop = msgs.scrollHeight
+      }, 800 + Math.random() * 700)
+    }
+
+    // FAQ 아코디언: display:none/block은 CSS transition 대상이 되지 않으므로
+    // max-height 0 → scrollHeight 방식으로 슬라이드 애니메이션을 구현한다.
+    // 이미 열린 항목을 다시 누르면 닫기만 한다(아코디언 1개 열림 유지).
+    function wkFaqToggle(idx) {
+      var wasOpen = wkFaqOpen === idx
+      /* close all */
+      WK_FAQ.forEach(function(_, i) {
+        var item = document.getElementById('wkFaqItem' + i)
+        if (!item) return
+        item.classList.remove('wk-open')
+        item.querySelector('.wk-faq-ans').style.maxHeight = '0'
+      })
+      if (!wasOpen) {
+        wkFaqOpen = idx
+        var target = document.getElementById('wkFaqItem' + idx)
+        target.classList.add('wk-open')
+        var ans = target.querySelector('.wk-faq-ans')
+        ans.style.maxHeight = ans.scrollHeight + 'px'
+      } else {
+        wkFaqOpen = null
+      }
+    }
+
+  </script>
+</body>
+</html>

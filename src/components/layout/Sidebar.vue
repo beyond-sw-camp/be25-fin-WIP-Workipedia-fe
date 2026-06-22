@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink, useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { ROLES } from '@/constants/roles'
 import {
   MessageCircle, FileText, MessagesSquare, Trophy,
-  Search, BookOpen, Library, HelpCircle,
+  Search, BookOpen, Library, BookMarked, HelpCircle,
   LayoutDashboard, Building2, ShieldCheck, Settings, Bot,
   Bell, LogOut, Star,
 } from '@lucide/vue'
@@ -16,7 +16,14 @@ import { logout as logoutApi } from '@/api/authApi'
 
 const auth = useAuthStore()
 const router = useRouter()
+const currentRoute = useRoute()
 const notiStore = useNotificationStore()
+
+// Vue Router는 형제 라우트(flat children)에서 router-link-active를 자동 적용하지 않으므로
+// 경로 접두사 일치 여부를 직접 체크해 상세 페이지에서도 하이라이트를 유지한다.
+function isNavActive(prefix: string) {
+  return currentRoute.path === prefix || currentRoute.path.startsWith(prefix + '/')
+}
 
 const showNotification = ref(false)
 const showPoint = ref(false)
@@ -83,10 +90,12 @@ const initials = computed(() =>
 
     <!-- 메인 메뉴 -->
     <nav class="sidebar-nav">
+      <!-- 커뮤니케이션 섹션 -->
+      <div class="nav-section-label">커뮤니케이션</div>
       <RouterLink to="/knowit" class="nav-item">
         <MessageCircle :size="16" /> 노잇 (Know-it)
       </RouterLink>
-      <RouterLink to="/worki" class="nav-item">
+      <RouterLink to="/worki" class="nav-item" :class="{ 'router-link-active': isNavActive('/worki') }">
         <FileText :size="16" /> 워키 게시판
       </RouterLink>
       <RouterLink to="/chat" class="nav-item">
@@ -101,36 +110,39 @@ const initials = computed(() =>
       <RouterLink to="/search" class="nav-item nav-item-secondary">
         <Search :size="16" /> 통합 검색
       </RouterLink>
-      <RouterLink to="/manuals" class="nav-item nav-item-secondary">
+      <RouterLink to="/manuals" class="nav-item nav-item-secondary" :class="{ 'router-link-active': isNavActive('/manuals') }">
         <BookOpen :size="16" /> 매뉴얼
       </RouterLink>
-      <RouterLink to="/knowledge" class="nav-item nav-item-secondary">
+      <RouterLink to="/knowledge" class="nav-item nav-item-secondary" :class="{ 'router-link-active': isNavActive('/knowledge') }">
         <Library :size="16" /> 지식화 게시판
+      </RouterLink>
+      <RouterLink to="/direct-data" class="nav-item nav-item-secondary" :class="{ 'router-link-active': isNavActive('/direct-data') }">
+        <BookMarked :size="16" /> 수기 지식 게시판
       </RouterLink>
       <RouterLink to="/faq" class="nav-item nav-item-secondary">
         <HelpCircle :size="16" /> FAQ
       </RouterLink>
 
-      <!-- 관리 섹션 (모든 역할) -->
-      <div class="nav-section-label">관리</div>
-
-      <!-- USER: 부서 대시보드 -->
+      <!-- 운영 섹션 -->
+      <div class="nav-section-label">운영</div>
       <RouterLink v-if="auth.role === ROLES.USER" to="/dashboard/team" class="nav-item nav-item-secondary">
         <LayoutDashboard :size="16" /> 부서 대시보드
       </RouterLink>
-
-      <!-- TEAM_ADMIN: 부서 관리자 대시보드 -->
       <RouterLink v-else-if="auth.role === ROLES.TEAM_ADMIN" to="/dashboard/department" class="nav-item nav-item-secondary">
-        <Building2 :size="16" /> 부서 관리자 대시보드
+        <Building2 :size="16" /> 부서 대시보드
+      </RouterLink>
+      <RouterLink v-else-if="auth.role === ROLES.SYSTEM_ADMIN" to="/dashboard/team" class="nav-item nav-item-secondary">
+        <Building2 :size="16" /> 부서 대시보드
       </RouterLink>
 
-      <!-- SYSTEM_ADMIN: 대시보드 + AI 관리 + 설정 -->
-      <template v-else-if="auth.role === ROLES.SYSTEM_ADMIN">
+      <!-- 관리 섹션 -->
+      <template v-if="auth.role === ROLES.SYSTEM_ADMIN">
+        <div class="nav-section-label">관리</div>
         <RouterLink to="/dashboard/admin" class="nav-item nav-item-secondary">
-          <ShieldCheck :size="16" /> 대시보드
+          <ShieldCheck :size="16" /> 시스템 대시보드
         </RouterLink>
         <RouterLink to="/admin/ai" class="nav-item nav-item-secondary">
-          <Bot :size="16" /> AI 관리
+          <Bot :size="16" /> AI 관리 및 개발자 도구
         </RouterLink>
         <RouterLink to="/admin/settings" class="nav-item nav-item-secondary">
           <Settings :size="16" /> 설정
@@ -307,7 +319,7 @@ const initials = computed(() =>
 .nav-section-label {
   font-size: 0.68rem;
   font-weight: 600;
-  color: rgba(148, 163, 184, 0.45);
+  color: rgba(255, 255, 255, 0.68);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   padding: 0.85rem 1.1rem 0.3rem;

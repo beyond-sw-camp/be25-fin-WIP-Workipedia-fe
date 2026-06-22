@@ -1,10 +1,15 @@
 // BE: ticket.domain.TicketStatus
 export type TicketStatus =
-  | 'RECEIVED'
   | 'COMMON_QUEUE'
   | 'ASSIGNED'
   | 'COMPLETED'
   | 'DELETED'
+
+// BE: ticket.domain.CommonQueueReason
+export type CommonQueueReason =
+  | 'ROUTING_FAILED'
+  | 'TRANSFER_REQUESTED'
+  | 'ASSIGNMENT_EXPIRED'
 
 // BE: ticket.domain.TicketPriority
 export type TicketPriority = 'MEDIUM' | 'HIGH'
@@ -27,6 +32,7 @@ export interface CandidateDepartmentResponse {
 export interface TicketResponse {
   ticketId: number
   status: TicketStatus
+  commonQueueReason: CommonQueueReason | null
   assignedDepartmentId: number | null
   assignedDepartmentName: string | null // BE TODO: 부서 도메인 연결 전까지 null
   routingConfidenceScore: number | null
@@ -37,9 +43,39 @@ export interface TicketResponse {
   priority: TicketPriority | null
   title: string
   content: string
+  transferReason: string | null
   assigneeId: number | null
   createdAt: string
   updatedAt: string
+}
+
+// BE: ticket.dto.TicketAnswerCreateRequest
+export interface TicketAnswerRequest {
+  content: string
+  fileKey?: string | null
+}
+
+// BE: ticket.dto.TicketAnswerResponse
+export interface TicketAnswerResponse {
+  answerId: number
+  ticketId: number
+  content: string
+  authorId: number
+  authorNickname: string | null
+  authorDepartmentId: number | null
+  authorDepartmentName: string | null
+  fileKey: string | null
+  fileUrl: string | null
+  fileName: string | null
+  fileContentType: string | null
+  fileSize: number | null
+  answeredAt: string
+}
+
+// BE: ticket.dto.TicketTransferRequestCreateRequest
+export interface TransferRequest {
+  suggestedDepartmentId?: number | null
+  reason: string
 }
 
 // BE: ticket.dto.CreateTicketRequest

@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { Bot, User, MessageCircle, Ticket, Plus, HelpCircle, Send } from '@lucide/vue'
+import { Bot, User, MessageCircle, Ticket, Plus, HelpCircle, Send, X } from '@lucide/vue'
 import SourceCard from '@/components/common/SourceCard.vue'
 import type { Source } from '@/components/common/SourceCard.vue'
 import BaseToast from '@/components/common/BaseToast.vue'
-import { createSession, sendMessage } from '@/api/chatbotApi'
-import type { ApiReference } from '@/api/chatbotApi'
+import { createSession, sendMessage, streamMessage, parseReferences } from '@/api/chatbotApi'
+import type { SourceItem } from '@/api/chatbotApi'
 import { createQuestion } from '@/api/workiApi'
 import { createTicket } from '@/api/ticketApi'
+import { useAuthStore } from '@/stores/authStore'
 
 type Mode = 'none' | 'question' | 'request'
 
@@ -25,6 +26,7 @@ interface Msg {
 }
 
 const router = useRouter()
+const authStore = useAuthStore()
 const scrollEl = ref<HTMLElement | null>(null)
 const mode = ref<Mode>('none')
 const msgs = ref<Msg[]>([])
@@ -45,6 +47,9 @@ const ticketTitle = ref('')
 const ticketContent = ref('')
 const ticketError = ref('')
 const ticketDept = ref('')
+// 티켓 발행 버튼을 연속 클릭하면 동일 메시지에 대해 티켓이 중복 생성되는 문제가 있었다.
+// API 응답 전까지 flag를 true로 유지해 중복 요청을 차단한다.
+const submittingTicket = ref(false)
 
 const toastVisible = ref(false)
 const toastTitle = ref('')
@@ -62,20 +67,38 @@ function scroll() {
   })
 }
 
-// BE에서 content snippet 필드 추가 시 body에 반영
-function mapReferences(refs: ApiReference[]): Source[] {
-  const typeConfig: Record<string, { label: string; cls: Source['cls'] }> = {
-    MANUAL: { label: '매뉴얼',    cls: 'green' },
-    TICKET: { label: '티켓 답변', cls: 'blue'  },
-    CHAT:   { label: '채팅 답변', cls: 'gray'  },
-  }
-  return refs.map(r => {
-    const cfg = typeConfig[r.type] ?? { label: r.type, cls: 'gray' as const }
-    return { type: cfg.label, cls: cfg.cls, meta: r.title, link: '문서에서 보기', url: r.url }
-  })
+// source_type → 표시 라벨/색상 + 내부 상세 경로 prefix
+const SOURCE_TYPE_CONFIG: Record<string, { label: string; cls: Source['cls']; route?: string }> = {
+  MANUAL:            { label: '매뉴얼',    cls: 'green', route: '/manuals' },
+  MANUAL_KNOWLEDGE:  { label: '매뉴얼',    cls: 'green', route: '/manuals' },
+  WORKI:             { label: '워키 답변', cls: 'blue',  route: '/worki' },
+  TICKET:            { label: '티켓 답변', cls: 'blue',  route: '/tickets' },
+  KNOWLEDGE_DATA:    { label: '지식 문서', cls: 'green', route: '/knowledge' },
+  CHAT:              { label: '채팅 답변', cls: 'gray' },
 }
 
-function selectMode(m: 'question' | 'request') {
+// AI 서버가 내려준 SourceItem[](snake_case) 을 SourceCard 표시용 Source[] 로 변환한다.
+// 같은 문서의 여러 chunk가 올 수 있으므로 source_type+source_id 기준으로 중복 제거한다.
+// link가 null이면 source_type 기반 내부 상세 경로로 대체한다.
+function mapReferences(refs: SourceItem[]): Source[] {
+  const seen = new Set<string>()
+  const result: Source[] = []
+  for (const r of refs) {
+    const key = `${r.source_type}:${r.source_id}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const cfg = SOURCE_TYPE_CONFIG[r.source_type] ?? { label: r.source_type, cls: 'gray' as const }
+    const url = r.link ?? (cfg.route ? `${cfg.route}/${r.source_id}` : undefined)
+    result.push({ type: cfg.label, cls: cfg.cls, meta: r.title, link: '문서에서 보기', url })
+  }
+  return result
+}
+
+// 질문/요청 모드를 선택하는 즉시 챗봇 세션을 생성한다.
+// 세션은 UI에 노출하지 않고 sessionId만 보관해 이후 메시지 전송에 재사용한다.
+// 생성 실패 시 모드 선택을 취소하고 안내한다.
+async function selectMode(m: 'question' | 'request') {
+  if (loading.value) return
   mode.value = m
   msgs.value = [
     { kind: 'user', text: m === 'question' ? '질문' : '요청' },
@@ -88,6 +111,17 @@ function selectMode(m: 'question' | 'request') {
     },
   ]
   scroll()
+
+  loading.value = true
+  try {
+    const s = await createSession()
+    sessionId.value = s.data.sessionId
+  } catch {
+    changeMode()
+    showToast('챗봇 세션을 시작하지 못했습니다.', '잠시 후 다시 시도해주세요.')
+  } finally {
+    loading.value = false
+  }
 }
 
 function changeMode() {
@@ -111,37 +145,81 @@ async function send() {
   msgs.value.push({ kind: 'loading', isTicket: mode.value === 'request' })
   scroll()
 
+  // done으로 답변(또는 폴백) 버블을 이미 출력했는지 추적. done 직후 스트림 종료 오류로
+  // catch가 실행될 때 폴백 문구가 중복으로 추가되는 것을 막는다.
+  let answered = false
+
   try {
+    // 세션은 모드 선택 시 생성되지만, 누락된 경우(생성 실패 등)를 대비해 지연 생성한다.
     if (!sessionId.value) {
       const s = await createSession()
-      sessionId.value = s.data.data.sessionId
+      sessionId.value = s.data.sessionId
     }
     const sid = sessionId.value as number
 
+    // 요청 모드: 폼 내용은 사용자 입력 q 그대로이고(BE는 별도 draftTicket을 안 내려줌),
+    // sendMessage 응답은 messageId(=sourceChatbotMessageId, optional)를 얻는 용도로만 쓰인다.
+    // 따라서 느리고 실패하기 쉬운 AI 호출에 폼 노출을 묶지 않고, 폼은 즉시 연다.
+    // messageId는 백그라운드로 받아 채우며, 실패해도(타임아웃 등) 폼/발행에는 영향이 없다.
     if (mode.value === 'request') {
-      const res = await sendMessage(sid, q)
-      const { messageId, draftTicket } = res.data.data
-      lastMessageId.value = messageId
       msgs.value = msgs.value.filter(m => m.kind !== 'loading')
-      ticketTitle.value = draftTicket?.title ?? ''
-      ticketContent.value = draftTicket?.content ?? q
+      lastMessageId.value = null
+      ticketTitle.value = ''
+      ticketContent.value = q
       ticketError.value = ''
       showTicketDialog.value = true
+      sendMessage(sid, q)
+        .then(res => { lastMessageId.value = res.data.messageId })
+        .catch(() => { /* messageId 없이도 티켓 발행 가능(sourceChatbotMessageId: null) */ })
       return
     }
 
-    const res = await sendMessage(sid, q)
-    const { messageId, answer, references, nextAction, draftQuestion, draftTicket } = res.data.data
-    lastMessageId.value = messageId
-    msgs.value = msgs.value.filter(m => m.kind !== 'loading')
-    msgs.value.push({ kind: 'answer', text: answer })
-    if (nextAction === 'SHOW_SOURCES') {
-      msgs.value.push({ kind: 'sources', sources: mapReferences(references) })
-    }
-    msgs.value.push({ kind: 'actions', userText: q, nextAction, draftQuestion, draftTicket })
-    scroll()
+    // 질문 모드: 토큰을 받아 타자치듯 답변을 출력하고(token), done으로 최종 확정한다.
+    // 첫 token 도착 시 로딩 버블을 빈 답변 버블로 교체한 뒤, 인덱스로 reactive 배열을 갱신한다.
+    let answerIdx = -1
+    await streamMessage(sid, q, {
+      onToken: (chunk) => {
+        if (answerIdx === -1) {
+          msgs.value = msgs.value.filter(m => m.kind !== 'loading')
+          msgs.value.push({ kind: 'answer', text: '' })
+          answerIdx = msgs.value.length - 1
+        }
+        const a = msgs.value[answerIdx]!
+        a.text = (a.text ?? '') + chunk
+        scroll()
+      },
+      onDone: (saved) => {
+        lastMessageId.value = saved.messageId
+        msgs.value = msgs.value.filter(m => m.kind !== 'loading')
+        // 누적된 token과 최종 content가 다를 수 있어 done.content를 확정값으로 덮어쓴다.
+        // token이 한 번도 안 온 경우(fallback 등)에도 여기서 답변 버블을 만든다.
+        // answerable=false는 RAG가 관련 지식을 찾지 못한 상태다.
+        // BE가 내려주는 기본 오류 메시지 대신 사용자 친화적인 문구로 대체한다.
+        const displayText = saved.answerable ? saved.content : '해당 질문에 대한 내용을 찾을 수 없습니다.'
+        if (answerIdx === -1) {
+          msgs.value.push({ kind: 'answer', text: displayText })
+          answerIdx = msgs.value.length - 1
+        } else {
+          msgs.value[answerIdx]!.text = displayText
+        }
+        answered = true
+        // 참조 문서는 nextAction과 무관하게 출처가 1개 이상이면 항상 표시한다.
+        // (AI SUCCESS 응답은 action=null로 내려와 nextAction이 SHOW_SOURCES가 아니기 때문)
+        const sources = mapReferences(parseReferences(saved.referencesJson))
+        if (sources.length > 0) {
+          msgs.value.push({ kind: 'sources', sources })
+        }
+        msgs.value.push({ kind: 'actions', userText: q, nextAction: saved.nextAction ?? undefined })
+        scroll()
+      },
+    })
   } catch {
     msgs.value = msgs.value.filter(m => m.kind !== 'loading')
+    // 스트림 오류 또는 세션 생성 실패 시 표준 폴백 문구를 답변 버블로 표시한다.
+    // 단, done으로 이미 답변이 출력된 뒤(스트림 종료 단계) 오류라면 폴백을 추가하지 않는다.
+    if (!answered) {
+      msgs.value.push({ kind: 'answer', text: '해당 질문에 대한 내용을 찾을 수 없습니다.' })
+    }
   } finally {
     loading.value = false
   }
@@ -184,16 +262,22 @@ function openTicketDialog(userText: string, draft?: { title: string; content: st
 }
 
 async function submitTicket() {
+  if (submittingTicket.value) return
   if (!ticketTitle.value.trim()) return
   if (ticketContent.value.trim().length < 10) {
     ticketError.value = '내용을 10자 이상 작성해주세요.'
     return
   }
+  submittingTicket.value = true
   try {
+    // TicketResponse에 발신자 필드가 없어 content 끝에 마커로 삽입한다.
+    // 대시보드에서 SENDER_RE 정규식으로 파싱해 발신자 정보를 별도 UI 영역에 표시한다.
+    const senderParts = [authStore.team, authStore.nickname].filter(Boolean)
+    const senderTag = senderParts.length ? `\n##SENDER:${senderParts.join('|')}##` : ''
     const res = await createTicket({
       sourceChatbotMessageId: lastMessageId.value,
       title: ticketTitle.value.trim(),
-      content: ticketContent.value.trim(),
+      content: ticketContent.value.trim() + senderTag,
     })
     ticketDept.value = res.data.assignedDepartmentName ?? ''
     showTicketDialog.value = false
@@ -206,6 +290,8 @@ async function submitTicket() {
     showToast('티켓이 발행되었습니다!', deptMsg)
   } catch {
     ticketError.value = '발행 중 오류가 발생했습니다. 다시 시도해주세요.'
+  } finally {
+    submittingTicket.value = false
   }
 }
 </script>
@@ -233,8 +319,8 @@ async function submitTicket() {
             </button>
           </div>
           <div class="welcome-hints">
-            <p><strong class="hint-q">질문:</strong> 사내 위키, 문서, FAQ를 검색해 답변을 찾아드려요</p>
-            <p><strong class="hint-r">요청:</strong> 담당 부서에 티켓을 발행해 처리를 요청해요</p>
+            <p><strong class="hint-q">질문:</strong> 사내 매뉴얼, 워키, FAQ를 검색하여 답변을 제공해요</p>
+            <p><strong class="hint-r">요청:</strong> 담당 부서에 티켓을 발행하여 업무 처리를 요청해요</p>
           </div>
         </div>
 
@@ -255,7 +341,11 @@ async function submitTicket() {
                 <span :class="['badge', m.msgMode === 'question' ? 'badge--blue' : 'badge--purple']">
                   {{ m.msgMode === 'question' ? '질문 모드' : '요청 모드' }}
                 </span>
-                <button class="mode-change" :disabled="loading" @click="changeMode">변경</button>
+                <button
+                  :class="['mode-change', m.msgMode === 'question' ? 'mode-change--blue' : 'mode-change--purple']"
+                  :disabled="loading"
+                  @click="changeMode"
+                >모드 변경</button>
               </div>
               <p class="mode-text">{{ m.text }}</p>
             </div>
@@ -279,11 +369,12 @@ async function submitTicket() {
           </div>
 
           <!-- 액션 버튼 -->
+          <!-- 노잇이 답변하지 못한 경우에도 사용자가 워키 질문 등록 / 티켓 발송 중 선택할 수 있도록 두 버튼을 항상 함께 노출한다. -->
           <div v-else-if="m.kind === 'actions'" class="msg-actions">
-            <button v-if="m.nextAction !== 'CREATE_TICKET'" class="btn btn--outline" @click="openWorkyDialog(m.draftQuestion)">
+            <button class="btn btn--outline" @click="openWorkyDialog(m.draftQuestion)">
               <Plus :size="13" /> 워키에 질문 등록하기
             </button>
-            <button v-if="m.nextAction !== 'CREATE_WORKI'" class="btn btn--outline btn--purple" @click="openTicketDialog(m.userText ?? '', m.draftTicket)">
+            <button class="btn btn--outline btn--purple" @click="openTicketDialog(m.userText ?? '', m.draftTicket)">
               <Ticket :size="13" /> 담당 부서에 문의하기
             </button>
           </div>
@@ -303,11 +394,14 @@ async function submitTicket() {
       </div>
     </div>
 
-    <!-- 도움말 버튼 -->
+    <!-- 도움말 버튼 — ?tab=usage 쿼리로 FAQ 시스템 사용법 탭을 직접 연다 -->
     <div class="help-row">
-      <button class="help-btn" @click="router.push('/faq')">
-        <HelpCircle :size="36" />
-      </button>
+      <div class="help-wrap">
+        <span class="help-tooltip">사용법이 궁금해요</span>
+        <button class="help-btn" @click="router.push('/faq?tab=usage')">
+          <HelpCircle :size="36" />
+        </button>
+      </div>
     </div>
 
     <!-- 입력 영역 -->
@@ -367,9 +461,12 @@ async function submitTicket() {
 
   <!-- 티켓 발행 다이얼로그 -->
   <Teleport to="body">
-    <div v-if="showTicketDialog" class="dialog-overlay" @click.self="showTicketDialog = false">
+    <div v-if="showTicketDialog" class="dialog-overlay">
       <div class="dialog dialog--wide">
         <div class="dialog-header">
+          <button class="dialog-close" aria-label="닫기" @click="showTicketDialog = false">
+            <X :size="18" />
+          </button>
           <h3>티켓 발행</h3>
           <p>노잇이 자동으로 담당 부서를 추천해드립니다.</p>
         </div>
@@ -389,7 +486,7 @@ async function submitTicket() {
         </div>
         <div class="dialog-footer">
           <button class="btn btn--ghost" @click="showTicketDialog = false">취소</button>
-          <button class="btn btn--purple-solid" :disabled="!ticketTitle.trim()" @click="submitTicket">티켓 발행</button>
+          <button class="btn btn--purple-solid" :disabled="!ticketTitle.trim() || submittingTicket" @click="submitTicket">티켓 발행</button>
         </div>
       </div>
     </div>
@@ -450,8 +547,24 @@ async function submitTicket() {
 .btn-mode:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-question { background: #2b7fff; color: #fff; }
 .btn-request { background: #8b5cf6; color: #fff; }
-.welcome-hints { display: flex; flex-direction: column; gap: 6px; }
-.welcome-hints p { font-size: 14px; color: #717182; margin: 0; }
+.welcome-hints {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  text-align: left;
+}
+.welcome-hints p {
+  display: flex;
+  align-items: baseline;
+  font-size: 14px;
+  color: #717182;
+  margin: 0;
+}
+.welcome-hints strong {
+  width: 38px;
+  flex-shrink: 0;
+}
 .hint-q { color: #2b7fff; }
 .hint-r { color: #8b5cf6; }
 
@@ -463,8 +576,16 @@ async function submitTicket() {
 .badge { padding: 3px 10px; border-radius: 99px; font-size: 12px; font-weight: 600; }
 .badge--blue { background: #2b7fff; color: #fff; }
 .badge--purple { background: #8b5cf6; color: #fff; }
-.mode-change { background: none; border: none; color: #717182; font-size: 13px; font-weight: 600; cursor: pointer; padding: 0; }
-.mode-change:hover { color: #1f2430; }
+.mode-change {
+  background: none; border: 1px solid; font-size: 12px; font-weight: 600;
+  cursor: pointer; padding: 4px 12px; border-radius: 6px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.mode-change--blue { background: #eff6ff; border-color: #93c5fd; color: #2563eb; }
+.mode-change--blue:hover:not(:disabled) { background: #dbeafe; border-color: #60a5fa; }
+.mode-change--purple { background: #f5f3ff; border-color: #c4b5fd; color: #7c3aed; }
+.mode-change--purple:hover:not(:disabled) { background: #ede9fe; border-color: #a78bfa; }
+.mode-change:disabled { opacity: 0.4; cursor: not-allowed; }
 .mode-text { font-size: 15px; color: #44403c; line-height: 1.7; margin: 0; white-space: pre-line; }
 
 /* ── 소스 카드 ── */
@@ -512,8 +633,25 @@ async function submitTicket() {
 
 /* ── 도움말 버튼 ── */
 .help-row { display: flex; justify-content: flex-end; padding: 4px 2%; }
+.help-wrap { position: relative; display: inline-flex; }
 .help-btn { background: none; border: none; color: #717182; cursor: pointer; padding: 6px; transition: color 0.15s; }
 .help-btn:hover { color: #1f2430; }
+.help-tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  background: #1f2430;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.help-wrap:hover .help-tooltip { opacity: 1; }
 
 /* ── 입력 영역 ── */
 .composer-area { border-top: 1px solid #eceef2; padding: 16px 2%; background: #fff; }
@@ -547,7 +685,15 @@ async function submitTicket() {
   box-shadow: 0 20px 60px rgba(0,0,0,.2);
 }
 .dialog--wide { max-width: 600px; }
-.dialog-header { padding: 24px 24px 0; }
+.dialog-header { position: relative; padding: 24px 24px 0; }
+.dialog-close {
+  position: absolute; top: 16px; right: 16px;
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border: none; border-radius: 8px;
+  background: transparent; color: #717182; cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.dialog-close:hover { background: #f3f4f6; color: #1f2430; }
 .dialog-header h3 { font-size: 17px; font-weight: 700; color: #1f2430; margin: 0 0 4px; }
 .dialog-header p { font-size: 13px; color: #717182; margin: 0; }
 .dialog-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; }

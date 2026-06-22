@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
-import { RouterView } from 'vue-router'
+import { RouterView, useRoute } from 'vue-router'
 import Sidebar from './Sidebar.vue'
 import Header from './Header.vue'
 import { useDeptStore } from '@/stores/deptStore'
 
 const deptStore = useDeptStore()
+const route = useRoute()
 onMounted(() => deptStore.load())
 </script>
 
@@ -15,7 +16,17 @@ onMounted(() => deptStore.load())
     <div class="app-main">
       <Header />
       <main class="app-content">
-        <RouterView />
+        <!-- meta.keepAlive=true인 뷰(SearchView 등)는 keep-alive로 인스턴스를 캐시해
+             상세 → 뒤로가기 시 검색 결과 등 상태를 그대로 유지한다.
+             나머지 뷰는 :key="route.path"로 경로 변경 시 항상 remount된다. -->
+        <RouterView v-slot="{ Component }">
+          <keep-alive :include="['SearchView']">
+            <component
+              :is="Component"
+              :key="route.meta?.keepAlive ? String(route.name) : route.path"
+            />
+          </keep-alive>
+        </RouterView>
       </main>
     </div>
   </div>

@@ -1,42 +1,40 @@
 <script setup lang="ts">
-// ── 페이지 개요 ──────────────────────────────────────────────
-// 지식화 게시판 상세 뷰. URL 파라미터(id)로 단건 지식 문서를 표시한다.
-//
-// 핵심 구현 포인트
-//   1. 데이터 우선순위: useKnowledgeStore 캐시에서 먼저 찾고, 없으면 getKnowledgeDetail API로 단건 조회한다.
-//      직접 URL 진입(목록 캐시 없음) 또는 size 한도(100건) 초과 항목 진입에 대응하기 위함이다.
-//   2. 경과일 색상: 7일 초록 → 30일 파랑 → 90일 주황 → 초과 빨강. 목록 뷰와 동일한 기준을 사용한다.
-//   3. 90일 경과 배너: 오래된 문서임을 독자에게 경고해 신뢰도를 명시적으로 안내한다.
+// 수기 지식 상세 페이지 — 목록에서 진입하면 스토어 캐시를 즉시 활용하고,
+// URL 직접 접근(알림 링크 등) 시에는 단건 API로 폴백해 빈 화면을 방지한다.
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ChevronLeft, Clock, AlertTriangle } from '@lucide/vue'
-import { useKnowledgeStore } from '@/stores/useKnowledgeStore'
-import { getKnowledgeDetail } from '@/api/knowledgeApi'
-import type { KnowledgeDataResponse } from '@/types/knowledge'
+import { useDirectDataStore } from '@/stores/useDirectDataStore'
+import { getDirectDataDetail } from '@/api/directDataApi'
+import type { DirectDataResponse } from '@/api/directDataApi'
 
 const router = useRouter()
 const route = useRoute()
 const id = Number(route.params.id)
 
-const knowledgeStore = useKnowledgeStore()
-// store에 없는 항목(size 상한 초과 등)을 위한 단건 조회 fallback 결과
-const fetchedItem = ref<KnowledgeDataResponse | null>(null)
+const store = useDirectDataStore()
+const fetchedItem = ref<DirectDataResponse | null>(null)
 const fallbackLoading = ref(false)
 
-// store 목록에서 먼저 찾고, 없으면 onMounted에서 단건 API로 보완한다.
+// 캐시 우선 조회: 목록 경유 진입 시 스토어에 항목이 있어 별도 요청이 불필요하다.
 const item = computed(() =>
-  knowledgeStore.items.find(m => m.knowledgeDataId === id) ?? fetchedItem.value
+  store.items.find(i => i.directDataId === id) ?? fetchedItem.value
 )
 
+// 시각(시분초)을 제거하고 날짜 단위로만 차이를 계산한다.
+// 밀리초 단위 비교는 같은 날짜라도 시간 차이에 따라 0일이 되는 오류가 있다.
 function daysSince(iso: string) {
-  return Math.floor((Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24))
+  const d = new Date(iso)
+  const from = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const now = new Date()
+  const to = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  return Math.floor((to - from) / (1000 * 60 * 60 * 24))
 }
 
-const elapsed = computed(() => (item.value ? daysSince(item.value.approvedAt) : 0))
-// 90일 경과 시 '내용이 오래됐을 수 있다'는 배너를 표시해 독자에게 신뢰도를 경고한다.
+const elapsed = computed(() => (item.value ? daysSince(item.value.updatedAt) : 0))
+// 90일 초과 문서는 내용이 현재와 다를 수 있음을 경고한다.
 const isStale = computed(() => elapsed.value > 90)
 
-// 경과일에 따라 초록→파랑→주황→빨강 순으로 색을 강조해 정보 신선도를 직관적으로 표현한다.
 function elapsedStyle(days: number) {
   if (days <= 7) return { color: '#00a63e' }
   if (days <= 30) return { color: '#2b7fff' }
@@ -49,12 +47,11 @@ function formatDate(iso: string) {
 }
 
 onMounted(async () => {
-  await knowledgeStore.load()
-  // 목록 로드 후에도 없으면 단건 API로 재조회한다. (직접 URL 진입 또는 size 한도 초과 항목)
+  await store.load()
   if (!item.value) {
     fallbackLoading.value = true
     try {
-      const res = await getKnowledgeDetail(id)
+      const res = await getDirectDataDetail(id)
       fetchedItem.value = res.data
     } catch {
       // 단건 조회도 실패하면 not-found 화면 표시
@@ -71,12 +68,11 @@ onMounted(async () => {
       <ChevronLeft :size="16" /> 목록으로
     </button>
 
-    <div v-if="knowledgeStore.loading || fallbackLoading || (!knowledgeStore.loaded && !knowledgeStore.error)" class="empty-ph" style="height: 240px;">불러오는 중...</div>
+    <div v-if="store.loading || fallbackLoading || (!store.loaded && !store.error)" class="empty-ph" style="height: 240px;">불러오는 중...</div>
     <div v-else-if="!item" class="empty-ph" style="height: 240px;">문서를 불러올 수 없습니다</div>
 
     <template v-else>
       <div class="detail-badges">
-        <span class="badge gray">{{ item.departmentName ?? '알 수 없는 부서' }}</span>
         <span class="badge" :style="elapsedStyle(elapsed)">
           <Clock :size="11" /> {{ elapsed }}일 경과
         </span>
@@ -84,23 +80,24 @@ onMounted(async () => {
 
       <div v-if="isStale" class="stale-banner">
         <AlertTriangle :size="16" />
-        이 문서는 작성된 지 {{ elapsed }}일이 지났습니다. 내용이 현재와 다를 수 있습니다.
+        이 문서는 마지막으로 수정된 지 {{ elapsed }}일이 지났습니다. 내용이 현재와 다를 수 있습니다.
       </div>
 
-      <div class="card section-card">
-        <div class="section-label">질문</div>
-        <p class="section-text">{{ item.question }}</p>
-      </div>
+      <h1 class="item-title">{{ item.title }}</h1>
 
       <div class="card section-card">
-        <div class="section-label">답변</div>
-        <p class="section-text">{{ item.answer }}</p>
+        <div class="section-label">내용</div>
+        <p class="section-text">{{ item.content }}</p>
       </div>
 
       <div class="card meta-card">
         <div class="meta-row">
-          <span class="meta-key">발행일</span>
-          <span class="meta-val">{{ formatDate(item.approvedAt) }}</span>
+          <span class="meta-key">등록일</span>
+          <span class="meta-val">{{ formatDate(item.createdAt) }}</span>
+        </div>
+        <div class="meta-row">
+          <span class="meta-key">수정일</span>
+          <span class="meta-val">{{ formatDate(item.updatedAt) }}</span>
         </div>
         <div class="meta-row">
           <span class="meta-key">정보 경과</span>
@@ -112,6 +109,7 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.item-title { font-size: 22px; font-weight: 800; color: #1f2430; margin: 0 0 18px; line-height: 1.35; }
 .detail-badges { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
 
 .stale-banner {

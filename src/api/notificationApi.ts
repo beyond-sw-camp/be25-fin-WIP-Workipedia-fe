@@ -1,12 +1,12 @@
 import http from './index'
-import type { PageParams, PageResponse } from '@/types/common'
-import type { NotificationResponse, UnreadCountResponse } from '@/types/notification'
+import type { PageResponse } from '@/types/common'
+import type { NotificationResponse, NotificationListParams, UnreadCountResponse } from '@/types/notification'
 
 // 알림 컨트롤러는 DTO를 직접 반환한다 (ApiResponse 래퍼 없음). res.data 가 곧 결과.
 // 목록은 Spring Pageable 기반이라 page 는 0-based.
 
 // 알림 목록 (페이징)
-export function getNotifications(params: PageParams = {}) {
+export function getNotifications(params: NotificationListParams = {}) {
   return http.get<PageResponse<NotificationResponse>>('/notifications', { params })
 }
 
