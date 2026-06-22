@@ -30,6 +30,20 @@ See [Vite Configuration Reference](https://vite.dev/config/).
 npm install
 ```
 
+Create a local `.env` from `.env.example` before running the dev server.
+
+```sh
+cp .env.example .env
+```
+
+Production deploy uses GitHub Actions repository variables:
+
+```text
+VITE_API_BASE_URL
+```
+
+Production deploy sets `VITE_NOTIFICATION_SSE=true` in the workflow.
+
 ### Compile and Hot-Reload for Development
 
 ```sh

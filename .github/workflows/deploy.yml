@@ -1,9 +1,10 @@
-name: Deploy Frontend to Vercel
+name: Build and Deploy Frontend
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -12,11 +13,16 @@ concurrency:
   group: frontend-production-deploy
   cancel-in-progress: true
 
+env:
+  CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+  VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+  VITE_NOTIFICATION_SSE: "true"
+
 jobs:
   deploy:
-    name: Deploy to Vercel
+    name: Build and Deploy to S3
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -31,31 +37,29 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Pull Vercel environment
+      - name: Check build environment
         run: |
-          npx vercel pull \
-            --yes \
-            --environment=production \
-            --token="${{ secrets.VERCEL_TOKEN }}"
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          test -n "${VITE_API_BASE_URL}" || {
+            echo "VITE_API_BASE_URL repository variable is required." >&2
+            exit 1
+          }
 
       - name: Build
-        run: |
-          npx vercel build \
-            --prod \
-            --token="${{ secrets.VERCEL_TOKEN }}"
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: npm run build
 
-      - name: Deploy
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Upload dist to S3
+        run: aws s3 sync dist "s3://${{ secrets.S3_FE_BUCKET }}/" --delete
+
+      - name: Invalidate CloudFront
+        if: env.CLOUDFRONT_DISTRIBUTION_ID != ''
         run: |
-          npx vercel deploy \
-            --prebuilt \
-            --prod \
-            --token="${{ secrets.VERCEL_TOKEN }}"
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          aws cloudfront create-invalidation \
+            --distribution-id "${CLOUDFRONT_DISTRIBUTION_ID}" \
+            --paths "/*"
