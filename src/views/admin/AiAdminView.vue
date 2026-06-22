@@ -51,11 +51,25 @@ watch(activeSection, (s) => localStorage.setItem(TAB_LS_KEY, s))
 // ── 토스트 (BaseToast 공통 컴포넌트 사용) ──────────────────────
 const toastVisible = ref(false)
 const toastTitle = ref('')
+const toastSub = ref('')
 const toastType = ref<'success' | 'error'>('success')
-function showSaved(message: string, type: 'success' | 'error' = 'success') {
+function showSaved(message: string, type: 'success' | 'error' = 'success', sub = '') {
   toastTitle.value = message
+  toastSub.value = sub
   toastType.value = type
   toastVisible.value = true
+}
+
+function getErrorMessage(error: unknown) {
+  if (!isAxiosError(error)) return ''
+
+  const data = error.response?.data
+  if (typeof data === 'string') return data
+  if (!data || typeof data !== 'object') return error.message
+
+  const body = data as Record<string, unknown>
+  const message = body.message ?? body.detail ?? body.error
+  return typeof message === 'string' ? message : error.message
 }
 
 // ── 프롬프트 관리 ────────────────────────────────────────────
@@ -66,7 +80,7 @@ const promptSaving = ref(false)
 async function loadPromptSettings() {
   try {
     const res = await getAiPromptSettings()
-    promptEnabled.value = res.data.enabled
+    promptEnabled.value = res.data.active
     customPrompt.value = res.data.customPrompt ?? ''
   } catch { }
 }
@@ -75,10 +89,15 @@ async function savePrompt() {
   if (promptSaving.value) return
   promptSaving.value = true
   try {
-    await updateAiPromptSettings({ enabled: promptEnabled.value, customPrompt: customPrompt.value })
+    const trimmedPrompt = customPrompt.value.trim()
+    await updateAiPromptSettings({
+      active: promptEnabled.value,
+      customPrompt: trimmedPrompt.length > 0 ? trimmedPrompt : null,
+    })
+    customPrompt.value = trimmedPrompt
     showSaved('프롬프트를 저장했습니다.')
-  } catch {
-    showSaved('저장에 실패했습니다.', 'error')
+  } catch (error) {
+    showSaved('저장에 실패했습니다.', 'error', getErrorMessage(error))
   } finally {
     promptSaving.value = false
   }
@@ -373,7 +392,7 @@ onMounted(() => {
     </div>
 
     <div class="workspace-content">
-      <BaseToast v-model="toastVisible" :title="toastTitle" :type="toastType" />
+      <BaseToast v-model="toastVisible" :title="toastTitle" :sub="toastSub" :type="toastType" />
 
         <div class="requirement-notice" :class="`requirement-notice--${sectionNotices[activeSection].tone}`">
           <span class="requirement-label">{{ sectionNotices[activeSection].label }}</span>
@@ -406,10 +425,15 @@ onMounted(() => {
                 <span></span>
               </label>
             </div>
-            <textarea v-model="customPrompt" class="large-input" :disabled="!promptEnabled"></textarea>
+            <textarea
+              v-model="customPrompt"
+              class="large-input"
+              :disabled="!promptEnabled"
+              maxlength="4000"
+            ></textarea>
             <div class="input-meta">
               <span>base_prompt는 배포 설정으로 고정됩니다.</span>
-              <span>{{ customPrompt.length }} / 2,000</span>
+              <span>{{ customPrompt.length }} / 4,000</span>
             </div>
           </div>
         </template>
