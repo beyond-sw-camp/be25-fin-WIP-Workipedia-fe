@@ -8,19 +8,23 @@ import {
   getAiPromptSettings, updateAiPromptSettings,
   getAiTools, createAiTool, updateAiTool,
   editRoutingPromptInstruction,
+  getAiSyncSetting, updateAiSyncSetting,
+  cleanupWorkiAiSyncJobs, getAiSyncCleanupLogs,
   type AiTool, type ToolType, type HttpMethod,
+  type AiSyncCleanupLog, type AiSyncCleanupResult,
 } from '@/api/aiAdminApi'
 import {
   getAdminDepartments, updateDepartmentRoutingPrompt, type AdminDepartment,
   getAdminManuals, updateAdminManualMeta, deleteAdminManual, type AdminManual, type ManualAiSyncStatus,
 } from '@/api/adminApi'
 
-type Section = 'prompt' | 'department' | 'manual' | 'tools'
+type Section = 'prompt' | 'department' | 'manual' | 'sync' | 'tools'
 
 const sections: { id: Section; label: string; group: string }[] = [
   { id: 'prompt', label: '프롬프트 관리', group: 'AI 설정' },
   { id: 'department', label: '부서 티켓 배정 관리', group: 'AI 설정' },
   { id: 'manual', label: '매뉴얼 문서 관리', group: 'AI 설정' },
+  { id: 'sync', label: 'AI 동기화 관리', group: 'AI 설정' },
   { id: 'tools', label: 'API Tool 관리', group: 'AI 설정' },
 ]
 
@@ -43,6 +47,12 @@ const sectionNotices: Record<Section, { label: string; tone: 'optional' | 'requi
     title: '매뉴얼 문서가 없어도 AI 서비스는 구동됩니다.',
     description: '매뉴얼 RAG에서 답을 찾지 못하면 Tool, 해결 티켓 이력, 티켓 생성 제안으로 다음 경로를 진행합니다.',
   },
+  sync: {
+    label: '운영 설정',
+    tone: 'monitor',
+    title: 'WORKI 청킹 데이터의 보존 기간과 정리 이력을 관리합니다.',
+    description: '오래된 WORKI AI 적재 데이터를 정리해 저장소 용량과 검색 품질을 관리합니다.',
+  },
   tools: {
     label: '선택 설정',
     tone: 'optional',
@@ -53,13 +63,14 @@ const sectionNotices: Record<Section, { label: string; tone: 'optional' | 'requi
 
 // localStorage에 마지막 활성 탭을 저장해 새로고침 후에도 탭을 유지한다.
 // 저장된 값이 유효한 Section이 아닌 경우(직접 조작 등) 기본값 'prompt'로 폴백한다.
-const VALID_SECTIONS: Section[] = ['prompt', 'department', 'manual', 'tools']
+const VALID_SECTIONS: Section[] = ['prompt', 'department', 'manual', 'sync', 'tools']
 const TAB_LS_KEY = 'workipedia_ai_admin_tab'
 const storedTab = localStorage.getItem(TAB_LS_KEY) as Section | null
 const activeSection = ref<Section>(storedTab && VALID_SECTIONS.includes(storedTab) ? storedTab : 'prompt')
 watch(activeSection, (s) => {
   localStorage.setItem(TAB_LS_KEY, s)
   if (s === 'manual') loadManuals()
+  if (s === 'sync') loadAiSyncCleanup()
 })
 
 // ── 토스트 (BaseToast 공통 컴포넌트 사용) ──────────────────────
@@ -371,6 +382,97 @@ async function confirmDeleteManual() {
   }
 }
 
+// ── AI 동기화 관리 ───────────────────────────────────────────
+const retentionOptions = [
+  { label: '90일', value: 90 },
+  { label: '180일', value: 180 },
+  { label: '1년', value: 365 },
+  { label: '2년', value: 730 },
+  { label: '3년', value: 1095 },
+  { label: '4년', value: 1460 },
+  { label: '5년', value: 1825 },
+  { label: '기한 없음', value: 0 },
+]
+const syncRetentionDays = ref(90)
+const syncSettingLoading = ref(false)
+const syncSettingSaving = ref(false)
+const syncCleanupRunning = ref(false)
+const syncCleanupResult = ref<AiSyncCleanupResult | null>(null)
+const syncCleanupLogs = ref<AiSyncCleanupLog[]>([])
+
+const syncRetentionLabel = computed(() => {
+  return retentionOptions.find(option => option.value === syncRetentionDays.value)?.label ?? `${syncRetentionDays.value}일`
+})
+
+function formatSyncCleanupTime(value?: string | null) {
+  if (!value) return '-'
+  return value.slice(0, 16).replace('T', ' ')
+}
+
+function cleanupLogTriggerLabel(triggeredBy: string) {
+  if (triggeredBy === 'MANUAL') return '수동'
+  if (triggeredBy === 'SCHEDULE') return '자동'
+  return triggeredBy
+}
+
+function cleanupResultLabel(log: AiSyncCleanupLog) {
+  return log.failedCount > 0 ? '일부 실패' : '완료'
+}
+
+async function loadAiSyncCleanup() {
+  await Promise.all([loadAiSyncSetting(), loadAiSyncLogs()])
+}
+
+async function loadAiSyncSetting() {
+  syncSettingLoading.value = true
+  try {
+    const res = await getAiSyncSetting()
+    syncRetentionDays.value = res.data.retentionDays
+  } catch (error) {
+    showSaved('AI 동기화 설정을 불러오지 못했습니다.', 'error', getErrorMessage(error))
+  } finally {
+    syncSettingLoading.value = false
+  }
+}
+
+async function loadAiSyncLogs() {
+  try {
+    const res = await getAiSyncCleanupLogs(10)
+    syncCleanupLogs.value = res.data
+  } catch (error) {
+    showSaved('정리 이력을 불러오지 못했습니다.', 'error', getErrorMessage(error))
+  }
+}
+
+async function saveAiSyncSetting() {
+  if (syncSettingSaving.value) return
+  syncSettingSaving.value = true
+  try {
+    const res = await updateAiSyncSetting({ retentionDays: syncRetentionDays.value })
+    syncRetentionDays.value = res.data.retentionDays
+    showSaved('AI 동기화 보존 기간이 저장되었습니다.')
+  } catch (error) {
+    showSaved('AI 동기화 설정 저장에 실패했습니다.', 'error', getErrorMessage(error))
+  } finally {
+    syncSettingSaving.value = false
+  }
+}
+
+async function runWorkiCleanup() {
+  if (syncCleanupRunning.value) return
+  syncCleanupRunning.value = true
+  try {
+    const res = await cleanupWorkiAiSyncJobs()
+    syncCleanupResult.value = res.data
+    await loadAiSyncLogs()
+    showSaved('WORKI 청킹 데이터 정리를 실행했습니다.')
+  } catch (error) {
+    showSaved('정리 실행에 실패했습니다.', 'error', getErrorMessage(error))
+  } finally {
+    syncCleanupRunning.value = false
+  }
+}
+
 // ── API Tool 관리 ─────────────────────────────────────────────
 const tools = ref<AiTool[]>([])
 const toolFilter = ref('전체')
@@ -546,6 +648,7 @@ onMounted(() => {
   loadPromptSettings()
   loadDepts()
   if (activeSection.value === 'manual') loadManuals()
+  if (activeSection.value === 'sync') loadAiSyncCleanup()
   loadTools()
 })
 </script>
@@ -816,6 +919,111 @@ onMounted(() => {
           </div>
         </template>
 
+        <!-- ── AI 동기화 관리 ── -->
+        <template v-else-if="activeSection === 'sync'">
+          <div class="workspace-title">
+            <div>
+              <h2>AI 동기화 관리</h2>
+              <p>WORKI 청킹 데이터의 보존 기간을 설정하고 오래된 적재 데이터를 정리합니다.</p>
+            </div>
+          </div>
+
+          <div class="sync-grid">
+            <section class="setting-block sync-panel">
+              <div class="setting-heading">
+                <div>
+                  <h3>정리 설정</h3>
+                  <p>WORKI AI 청킹 데이터를 보관할 기간을 선택합니다.</p>
+                </div>
+                <button class="button button--primary" :disabled="syncSettingSaving || syncSettingLoading" @click="saveAiSyncSetting">
+                  {{ syncSettingSaving ? '저장 중...' : '저장' }}
+                </button>
+              </div>
+              <label class="sync-field">
+                <span>보존 기간</span>
+                <select v-model.number="syncRetentionDays" class="manual-filter-select">
+                  <option v-for="option in retentionOptions" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+              </label>
+              <p class="sync-help" :class="{ 'sync-help--warning': syncRetentionDays === 0 }">
+                {{ syncRetentionDays === 0
+                  ? '기한 없음으로 저장하면 자동 정리가 수행되지 않습니다.'
+                  : `${syncRetentionLabel}보다 오래된 WORKI 동기화 데이터를 정리 대상으로 봅니다.` }}
+              </p>
+            </section>
+
+            <section class="setting-block sync-panel">
+              <div class="setting-heading">
+                <div>
+                  <h3>수동 정리 실행</h3>
+                  <p>현재 보존 기간 기준으로 오래된 WORKI 청킹 데이터를 즉시 정리합니다.</p>
+                </div>
+                <button class="button button--primary" :disabled="syncCleanupRunning" @click="runWorkiCleanup">
+                  {{ syncCleanupRunning ? '정리 중...' : '지금 정리 실행' }}
+                </button>
+              </div>
+              <div class="sync-result-row">
+                <div class="sync-result">
+                  <span>삭제</span>
+                  <strong>{{ syncCleanupResult?.deleted ?? '-' }}</strong>
+                </div>
+                <div class="sync-result">
+                  <span>스킵</span>
+                  <strong>{{ syncCleanupResult?.skipped ?? '-' }}</strong>
+                </div>
+                <div class="sync-result">
+                  <span>실패</span>
+                  <strong :class="{ 'sync-result--danger': (syncCleanupResult?.failed ?? 0) > 0 }">
+                    {{ syncCleanupResult?.failed ?? '-' }}
+                  </strong>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div class="workspace-title sync-history-title">
+            <div>
+              <h3>실행 이력</h3>
+              <p>최근 정리 내역 10건을 표시합니다.</p>
+            </div>
+            <button class="button button--secondary" @click="loadAiSyncLogs">새로고침</button>
+          </div>
+
+          <div class="table-wrap">
+            <table class="editable-table sync-history-table">
+              <thead>
+                <tr>
+                  <th>실행 시각</th>
+                  <th>트리거</th>
+                  <th>삭제</th>
+                  <th>스킵</th>
+                  <th>실패</th>
+                  <th>결과</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="log in syncCleanupLogs" :key="`${log.completedAt}-${log.triggeredBy}`">
+                  <td>{{ formatSyncCleanupTime(log.completedAt) }}</td>
+                  <td>{{ cleanupLogTriggerLabel(log.triggeredBy) }}</td>
+                  <td>{{ log.deletedCount }}</td>
+                  <td>{{ log.skippedCount }}</td>
+                  <td>{{ log.failedCount }}</td>
+                  <td>
+                    <span :class="['badge', log.failedCount > 0 ? 'badge--amber' : 'badge--green']">
+                      {{ cleanupResultLabel(log) }}
+                    </span>
+                  </td>
+                </tr>
+                <tr v-if="syncCleanupLogs.length === 0">
+                  <td colspan="6" style="text-align: center; color: #b0b8c1; padding: 28px;">실행 이력이 없습니다.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
+
         <!-- ── API Tool 관리 ── -->
         <template v-else-if="activeSection === 'tools'">
           <div class="workspace-title">
@@ -1070,6 +1278,21 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
 .manual-page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .manual-page-btn--active { background: #1769c2; color: #fff; border-color: #1769c2; }
 
+.sync-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 22px; }
+.sync-panel { min-height: 190px; }
+.sync-field { display: flex; flex-direction: column; gap: 7px; color: #53606d; font-size: 12px; font-weight: 700; }
+.sync-field select { width: min(260px, 100%); }
+.sync-help { margin-top: 12px; color: #6f7a85; font-size: 12px; line-height: 1.55; }
+.sync-help--warning { color: #b45309; }
+.sync-result-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.sync-result { min-height: 76px; padding: 13px; border: 1px solid #e1e6eb; border-radius: 7px; background: #f8fafc; }
+.sync-result span { display: block; color: #74808b; font-size: 11px; }
+.sync-result strong { display: block; margin-top: 8px; color: #25313d; font-size: 22px; }
+.sync-result--danger { color: #b91c1c !important; }
+.sync-history-title { margin-top: 4px; margin-bottom: 12px; }
+.sync-history-title h3 { font-size: 16px; }
+.sync-history-table { min-width: 720px; }
+
 .toast { position: fixed; z-index: 30; top: 22px; right: 24px; padding: 10px 14px; border-radius: 5px; background: #253341; color: #fff; font-size: 12px; box-shadow: 0 6px 18px rgba(0,0,0,.14); }
 .modal-backdrop { position: fixed; z-index: 40; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(20,28,36,.45); }
 .modal { width: min(480px, 100%); padding: 22px; border-radius: 7px; background: #fff; box-shadow: 0 16px 44px rgba(0,0,0,.22); display: flex; flex-direction: column; gap: 15px; }
@@ -1094,6 +1317,7 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
   .tab-bar { border-radius: 8px; }
   .workspace-title { align-items: flex-start; }
   .metric-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sync-grid { grid-template-columns: 1fr; }
   .table-wrap { overflow-x: auto; }
   table { min-width: 680px; }
 }
