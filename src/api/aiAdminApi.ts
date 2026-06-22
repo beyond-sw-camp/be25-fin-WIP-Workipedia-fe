@@ -4,15 +4,20 @@ import type { PageResponse, PageParams } from '@/types/common'
 
 // ── 프롬프트 설정 ──────────────────────────────────────────
 export interface AiPromptSettings {
-  customPrompt: string
-  enabled: boolean
+  customPrompt: string | null
+  active: boolean
+}
+
+export interface UpdateAiPromptSettingsRequest {
+  customPrompt: string | null
+  active: boolean
 }
 
 export function getAiPromptSettings() {
   return http.get<AiPromptSettings>('/admin/ai-prompt-settings')
 }
 
-export function updateAiPromptSettings(body: AiPromptSettings) {
+export function updateAiPromptSettings(body: UpdateAiPromptSettingsRequest) {
   return http.put<AiPromptSettings>('/admin/ai-prompt-settings', body)
 }
 
