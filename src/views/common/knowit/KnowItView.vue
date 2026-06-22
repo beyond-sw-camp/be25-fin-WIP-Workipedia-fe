@@ -145,6 +145,10 @@ async function send() {
   msgs.value.push({ kind: 'loading', isTicket: mode.value === 'request' })
   scroll()
 
+  // done으로 답변(또는 폴백) 버블을 이미 출력했는지 추적. done 직후 스트림 종료 오류로
+  // catch가 실행될 때 폴백 문구가 중복으로 추가되는 것을 막는다.
+  let answered = false
+
   try {
     // 세션은 모드 선택 시 생성되지만, 누락된 경우(생성 실패 등)를 대비해 지연 생성한다.
     if (!sessionId.value) {
@@ -198,6 +202,7 @@ async function send() {
         } else {
           msgs.value[answerIdx]!.text = displayText
         }
+        answered = true
         // 참조 문서는 nextAction과 무관하게 출처가 1개 이상이면 항상 표시한다.
         // (AI SUCCESS 응답은 action=null로 내려와 nextAction이 SHOW_SOURCES가 아니기 때문)
         const sources = mapReferences(parseReferences(saved.referencesJson))
@@ -211,7 +216,10 @@ async function send() {
   } catch {
     msgs.value = msgs.value.filter(m => m.kind !== 'loading')
     // 스트림 오류 또는 세션 생성 실패 시 표준 폴백 문구를 답변 버블로 표시한다.
-    msgs.value.push({ kind: 'answer', text: '해당 질문에 대한 내용을 찾을 수 없습니다.' })
+    // 단, done으로 이미 답변이 출력된 뒤(스트림 종료 단계) 오류라면 폴백을 추가하지 않는다.
+    if (!answered) {
+      msgs.value.push({ kind: 'answer', text: '해당 질문에 대한 내용을 찾을 수 없습니다.' })
+    }
   } finally {
     loading.value = false
   }
