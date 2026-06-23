@@ -49,7 +49,11 @@ function formatDate(iso: string) {
   return iso.slice(0, 10).replace(/-/g, '.')
 }
 
-// 원본 티켓 답변에서 첨부파일 정보를 가져오고, 원본 티켓 본문도 함께 표시한다.
+// item이 확정되면 원본 티켓 답변의 첨부파일과 원본 본문을 가져온다.
+// onMounted 대신 watch(item, { immediate }) 를 쓰는 이유:
+//   item은 store 캐시(목록 경유)와 단건 API(직접 URL 진입) 두 경로로 확정되므로
+//   어느 쪽이든 item이 변경되는 순간 한 번만 실행하면 된다.
+// ticketId는 admin 엔드포인트에서만 반환되므로 USER 권한 등에서는 조기 종료된다.
 const answerFiles = ref<{ fileUrl: string; fileName: string | null; fileSize: number | null }[]>([])
 const originalTicketBody = ref('')
 const SENDER_RE = /\n##SENDER:(.+)##$/
@@ -119,7 +123,7 @@ onMounted(async () => {
         <div class="section-label">질문</div>
         <p class="section-text">{{ item.question }}</p>
         <template v-if="originalTicketBody && originalTicketBody !== item.question">
-          <div class="original-body-label">원본 내용</div>
+          <div class="original-body-label">내용</div>
           <p class="section-text original-body-text">{{ originalTicketBody }}</p>
         </template>
       </div>

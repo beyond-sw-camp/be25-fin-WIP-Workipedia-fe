@@ -38,9 +38,9 @@ export function assignTicket(ticketId: number, data: TicketAssigneeRequest) {
 }
 
 // 답변 등록 — BE에서 티켓 상태를 COMPLETED로 전환하고 AI 지식화 초안을 생성한다.
-// 파일은 storageApi.uploadFilesToStorage로 먼저 업로드한 뒤 objectKey를 전달한다.
-// BE TicketAnswerCreateRequest는 fileKey: String(단수)만 지원한다.
-// 멀티파일을 첨부해도 첫 번째 objectKey만 전달하고, BE가 fileKeys: List<String>을 지원하면 그때 확장한다.
+// 파일 첨부 흐름: storageApi.uploadFileAndGetKey(file)로 presigned URL 업로드 후
+// 반환된 objectKey를 fileKey로 전달한다. BE는 fileKey: String(단수)만 지원하므로
+// 멀티파일이 필요해지면 BE의 fileKeys: List<String> 지원 이후 확장한다.
 export function answerTicket(ticketId: number, content: string, fileKey?: string) {
   if (!fileKey) return http.post<TicketAnswerResponse>(`/tickets/${ticketId}/answers`, { content })
   return http.post<TicketAnswerResponse>(`/tickets/${ticketId}/answers`, { content, fileKey })

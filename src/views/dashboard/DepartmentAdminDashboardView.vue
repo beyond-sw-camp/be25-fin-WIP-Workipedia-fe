@@ -115,9 +115,6 @@ const submitError = ref('')
 const transferError = ref('')
 const fileInputEl = ref<HTMLInputElement | null>(null)
 
-// BE fileUrl 우선, 없으면 blob URL(세션 메모리)로 폴백한다.
-type SavedFile = { name: string; size: number; url: string }
-const sessionFiles = reactive<Record<number, SavedFile[]>>({})
 // 지식화 승인 카드에서 원본 답변 첨부파일을 표시하기 위해 ticketId별로 캐싱한다.
 const kAnswerFiles = ref<Record<number, AnswerFileInfo[]>>({})
 // k-card에 원본 티켓 본문을 표시하기 위해 ticketId별로 캐싱한다.
@@ -315,9 +312,10 @@ function onFileChange(e: Event) {
   inp.value = ''
 }
 
-// 답변 등록 시 BE가 티켓 상태를 COMPLETED로 전환하고 AI 지식화 초안을 생성한다.
-// 파일이 있으면 multipart로 전송한다. BE가 fileUrl을 반환하면 blob URL 폴백을 사용하지 않는다.
-// 답변 후 loadTickets + loadKnowledge를 재호출해 티켓 목록과 지식화 큐를 즉시 갱신한다.
+// 답변 제출 흐름:
+//   1. 파일이 있으면 uploadFileAndGetKey로 presigned URL 업로드 → objectKey 획득
+//   2. POST /tickets/{id}/answers(fileKey) → BE가 티켓 COMPLETED 전환 + 파일 DB 저장
+//   3. loadTickets + loadKnowledge 재호출로 티켓 목록·지식화 큐 즉시 갱신
 async function submitAnswer() {
   if (!selectedTicket.value || !answerText.value.trim()) return
   submitting.value = true

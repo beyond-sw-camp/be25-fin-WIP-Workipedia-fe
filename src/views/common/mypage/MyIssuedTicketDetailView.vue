@@ -30,6 +30,9 @@ onMounted(async () => {
   if (!Number.isFinite(id)) { error.value = '잘못된 접근입니다.'; return }
   loading.value = true
   try {
+    // 티켓 상세와 최신 답변을 병렬 조회한다.
+    // getLatestAnswer는 TEAM_ADMIN 전용 엔드포인트일 수 있어 USER 권한으로 403이 날 수 있다.
+    // Promise.allSettled로 한 쪽이 실패해도 나머지 결과를 처리한다.
     const [ticketRes, answerRes] = await Promise.allSettled([
       getMyTicketDetail(id),
       getLatestAnswer(id),
@@ -40,16 +43,26 @@ onMounted(async () => {
       error.value = '티켓을 불러오지 못했습니다.'
     }
     if (answerRes.status === 'fulfilled') {
+      // getLatestAnswer 성공: files[] 우선, 없으면 단일 fileUrl
       const a = answerRes.value.data
       if (a.files?.length) {
         answerFiles.value = a.files.filter(f => !!f.fileUrl)
       } else if (a.fileUrl) {
         answerFiles.value = [{ fileKey: a.fileKey ?? '', fileUrl: a.fileUrl, fileName: a.fileName, fileContentType: a.fileContentType, fileSize: a.fileSize }]
       }
-      // a.fileUrl이 null이면 이 답변에는 첨부 파일이 없음 (fallback 유지)
     } else {
-      // DevTools Network 탭에서 GET /tickets/{id}/answers/latest 응답 코드를 확인하세요.
-      console.warn('[MyIssuedTicketDetailView] getLatestAnswer 실패 (ticketId=%d):', id, (answerRes as PromiseRejectedResult).reason)
+      // getLatestAnswer 실패(권한 없음 등) 시 GET /me/tickets/{id} 응답의
+      // answer.fileUrl로 폴백한다. BE가 이 필드를 채우면 자동으로 표시된다.
+      const fallback = ticket.value?.answer
+      if (fallback?.fileUrl) {
+        answerFiles.value = [{
+          fileKey: '',
+          fileUrl: fallback.fileUrl,
+          fileName: fallback.fileName ?? null,
+          fileContentType: null,
+          fileSize: fallback.fileSize ?? null,
+        }]
+      }
     }
   } finally {
     loading.value = false

@@ -49,12 +49,6 @@ export interface TicketResponse {
   updatedAt: string
 }
 
-// BE: ticket.dto.TicketAnswerCreateRequest
-export interface TicketAnswerRequest {
-  content: string
-  fileKeys?: string[]
-}
-
 // BE: ticket.dto.AnswerFileInfo — 복수 첨부파일 항목
 export interface AnswerFileInfo {
   fileKey: string
