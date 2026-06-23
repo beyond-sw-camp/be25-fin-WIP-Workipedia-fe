@@ -8,7 +8,7 @@ import {
 import BaseToast from '@/components/common/BaseToast.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import {
-  getDashboardSummary, getAdminUsers, updateUserStatus,
+  getDashboardSummary, getAdminUsers, updateUserStatus, updateUserRole,
   getAdminManuals, createAdminManual, updateAdminManual, updateAdminManualMeta, deleteAdminManual,
   getAdminDepartments, createAdminDepartment, updateAdminDepartment, updateDepartmentRoutingPrompt, deleteAdminDepartment,
   getAdminPoints, deductAdminPoints,
@@ -98,6 +98,40 @@ async function toggleUserStatus(userId: number, current: 'ACTIVE' | 'INACTIVE') 
     showToast(next === 'ACTIVE' ? '계정이 활성화되었습니다.' : '계정이 비활성화되었습니다.')
   } catch {
     showToast('상태 변경에 실패했습니다.', '', 'error')
+  }
+}
+
+// USER → TEAM_ADMIN 단방향 승격. BE는 이미 TEAM_ADMIN이거나 USER가 아닌 경우 400을 반환한다.
+// 승격은 되돌릴 수 없으므로 confirmPromoteTarget으로 모달을 먼저 띄운 뒤 confirmPromote에서 실행한다.
+// 같은 부서에 활성 TEAM_ADMIN이 이미 있으면 모달 대신 에러 토스트를 띄운다.
+const confirmPromoteTarget = ref<AdminUser | null>(null)
+
+function openPromoteModal(user: AdminUser) {
+  const existing = adminUsers.value.find(
+    u => u.departmentId === user.departmentId && u.role === 'TEAM_ADMIN' && u.status === 'ACTIVE'
+  )
+  if (existing) {
+    showToast(
+      '이미 부서 관리자가 존재합니다.',
+      `${user.departmentName ?? '해당 부서'}의 팀 관리자(${existing.employeeId})가 이미 있습니다.`,
+      'error'
+    )
+    return
+  }
+  confirmPromoteTarget.value = user
+}
+
+async function confirmPromote() {
+  if (!confirmPromoteTarget.value) return
+  try {
+    const res = await updateUserRole(confirmPromoteTarget.value.userId, 'TEAM_ADMIN')
+    const idx = adminUsers.value.findIndex(u => u.userId === confirmPromoteTarget.value!.userId)
+    if (idx !== -1) adminUsers.value[idx] = res.data
+    showToast('팀 관리자로 승격되었습니다.')
+  } catch {
+    showToast('역할 변경에 실패했습니다.', '', 'error')
+  } finally {
+    confirmPromoteTarget.value = null
   }
 }
 
@@ -1007,7 +1041,7 @@ onMounted(() => {
       <div class="sec-head" style="margin-bottom:20px;">
         <div>
           <h3 class="sec-title"><Users :size="17" color="#1f2430" /> 사용자 관리</h3>
-          <p class="sec-desc">사용자 계정을 검색하고 활성화/비활성화할 수 있습니다</p>
+          <p class="sec-desc">사용자 계정을 검색하고 활성화/비활성화하거나 팀 관리자로 승격할 수 있습니다</p>
         </div>
       </div>
 
@@ -1031,17 +1065,28 @@ onMounted(() => {
           <div class="user-info">
             <div class="user-id-row">
               <span class="user-id">{{ u.employeeId }}</span>
+              <span v-if="u.role === 'TEAM_ADMIN'" class="badge" style="background:#eff6ff; color:#2b7fff; font-size:11px;">팀 관리자</span>
+              <span v-else-if="u.role === 'SYSTEM_ADMIN'" class="badge" style="background:#faf5ff; color:#a855f7; font-size:11px;">시스템 관리자</span>
               <span v-if="u.status === 'INACTIVE'" class="badge" style="background:#fef2f2; color:#ef4444; font-size:11px;">비활성</span>
             </div>
             <div class="user-meta">{{ u.departmentName }} · 최근 로그인: {{ u.lastLoginAt?.slice(0, 10) ?? '기록 없음' }}</div>
           </div>
-          <button
-            :class="['btn', u.status === 'ACTIVE' ? 'danger' : 'primary']"
-            :disabled="u.userId === auth.userId || u.role === 'SYSTEM_ADMIN'"
-            :title="u.userId === auth.userId ? '본인 계정은 변경할 수 없습니다' : u.role === 'SYSTEM_ADMIN' ? '관리자 계정은 변경할 수 없습니다' : ''"
-            @click="toggleUserStatus(u.userId, u.status)">
-            {{ u.status === 'ACTIVE' ? '비활성화' : '활성화' }}
-          </button>
+          <div class="user-btns">
+            <button
+              v-if="u.role === 'USER'"
+              class="btn role-promote"
+              title="팀 관리자로 승격"
+              @click="openPromoteModal(u)">
+              팀 관리자 승격
+            </button>
+            <button
+              :class="['btn', u.status === 'ACTIVE' ? 'danger' : 'primary']"
+              :disabled="u.userId === auth.userId || u.role === 'SYSTEM_ADMIN'"
+              :title="u.userId === auth.userId ? '본인 계정은 변경할 수 없습니다' : u.role === 'SYSTEM_ADMIN' ? '관리자 계정은 변경할 수 없습니다' : ''"
+              @click="toggleUserStatus(u.userId, u.status)">
+              {{ u.status === 'ACTIVE' ? '비활성화' : '활성화' }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -1240,6 +1285,22 @@ onMounted(() => {
         </div>
       </div>
 
+      <!-- 팀 관리자 승격 확인 -->
+      <div v-if="confirmPromoteTarget" class="modal-overlay" @click.self="confirmPromoteTarget = null">
+        <div class="modal-box">
+          <h4 class="modal-title">팀 관리자로 승격하시겠습니까?</h4>
+          <p class="modal-desc">
+            <strong>{{ confirmPromoteTarget.employeeId }}</strong> 님을
+            팀 관리자로 승격합니다.<br />
+            <span class="promote-warn">⚠️ 한 번 승격하면 일반 사용자로 되돌릴 수 없습니다.</span>
+          </p>
+          <div class="btn-row" style="justify-content:flex-end;">
+            <button class="btn" @click="confirmPromoteTarget = null">취소</button>
+            <button class="btn primary" @click="confirmPromote">승격</button>
+          </div>
+        </div>
+      </div>
+
       <!-- 수기 지식 삭제 -->
       <BaseModal
         :model-value="deleteKnowledgeId !== null"
@@ -1392,6 +1453,10 @@ onMounted(() => {
 .btn.danger { background: #fef2f2; color: #ef4444; border: none; }
 .btn.danger:hover { background: #fee2e2; }
 .btn:disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
+.user-btns { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.btn.role-promote { background: #eff6ff; color: #2b7fff; border-color: #bfdbfe; font-size: 12px; white-space: nowrap; }
+.btn.role-promote:hover { background: #dbeafe; }
+.promote-warn { display: inline-block; margin-top: 8px; font-size: 12.5px; color: #e25c1e; }
 
 /* ── Points ── */
 .deduct-form {
