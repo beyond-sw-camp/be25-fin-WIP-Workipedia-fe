@@ -20,7 +20,7 @@ import {
   ChevronLeft, ChevronRight, Edit2, Send, ArrowRightLeft, TrendingUp, XCircle,
 } from '@lucide/vue'
 import { getTickets, getTicketDetail, answerTicket, transferTicket, getLatestAnswer } from '@/api/ticketApi'
-import { uploadFilesToStorage } from '@/api/storageApi'
+import { uploadFileAndGetKey } from '@/api/storageApi'
 import {
   getTeamKnowledgeCandidates, approveKnowledgeCandidate, rejectKnowledgeCandidate,
   getKnowledgeTrend, getChatbotTicketTrend,
@@ -108,7 +108,7 @@ const showAnswerDialog = ref(false)
 const showTransferDialog = ref(false)
 const answerText = ref('')
 const transferReason = ref('')
-const uploadedFiles = ref<File[]>([])
+const uploadedFile = ref<File | null>(null)
 const submitting = ref(false)
 const transferring = ref(false)
 const submitError = ref('')
@@ -297,7 +297,7 @@ function closeDetail() {
 function openAnswer() {
   showDetailDialog.value = false
   answerText.value = ''
-  uploadedFiles.value = []
+  uploadedFile.value = null
   submitError.value = ''
   showAnswerDialog.value = true
 }
@@ -305,18 +305,14 @@ function openAnswer() {
 function closeAnswer() {
   showAnswerDialog.value = false
   answerText.value = ''
-  uploadedFiles.value = []
+  uploadedFile.value = null
   submitError.value = ''
 }
 
 function onFileChange(e: Event) {
   const inp = e.target as HTMLInputElement
-  uploadedFiles.value = [...uploadedFiles.value, ...Array.from(inp.files ?? [])]
+  uploadedFile.value = inp.files?.[0] ?? null
   inp.value = ''
-}
-
-function removeFile(i: number) {
-  uploadedFiles.value = uploadedFiles.value.filter((_, idx) => idx !== i)
 }
 
 // 답변 등록 시 BE가 티켓 상태를 COMPLETED로 전환하고 AI 지식화 초안을 생성한다.
@@ -328,9 +324,9 @@ async function submitAnswer() {
   submitError.value = ''
   try {
     const ticketId = selectedTicket.value.ticketId
-    const files = [...uploadedFiles.value]
-
-    const fileKey = files.length ? (await uploadFilesToStorage(files))[0] : undefined
+    const fileKey = uploadedFile.value
+      ? await uploadFileAndGetKey(uploadedFile.value)
+      : undefined
     await answerTicket(ticketId, answerText.value.trim(), fileKey)
     await loadTickets()
     // loadTickets()는 myDoneTickets를 assigneeId === auth.userId 로 필터링한다.
@@ -776,16 +772,16 @@ function ticketSender(content: string) {
           </div>
           <div class="field">
             <label class="field-label">파일 첨부</label>
-            <input ref="fileInputEl" type="file" multiple accept=".pdf,.txt,.docx,image/*" class="hidden-input" @change="onFileChange" />
+            <input ref="fileInputEl" type="file" accept=".pdf,.txt,.docx,image/*" class="hidden-input" @change="onFileChange" />
             <button class="btn btn-outline" @click="fileInputEl?.click()">
               <Paperclip :size="13" /> 파일 선택
             </button>
-            <div v-if="uploadedFiles.length" class="file-list">
-              <div v-for="(f, i) in uploadedFiles" :key="i" class="file-item">
+            <div v-if="uploadedFile" class="file-list">
+              <div class="file-item">
                 <Paperclip :size="13" style="color:#aeb2bb;flex-shrink:0;" />
-                <span class="file-name">{{ f.name }}</span>
-                <span class="file-size">({{ (f.size / 1024).toFixed(1) }}KB)</span>
-                <button class="file-remove" @click.stop="removeFile(i)"><X :size="13" /></button>
+                <span class="file-name">{{ uploadedFile.name }}</span>
+                <span class="file-size">({{ (uploadedFile.size / 1024).toFixed(1) }}KB)</span>
+                <button class="file-remove" @click.stop="uploadedFile = null"><X :size="13" /></button>
               </div>
             </div>
           </div>

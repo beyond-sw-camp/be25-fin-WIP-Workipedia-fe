@@ -14,7 +14,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { Ticket, Clock, CheckCircle2, Bot, UserCheck, Paperclip, X, ChevronLeft, ChevronRight } from '@lucide/vue'
 import { getTickets, answerTicket, getLatestAnswer } from '@/api/ticketApi'
-import { uploadFilesToStorage } from '@/api/storageApi'
+import { uploadFileAndGetKey } from '@/api/storageApi'
 import { useAuthStore } from '@/stores/authStore'
 import type { TicketResponse, TicketAnswerResponse } from '@/types/ticket'
 import BaseToast from '@/components/common/BaseToast.vue'
@@ -75,7 +75,7 @@ const donePaged = computed(() => doneTickets.value.slice(donePage.value * PAGE_S
 const selectedTicket = ref<TicketResponse | null>(null)
 const showAnswerDialog = ref(false)
 const answerText = ref('')
-const uploadedFiles = ref<File[]>([])
+const uploadedFile = ref<File | null>(null)
 const submitting = ref(false)
 const submitError = ref('')
 const fileInputEl = ref<HTMLInputElement | null>(null)
@@ -228,7 +228,7 @@ function fromNow(iso: string) {
 function openAnswer(t: TicketResponse) {
   selectedTicket.value = t
   answerText.value = ''
-  uploadedFiles.value = []
+  uploadedFile.value = null
   submitError.value = ''
   showAnswerDialog.value = true
 }
@@ -237,18 +237,14 @@ function closeAnswer() {
   showAnswerDialog.value = false
   selectedTicket.value = null
   answerText.value = ''
-  uploadedFiles.value = []
+  uploadedFile.value = null
   submitError.value = ''
 }
 
 function onFileChange(e: Event) {
   const inp = e.target as HTMLInputElement
-  uploadedFiles.value = [...uploadedFiles.value, ...Array.from(inp.files ?? [])]
+  uploadedFile.value = inp.files?.[0] ?? null
   inp.value = ''
-}
-
-function removeFile(i: number) {
-  uploadedFiles.value = uploadedFiles.value.filter((_, idx) => idx !== i)
 }
 
 // 답변 제출 흐름:
@@ -264,9 +260,9 @@ async function submitAnswer() {
   submitError.value = ''
   try {
     const ticketId = selectedTicket.value.ticketId
-    const files = [...uploadedFiles.value]
-
-    const fileKey = files.length ? (await uploadFilesToStorage(files))[0] : undefined
+    const fileKey = uploadedFile.value
+      ? await uploadFileAndGetKey(uploadedFile.value)
+      : undefined
     await answerTicket(ticketId, answerText.value.trim(), fileKey)
     answeredInSession.add(ticketId)
     try { localStorage.setItem(ANSWERED_KEY, JSON.stringify([...answeredInSession])) } catch {}
@@ -530,7 +526,6 @@ function ticketSender(content: string) {
             <input
               ref="fileInputEl"
               type="file"
-              multiple
               accept=".pdf,.txt,.docx,image/*"
               class="hidden-input"
               @change="onFileChange"
@@ -538,12 +533,12 @@ function ticketSender(content: string) {
             <button class="btn btn-outline" @click="fileInputEl?.click()">
               <Paperclip :size="13" /> 파일 선택
             </button>
-            <div v-if="uploadedFiles.length" class="file-list">
-              <div v-for="(f, i) in uploadedFiles" :key="i" class="file-item">
+            <div v-if="uploadedFile" class="file-list">
+              <div class="file-item">
                 <Paperclip :size="13" style="color:#aeb2bb;flex-shrink:0;" />
-                <span class="file-name">{{ f.name }}</span>
-                <span class="file-size">({{ (f.size / 1024).toFixed(1) }}KB)</span>
-                <button class="file-remove" @click.stop="removeFile(i)"><X :size="13" /></button>
+                <span class="file-name">{{ uploadedFile.name }}</span>
+                <span class="file-size">({{ (uploadedFile.size / 1024).toFixed(1) }}KB)</span>
+                <button class="file-remove" @click.stop="uploadedFile = null"><X :size="13" /></button>
               </div>
             </div>
           </div>
