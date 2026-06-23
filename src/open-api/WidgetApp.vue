@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
-import { MessageSquare, BookOpen, User, X, Send, ChevronRight, Star, Award, History, Bot } from '@lucide/vue'
+import { ref, watch, nextTick, computed } from 'vue'
+import { MessageSquare, BookOpen, X, Send, ChevronRight, Bot, LogOut, Lock } from '@lucide/vue'
+import type { WidgetConfig, WidgetPosition } from './config'
+import { createWidgetClient } from './widgetApi'
+import { isLoggedIn, nickname, setAuth, clearAuth } from './widgetAuth'
 
-type Tab = 'chat' | 'guide' | 'mypage'
+type Tab = 'chat' | 'guide'
 type Role = 'assistant' | 'user'
 
 interface Message {
@@ -12,36 +15,91 @@ interface Message {
   time: string
 }
 
+const props = defineProps<{ config: WidgetConfig }>()
+const api = createWidgetClient(props.config)
+
+// ── 위치(data-position) → 루트 컨테이너 인라인 스타일 ──────────────
+// "vertical-horizontal" 형식. top 계열은 column-reverse 로 뒤집어
+// 런처가 위, 패널이 아래로 펼쳐지게 한다(bottom 계열은 반대).
+const POSITION_STYLE: Record<WidgetPosition, Record<string, string>> = {
+  'bottom-right': { bottom: '24px', right: '24px', flexDirection: 'column', alignItems: 'flex-end' },
+  'bottom-left': { bottom: '24px', left: '24px', flexDirection: 'column', alignItems: 'flex-start' },
+  'top-right': { top: '24px', right: '24px', flexDirection: 'column-reverse', alignItems: 'flex-end' },
+  'top-left': { top: '24px', left: '24px', flexDirection: 'column-reverse', alignItems: 'flex-start' },
+}
+const rootStyle = computed(() => POSITION_STYLE[props.config.position])
+
 const nowTime = () =>
   new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
 
 const isOpen = ref(false)
 const activeTab = ref<Tab>('chat')
 const inputValue = ref('')
-const isTyping = ref(false)
+const isTyping = ref(false) // 타이핑 인디케이터(...) — 첫 토큰 도착 전까지만 true
+const loading = ref(false) // 질문 전송~응답 완료 전체 구간 — 입력/전송 잠금에 사용
 const openFaqIdx = ref<number | null>(null)
 const messagesEnd = ref<HTMLElement | null>(null)
 
-const messages = ref<Message[]>([
-  {
-    id: 1,
+// 챗봇 세션 — 첫 질문 전송 시 지연 생성한 뒤 재사용한다.
+const sessionId = ref<number | null>(null)
+
+let msgSeq = 1
+function welcomeMessage(): Message {
+  return {
+    id: msgSeq++,
     role: 'assistant',
     content: '안녕하세요! 저는 노잇이에요 👋\n업무 관련 무엇이든 도와드릴게요!',
     time: '오전 10:00',
-  },
-])
+  }
+}
+const messages = ref<Message[]>([welcomeMessage()])
 
-const aiReplies = [
-  '네, 도움 드릴 수 있어요! 더 자세한 내용을 알려주시면 정확하게 안내해 드릴게요.',
-  '좋은 질문이에요! Workipedia에서 해당 기능을 활용하면 효율적으로 처리할 수 있답니다.',
-  '이해했어요. 지금 바로 분석해드릴게요. 잠시만 기다려 주세요!',
-  '맞아요! 포인트를 활용하면 프리미엄 AI 분석도 이용하실 수 있어요.',
-]
+// ── 로그인 ──────────────────────────────────────────────────────
+// 위젯은 외부 사이트라 로그인 사용자가 없다. 챗봇 이용 전 위젯 자체 로그인을 거치고,
+// 받은 accessToken 으로 Bearer 인증해 기존 BE 챗봇을 그대로 사용한다.
+const loginId = ref('')
+const loginPw = ref('')
+const loginError = ref('')
+const loggingIn = ref(false)
+
+async function handleLogin() {
+  if (!loginId.value.trim() || !loginPw.value) {
+    loginError.value = '사번과 비밀번호를 입력해 주세요.'
+    return
+  }
+  loggingIn.value = true
+  loginError.value = ''
+  try {
+    const data = await api.login(loginId.value.trim(), loginPw.value)
+    if (data.status === 'INACTIVE') {
+      loginError.value = '비활성화된 계정입니다. 관리자에게 문의해주세요.'
+      return
+    }
+    setAuth(data.accessToken, data.nickname)
+    loginPw.value = ''
+    loginError.value = ''
+    // 새 사용자 기준으로 대화를 초기화한다.
+    sessionId.value = null
+    messages.value = [welcomeMessage()]
+  } catch (e) {
+    loginError.value = (e as Error).message || '사번 또는 비밀번호가 올바르지 않습니다.'
+  } finally {
+    loggingIn.value = false
+  }
+}
+
+function handleLogout() {
+  clearAuth()
+  sessionId.value = null
+  messages.value = [welcomeMessage()]
+  loginId.value = ''
+  loginPw.value = ''
+  loginError.value = ''
+}
 
 const TABS: { id: Tab; label: string; icon: typeof MessageSquare }[] = [
   { id: 'chat', label: '노잇', icon: MessageSquare },
   { id: 'guide', label: '사용법', icon: BookOpen },
-  { id: 'mypage', label: '마이페이지', icon: User },
 ]
 
 const faqItems = [
@@ -63,49 +121,90 @@ const faqItems = [
   },
 ]
 
-const pointsHistory = [
-  { id: 1, type: 'earn', desc: '일일 출석 체크', points: 10, date: '2026.05.26' },
-  { id: 2, type: 'earn', desc: '업무 완료 보상', points: 50, date: '2026.05.25' },
-  { id: 3, type: 'use', desc: 'AI 분석 요청', points: -30, date: '2026.05.24' },
-  { id: 4, type: 'earn', desc: '리뷰 작성', points: 20, date: '2026.05.23' },
-  { id: 5, type: 'use', desc: '프리미엄 기능 이용', points: -100, date: '2026.05.22' },
-]
+const FALLBACK = '해당 질문에 대한 내용을 찾을 수 없습니다.'
 
 // 새 메시지 추가(messages), 패널 열기(isOpen), 탭 복귀(activeTab) 시
 // 모두 메시지 목록 맨 아래로 스크롤한다.
 // nextTick 없이 실행하면 DOM 반영 전에 scrollIntoView가 호출되어 이전 위치로 이동한다.
+// 스트림 token 누적은 배열 요소 내부를 바꾸므로 deep watch 가 필요하다.
 watch([messages, isOpen, activeTab], async () => {
   if (isOpen.value && activeTab.value === 'chat') {
     await nextTick()
     messagesEnd.value?.scrollIntoView({ behavior: 'smooth' })
   }
-})
+}, { deep: true })
 
-function sendMessage() {
-  if (!inputValue.value.trim()) return
-  messages.value.push({
-    id: messages.value.length + 1,
-    role: 'user',
-    content: inputValue.value,
-    time: nowTime(),
-  })
+// Enter 전송 — 한글 등 IME 조합 중(isComposing)에는 무시한다.
+// 조합 중 Enter로 보내면, 입력을 비운 직후 compositionend가 마지막 글자를
+// 다시 입력창에 채워 넣어 "값이 안 비워지는" 것처럼 보이는 버그가 생긴다.
+function onEnter(e: KeyboardEvent) {
+  if (e.isComposing) return
+  sendMessage()
+}
+
+// 질문 전송 → 실제 챗봇 스트림(token/done)을 받아 타자 효과로 답변을 출력한다.
+// SPA(KnowItView)의 send() 흐름을 위젯 단일 채팅에 맞춰 옮긴 것이다.
+async function sendMessage() {
+  const q = inputValue.value.trim()
+  if (!q || loading.value) return
+
+  messages.value.push({ id: msgSeq++, role: 'user', content: q, time: nowTime() })
   inputValue.value = ''
+  loading.value = true
   isTyping.value = true
-  setTimeout(() => {
-    isTyping.value = false
-    const reply = aiReplies[Math.floor(Math.random() * aiReplies.length)]!
-    messages.value.push({
-      id: messages.value.length + 1,
-      role: 'assistant',
-      content: reply,
-      time: nowTime(),
+
+  // done 으로 답변 버블을 이미 출력했는지 추적 — done 직후 스트림 종료가
+  // catch 로 잡힐 때 폴백 문구가 중복 추가되는 것을 막는다.
+  let answered = false
+  let answerIdx = -1
+
+  try {
+    // 세션은 첫 질문에 지연 생성하고 이후 재사용한다.
+    if (!sessionId.value) {
+      const s = await api.createSession()
+      sessionId.value = s.sessionId
+    }
+    const sid = sessionId.value
+
+    await api.streamMessage(sid, q, {
+      onToken: (chunk) => {
+        // 첫 token 도착 시 타이핑 인디케이터를 빈 답변 버블로 교체한다.
+        if (answerIdx === -1) {
+          isTyping.value = false
+          messages.value.push({ id: msgSeq++, role: 'assistant', content: '', time: nowTime() })
+          answerIdx = messages.value.length - 1
+        }
+        messages.value[answerIdx]!.content += chunk
+      },
+      onDone: (saved) => {
+        isTyping.value = false
+        // 누적 token 과 최종 content 가 다를 수 있어 done.content 로 확정한다.
+        // answerable=false 면 RAG 가 관련 지식을 못 찾은 상태 → 친화적 폴백 문구로 대체.
+        const text = saved.answerable ? saved.content : FALLBACK
+        if (answerIdx === -1) {
+          messages.value.push({ id: msgSeq++, role: 'assistant', content: text, time: nowTime() })
+          answerIdx = messages.value.length - 1
+        } else {
+          messages.value[answerIdx]!.content = text
+        }
+        answered = true
+      },
     })
-  }, 1400)
+  } catch {
+    // 스트림/세션 오류 시 표준 폴백 — 단, done 으로 이미 답변이 나온 뒤라면 추가하지 않는다.
+    if (!answered) {
+      messages.value.push({ id: msgSeq++, role: 'assistant', content: FALLBACK, time: nowTime() })
+    }
+  } finally {
+    // 응답이 끝나면(성공·실패 무관) 입력 잠금을 푼다.
+    loading.value = false
+    isTyping.value = false
+  }
 }
 </script>
 
 <template>
-  <div class="wk-widget">
+  <div class="wk-widget" :data-theme="config.theme" :style="rootStyle">
     <!-- Panel: flex-column 상단에 위치하므로 launcher 위에 자연스럽게 표시됨 -->
     <div v-if="isOpen" class="wk-panel">
       <!-- Header -->
@@ -114,12 +213,17 @@ function sendMessage() {
           <div class="wk-logo-icon">W</div>
           <div>
             <p class="wk-logo-name">Workipedia</p>
-            <p class="wk-logo-sub">AI 업무 어시스턴트</p>
+            <p class="wk-logo-sub">{{ isLoggedIn ? `${nickname}님` : 'AI 업무 어시스턴트' }}</p>
           </div>
         </div>
-        <button class="wk-close" @click="isOpen = false" aria-label="닫기">
-          <X :size="14" />
-        </button>
+        <div class="wk-header-actions">
+          <button v-if="isLoggedIn" class="wk-icon-btn" @click="handleLogout" aria-label="로그아웃" title="로그아웃">
+            <LogOut :size="14" />
+          </button>
+          <button class="wk-icon-btn" @click="isOpen = false" aria-label="닫기">
+            <X :size="14" />
+          </button>
+        </div>
       </div>
 
       <!-- Tab bar -->
@@ -138,6 +242,34 @@ function sendMessage() {
 
       <!-- ───── 노잇 챗봇 ───── -->
       <div v-if="activeTab === 'chat'" class="wk-chat">
+        <!-- 로그인 전: 로그인 폼 -->
+        <div v-if="!isLoggedIn" class="wk-login">
+          <div class="wk-login-icon"><Lock :size="20" /></div>
+          <p class="wk-login-title">로그인이 필요해요</p>
+          <p class="wk-login-sub">노잇을 이용하려면 Workipedia 계정으로 로그인해 주세요.</p>
+          <form class="wk-login-form" @submit.prevent="handleLogin">
+            <input
+              v-model="loginId"
+              class="wk-field"
+              placeholder="사번"
+              autocomplete="username"
+            />
+            <input
+              v-model="loginPw"
+              type="password"
+              class="wk-field"
+              placeholder="비밀번호"
+              autocomplete="current-password"
+            />
+            <p v-if="loginError" class="wk-login-error">{{ loginError }}</p>
+            <button type="submit" class="wk-login-btn" :disabled="loggingIn">
+              {{ loggingIn ? '로그인 중...' : '로그인' }}
+            </button>
+          </form>
+        </div>
+
+        <!-- 로그인 후: 채팅 -->
+        <template v-else>
         <div class="wk-messages">
           <div
             v-for="msg in messages"
@@ -175,14 +307,16 @@ function sendMessage() {
             <input
               v-model="inputValue"
               class="wk-input"
-              placeholder="노잇에게 무엇이든 물어보세요..."
-              @keydown.enter="sendMessage"
+              :placeholder="loading ? '노잇이 답변 중이에요...' : '노잇에게 무엇이든 물어보세요...'"
+              :disabled="loading"
+              @keydown.enter="onEnter"
             />
-            <button class="wk-send" @click="sendMessage" aria-label="전송">
+            <button class="wk-send" :disabled="loading" @click="sendMessage" aria-label="전송">
               <Send :size="11" />
             </button>
           </div>
         </div>
+        </template>
       </div>
 
       <!-- ───── 사용법 FAQ ───── -->
@@ -205,72 +339,6 @@ function sendMessage() {
               />
             </button>
             <div v-if="openFaqIdx === i" class="wk-faq-a">{{ item.a }}</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ───── 마이페이지 ───── -->
-      <div v-else-if="activeTab === 'mypage'" class="wk-mypage">
-        <div class="wk-profile">
-          <div class="wk-avatar-lg">김</div>
-          <div class="wk-profile-info">
-            <div class="wk-profile-row">
-              <span class="wk-label">사번</span>
-              <span class="wk-value-dim">EMP-2024-0312</span>
-            </div>
-            <div class="wk-profile-row">
-              <span class="wk-label">닉네임</span>
-              <span class="wk-value">김워크</span>
-            </div>
-            <div class="wk-profile-row">
-              <span class="wk-label">이메일</span>
-              <span class="wk-value-dim">kim.work@company.com</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="wk-cards">
-          <div class="wk-card wk-card--violet">
-            <div class="wk-card-circle" />
-            <p class="wk-card-label">보유 포인트</p>
-            <div class="wk-card-val-row">
-              <span class="wk-card-val">2,430</span>
-              <span class="wk-card-unit">P</span>
-            </div>
-            <div class="wk-card-sub">
-              <Star :size="10" /><span>이번 달 +80P</span>
-            </div>
-          </div>
-          <div class="wk-card wk-card--green">
-            <div class="wk-card-circle" />
-            <p class="wk-card-label">ESG 점수</p>
-            <div class="wk-card-val-row">
-              <span class="wk-card-val">340</span>
-              <span class="wk-card-unit">p</span>
-            </div>
-            <div class="wk-card-sub">
-              <span class="wk-lv-badge">LV3</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="wk-history">
-          <p class="wk-history-title">최근 내역</p>
-          <div class="wk-history-list">
-            <div v-for="item in pointsHistory" :key="item.id" class="wk-hist-row">
-              <div class="wk-hist-left">
-                <div :class="['wk-hist-icon', item.type === 'earn' ? 'wk-hist-icon--earn' : 'wk-hist-icon--use']">
-                  <component :is="item.type === 'earn' ? Award : History" :size="12" />
-                </div>
-                <div>
-                  <p class="wk-hist-desc">{{ item.desc }}</p>
-                  <p class="wk-hist-date">{{ item.date }}</p>
-                </div>
-              </div>
-              <span :class="['wk-hist-pts', item.type === 'earn' ? 'wk-hist-pts--earn' : 'wk-hist-pts--use']">
-                {{ item.points > 0 ? '+' : '' }}{{ item.points }}P
-              </span>
-            </div>
           </div>
         </div>
       </div>
@@ -306,15 +374,61 @@ function sendMessage() {
 </template>
 
 <style scoped>
+/* ── 테마 토큰 ─────────────────────────────────────────────────────
+   패널 배경 위에 올라오는 표면/텍스트만 변수화한다.
+   보라/초록 그래디언트 카드, user 말풍선, 런처처럼 항상 유색 배경 위에
+   흰 글씨가 올라가는 요소는 테마와 무관하므로 리터럴을 유지한다.
+   기본값 = 다크. [data-theme="light"] 에서만 덮어쓴다. */
+.wk-widget {
+  --wk-accent: #7c5cfc;
+  --wk-accent-hover: #6d4fea;
+  --wk-accent-soft: #a78bfa; /* 탭 활성, 셰브론 open */
+  --wk-panel-bg: #0f1117;
+  --wk-border: rgba(255, 255, 255, 0.1);
+  --wk-border-soft: rgba(255, 255, 255, 0.08);
+  --wk-border-faint: rgba(255, 255, 255, 0.05);
+  --wk-text: #ffffff;
+  --wk-text-strong: rgba(255, 255, 255, 0.9);
+  --wk-text-dim: rgba(255, 255, 255, 0.55);
+  --wk-text-muted: rgba(255, 255, 255, 0.4);
+  --wk-text-faint: rgba(255, 255, 255, 0.3);
+  --wk-text-ghost: rgba(255, 255, 255, 0.22);
+  --wk-surface: rgba(255, 255, 255, 0.08);
+  --wk-surface-2: rgba(255, 255, 255, 0.04);
+  --wk-surface-hover: rgba(255, 255, 255, 0.1);
+  --wk-input-bg: rgba(255, 255, 255, 0.07);
+  --wk-faq-q: rgba(255, 255, 255, 0.75);
+  --wk-faq-q-open: #c4b5fd;
+  --wk-panel-shadow: 0 24px 64px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(124, 92, 252, 0.2);
+}
+.wk-widget[data-theme='light'] {
+  --wk-accent-soft: #7c5cfc;
+  --wk-panel-bg: #ffffff;
+  --wk-border: rgba(0, 0, 0, 0.1);
+  --wk-border-soft: rgba(0, 0, 0, 0.07);
+  --wk-border-faint: rgba(0, 0, 0, 0.06);
+  --wk-text: #16161d;
+  --wk-text-strong: #2a2a35;
+  --wk-text-dim: rgba(0, 0, 0, 0.55);
+  --wk-text-muted: rgba(0, 0, 0, 0.45);
+  --wk-text-faint: rgba(0, 0, 0, 0.4);
+  --wk-text-ghost: rgba(0, 0, 0, 0.32);
+  --wk-surface: rgba(0, 0, 0, 0.05);
+  --wk-surface-2: rgba(0, 0, 0, 0.025);
+  --wk-surface-hover: rgba(0, 0, 0, 0.06);
+  --wk-input-bg: rgba(0, 0, 0, 0.045);
+  --wk-faq-q: rgba(0, 0, 0, 0.7);
+  --wk-faq-q-open: #7c5cfc;
+  --wk-panel-shadow: 0 24px 64px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(124, 92, 252, 0.15);
+}
+
 /* ── 루트 ─────────────────────────────────────────────────────── */
+/* top/bottom/left/right/flex-direction/align-items 는 data-position 에 따라
+   인라인 스타일(rootStyle)로 주입된다. */
 .wk-widget {
   position: fixed;
-  bottom: 24px;
-  right: 24px;
   z-index: 99999;
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
   gap: 12px;
   font-family: -apple-system, BlinkMacSystemFont, 'Noto Sans KR', 'Segoe UI', sans-serif;
 }
@@ -327,11 +441,9 @@ function sendMessage() {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: #0f1117;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow:
-    0 24px 64px rgba(0, 0, 0, 0.45),
-    0 0 0 1px rgba(124, 92, 252, 0.2);
+  background: var(--wk-panel-bg);
+  border: 1px solid var(--wk-border);
+  box-shadow: var(--wk-panel-shadow);
 }
 
 /* ── 헤더 ─────────────────────────────────────────────────────── */
@@ -340,7 +452,7 @@ function sendMessage() {
   align-items: center;
   justify-content: space-between;
   padding: 14px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--wk-border-soft);
   flex-shrink: 0;
 }
 .wk-logo {
@@ -362,40 +474,45 @@ function sendMessage() {
   flex-shrink: 0;
 }
 .wk-logo-name {
-  color: #fff;
+  color: var(--wk-text);
   font-size: 14px;
   font-weight: 700;
   margin: 0 0 1px;
   line-height: 1;
 }
 .wk-logo-sub {
-  color: rgba(255, 255, 255, 0.35);
+  color: var(--wk-text-faint);
   font-size: 10px;
   margin: 0;
   line-height: 1;
 }
-.wk-close {
+.wk-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.wk-icon-btn {
   width: 28px;
   height: 28px;
   border-radius: 8px;
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.35);
+  color: var(--wk-text-faint);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: color 0.15s, background 0.15s;
 }
-.wk-close:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.1);
+.wk-icon-btn:hover {
+  color: var(--wk-text);
+  background: var(--wk-surface-hover);
 }
 
 /* ── 탭바 ─────────────────────────────────────────────────────── */
 .wk-tabbar {
   display: flex;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--wk-border-soft);
   flex-shrink: 0;
 }
 .wk-tab {
@@ -407,15 +524,15 @@ function sendMessage() {
   padding: 10px 0 9px;
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.3);
+  color: var(--wk-text-faint);
   font-size: 10px;
   font-weight: 500;
   cursor: pointer;
   position: relative;
   transition: color 0.15s;
 }
-.wk-tab:hover { color: rgba(255, 255, 255, 0.6); }
-.wk-tab--active { color: #a78bfa; }
+.wk-tab:hover { color: var(--wk-text-dim); }
+.wk-tab--active { color: var(--wk-accent-soft); }
 .wk-tab-indicator {
   position: absolute;
   bottom: 0;
@@ -424,7 +541,7 @@ function sendMessage() {
   width: 20px;
   height: 2px;
   border-radius: 99px;
-  background: #7c5cfc;
+  background: var(--wk-accent);
 }
 
 /* ── 채팅 ─────────────────────────────────────────────────────── */
@@ -462,7 +579,7 @@ function sendMessage() {
   align-items: center;
   justify-content: center;
   margin-top: 2px;
-  color: #a78bfa;
+  color: var(--wk-accent-soft);
 }
 .wk-msg-group {
   max-width: 76%;
@@ -479,8 +596,8 @@ function sendMessage() {
   white-space: pre-wrap;
 }
 .wk-bubble--bot {
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.9);
+  background: var(--wk-surface);
+  color: var(--wk-text-strong);
   border-top-left-radius: 4px;
 }
 .wk-bubble--user {
@@ -489,7 +606,7 @@ function sendMessage() {
   border-top-right-radius: 4px;
 }
 .wk-time {
-  color: rgba(255, 255, 255, 0.2);
+  color: var(--wk-text-ghost);
   font-size: 9px;
 }
 
@@ -501,13 +618,13 @@ function sendMessage() {
   padding: 10px 14px;
   border-radius: 12px;
   border-top-left-radius: 4px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--wk-surface);
 }
 .wk-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.4);
+  background: var(--wk-text-muted);
   display: inline-block;
   animation: wk-bounce 0.9s infinite;
 }
@@ -519,14 +636,14 @@ function sendMessage() {
 /* 입력 영역 */
 .wk-input-area {
   padding: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--wk-border-soft);
   flex-shrink: 0;
 }
 .wk-input-wrap {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--wk-input-bg);
   border-radius: 12px;
   padding: 8px 12px;
   transition: box-shadow 0.15s;
@@ -539,17 +656,17 @@ function sendMessage() {
   background: transparent;
   border: none;
   outline: none;
-  color: #fff;
+  color: var(--wk-text);
   font-size: 12px;
   font-family: inherit;
 }
-.wk-input::placeholder { color: rgba(255, 255, 255, 0.25); }
+.wk-input::placeholder { color: var(--wk-text-faint); }
 .wk-send {
   width: 26px;
   height: 26px;
   border-radius: 8px;
   border: none;
-  background: #7c5cfc;
+  background: var(--wk-accent);
   color: #fff;
   cursor: pointer;
   display: flex;
@@ -558,7 +675,92 @@ function sendMessage() {
   flex-shrink: 0;
   transition: background 0.15s;
 }
-.wk-send:hover { background: #6d4fea; }
+.wk-send:hover { background: var(--wk-accent-hover); }
+.wk-send:disabled { opacity: 0.5; cursor: default; }
+.wk-input:disabled { cursor: default; }
+/* 답변 대기 중 입력 영역 비활성 느낌 */
+.wk-input-wrap:has(.wk-input:disabled) { opacity: 0.6; }
+
+/* ── 로그인 ───────────────────────────────────────────────────── */
+.wk-login {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 28px 36px;
+  text-align: center;
+}
+.wk-login-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: rgba(124, 92, 252, 0.15);
+  border: 1px solid rgba(124, 92, 252, 0.3);
+  color: var(--wk-accent-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+.wk-login-title {
+  color: var(--wk-text);
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 6px;
+}
+.wk-login-sub {
+  color: var(--wk-text-dim);
+  font-size: 12px;
+  line-height: 1.55;
+  margin: 0 0 20px;
+}
+.wk-login-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.wk-field {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--wk-input-bg);
+  border: 1px solid var(--wk-border-soft);
+  border-radius: 10px;
+  padding: 11px 13px;
+  color: var(--wk-text);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.wk-field::placeholder { color: var(--wk-text-faint); }
+.wk-field:focus {
+  border-color: transparent;
+  box-shadow: 0 0 0 1.5px rgba(124, 92, 252, 0.5);
+}
+.wk-login-error {
+  color: #f87171;
+  font-size: 11px;
+  margin: 0;
+  text-align: left;
+}
+.wk-login-btn {
+  margin-top: 3px;
+  width: 100%;
+  border: none;
+  border-radius: 10px;
+  padding: 11px;
+  background: var(--wk-accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+.wk-login-btn:hover { background: var(--wk-accent-hover); }
+.wk-login-btn:disabled { opacity: 0.6; cursor: default; }
 
 /* ── FAQ ─────────────────────────────────────────────────────── */
 .wk-guide {
@@ -571,21 +773,21 @@ function sendMessage() {
 .wk-guide::-webkit-scrollbar { display: none; }
 .wk-guide-head { margin-bottom: 14px; }
 .wk-guide-title {
-  color: #fff;
+  color: var(--wk-text);
   font-size: 13px;
   font-weight: 600;
   margin: 0 0 3px;
 }
 .wk-guide-sub {
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--wk-text-muted);
   font-size: 11px;
   margin: 0;
 }
 .wk-faq-list { display: flex; flex-direction: column; gap: 8px; }
 .wk-faq-item {
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--wk-border-faint);
+  background: var(--wk-surface-2);
   transition: border-color 0.15s, background 0.15s;
 }
 .wk-faq-item--open {
@@ -605,167 +807,29 @@ function sendMessage() {
   text-align: left;
 }
 .wk-faq-q-text {
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--wk-faq-q);
   font-size: 12px;
   font-weight: 600;
   line-height: 1.5;
   flex: 1;
 }
-.wk-faq-q-text--open { color: #c4b5fd; }
+.wk-faq-q-text--open { color: var(--wk-faq-q-open); }
 .wk-faq-chevron {
-  color: rgba(255, 255, 255, 0.25);
+  color: var(--wk-text-faint);
   transition: transform 0.2s;
   flex-shrink: 0;
   margin-top: 1px;
 }
 .wk-faq-chevron--open {
   transform: rotate(90deg);
-  color: #a78bfa;
+  color: var(--wk-accent-soft);
 }
 .wk-faq-a {
   padding: 0 14px 13px;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--wk-text-dim);
   font-size: 11px;
   line-height: 1.65;
 }
-
-/* ── 마이페이지 ───────────────────────────────────────────────── */
-.wk-mypage {
-  flex: 1;
-  overflow-y: auto;
-  scrollbar-width: none;
-  min-height: 0; /* wk-chat와 동일한 이유 */
-}
-.wk-mypage::-webkit-scrollbar { display: none; }
-
-.wk-profile {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-.wk-avatar-lg {
-  width: 48px;
-  height: 48px;
-  border-radius: 16px;
-  flex-shrink: 0;
-  background: linear-gradient(135deg, #7c5cfc, #5b21b6);
-  color: #fff;
-  font-size: 18px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.wk-profile-info { flex: 1; display: flex; flex-direction: column; gap: 5px; }
-.wk-profile-row { display: flex; align-items: center; gap: 8px; }
-.wk-label { color: rgba(255, 255, 255, 0.28); font-size: 9px; min-width: 30px; }
-.wk-value { color: #fff; font-size: 11px; font-weight: 600; }
-.wk-value-dim { color: rgba(255, 255, 255, 0.55); font-size: 11px; }
-
-.wk-cards {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin: 14px 16px;
-}
-.wk-card {
-  border-radius: 12px;
-  overflow: hidden;
-  position: relative;
-  padding: 14px;
-}
-.wk-card--violet { background: linear-gradient(135deg, #7c5cfc 0%, #5b21b6 100%); }
-.wk-card--green { background: linear-gradient(135deg, #059669 0%, #065f46 100%); }
-.wk-card-circle {
-  position: absolute;
-  right: -14px;
-  top: -14px;
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.07);
-}
-.wk-card-label {
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 10px;
-  font-weight: 500;
-  margin: 0 0 7px;
-  position: relative;
-  z-index: 1;
-}
-.wk-card-val-row {
-  display: flex;
-  align-items: flex-end;
-  gap: 3px;
-  position: relative;
-  z-index: 1;
-}
-.wk-card-val { color: #fff; font-size: 22px; font-weight: 700; line-height: 1; }
-.wk-card-unit { color: rgba(255, 255, 255, 0.7); font-size: 12px; font-weight: 500; margin-bottom: 1px; }
-.wk-card-sub {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 7px;
-  position: relative;
-  z-index: 1;
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 9px;
-}
-.wk-lv-badge {
-  padding: 2px 7px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.2);
-  color: #fff;
-  font-size: 9px;
-  font-weight: 700;
-}
-
-.wk-history { padding: 0 16px 16px; }
-.wk-history-title {
-  color: rgba(255, 255, 255, 0.35);
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  margin: 0 0 10px;
-}
-.wk-history-list { display: flex; flex-direction: column; }
-.wk-hist-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-.wk-hist-left { display: flex; align-items: center; gap: 10px; }
-.wk-hist-icon {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.wk-hist-icon--earn { background: rgba(16, 185, 129, 0.15); color: #34d399; }
-.wk-hist-icon--use  { background: rgba(239, 68, 68, 0.15);  color: #f87171; }
-.wk-hist-desc {
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 11px;
-  font-weight: 500;
-  margin: 0;
-}
-.wk-hist-date {
-  color: rgba(255, 255, 255, 0.25);
-  font-size: 9px;
-  margin: 0;
-}
-.wk-hist-pts { font-size: 12px; font-weight: 700; }
-.wk-hist-pts--earn { color: #34d399; }
-.wk-hist-pts--use  { color: #f87171; }
 
 /* ── 런처 버튼 ────────────────────────────────────────────────── */
 .wk-launcher {
@@ -774,7 +838,7 @@ function sendMessage() {
   height: 56px;
   border-radius: 16px;
   border: none;
-  background: #7c5cfc;
+  background: var(--wk-accent);
   color: #fff;
   cursor: pointer;
   display: flex;
