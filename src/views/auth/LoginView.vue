@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
 import { login } from '@/api/authApi'
 import type { AxiosError } from 'axios'
+import { User, Users, ShieldCheck } from '@lucide/vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -31,6 +32,19 @@ function validate(): boolean {
     valid = false
   }
   return valid
+}
+
+const QUICK_ACCOUNTS = [
+  { label: '일반 사용자', role: 'USER',         employeeId: 'U1001', password: 'Test1234', icon: User },
+  { label: '팀 관리자',   role: 'TEAM_ADMIN',   employeeId: 'TA001', password: 'Test1234', icon: Users },
+  { label: '시스템 관리자', role: 'SYSTEM_ADMIN', employeeId: 'SA001', password: 'Test1234', icon: ShieldCheck },
+] as const
+
+// 폼 값을 채우고 바로 로그인 처리한다. validate()의 영문+숫자 8자 이상 조건을 Test1234가 통과한다.
+async function quickLogin(empId: string, pwd: string) {
+  employeeId.value = empId
+  password.value = pwd
+  await handleLogin()
 }
 
 async function handleLogin() {
@@ -118,6 +132,24 @@ async function handleLogin() {
           <span>{{ isLoading ? '로그인 중...' : '로그인' }}</span>
         </button>
       </form>
+
+      <!-- Quick Login -->
+      <div class="quick-section">
+        <div class="quick-label">Quick Login</div>
+        <div class="quick-btns">
+          <button
+            v-for="acc in QUICK_ACCOUNTS"
+            :key="acc.role"
+            type="button"
+            class="quick-btn"
+            :disabled="isLoading"
+            @click="quickLogin(acc.employeeId, acc.password)"
+          >
+            <component :is="acc.icon" :size="15" />
+            {{ acc.label }}
+          </button>
+        </div>
+      </div>
 
       <!-- 하단 링크 -->
       <div class="card-footer">
@@ -370,5 +402,55 @@ async function handleLogin() {
 
 .footer-link--secondary:hover {
   color: #1c1917;
+}
+
+/* Quick Login */
+.quick-section {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid #e7e5e4;
+}
+
+.quick-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #a8a29e;
+  text-transform: uppercase;
+  margin-bottom: 0.75rem;
+  text-align: center;
+}
+
+.quick-btns {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.quick-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.625rem 0.5rem;
+  border-radius: 0.75rem;
+  border: 1px solid #e7e5e4;
+  background: #fff;
+  color: #44403c;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.quick-btn:hover:not(:disabled) {
+  background: #f5f5f4;
+  border-color: #1c1917;
+  color: #1c1917;
+}
+
+.quick-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>
