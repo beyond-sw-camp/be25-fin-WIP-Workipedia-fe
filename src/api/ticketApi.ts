@@ -7,6 +7,7 @@ import type {
   TicketStatus,
   TicketAssigneeRequest,
   TicketAssigneeResponse,
+  TicketAnswerRequest,
 } from '@/types/ticket'
 
 // 티켓 컨트롤러는 DTO를 직접 반환한다 (ApiResponse 래퍼 없음).
@@ -38,8 +39,9 @@ export function assignTicket(ticketId: number, data: TicketAssigneeRequest) {
 }
 
 // 답변 등록 — BE에서 티켓 상태를 COMPLETED로 전환하고 AI 지식화 초안을 생성한다.
-export function answerTicket(ticketId: number, content: string) {
-  return http.post<TicketAnswerResponse>(`/tickets/${ticketId}/answers`, { content })
+export function answerTicket(ticketId: number, content: string, fileKey?: string | null) {
+  const data: TicketAnswerRequest = { content, fileKey }
+  return http.post<TicketAnswerResponse>(`/tickets/${ticketId}/answers`, data)
 }
 
 // 최신 답변 단건 조회 — 처리 완료 티켓 상세 다이얼로그에서 기존 답변 내용을 표시하기 위해 사용한다.

@@ -14,6 +14,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { Ticket, Clock, CheckCircle2, Bot, UserCheck, Paperclip, X, ChevronLeft, ChevronRight } from '@lucide/vue'
 import { getTickets, answerTicket, getLatestAnswer } from '@/api/ticketApi'
+import { uploadTicketReply } from '@/api/storageApi'
 import { useAuthStore } from '@/stores/authStore'
 import type { TicketResponse, TicketAnswerResponse } from '@/types/ticket'
 import BaseToast from '@/components/common/BaseToast.vue'
@@ -108,19 +109,6 @@ function openFilesDB(): Promise<IDBDatabase> {
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
   })
-}
-
-// ticketId를 키로 File 배열을 IDB에 저장. 실패해도 UX를 막지 않도록 오류를 삼킨다.
-async function saveToIDB(ticketId: number, files: File[]): Promise<void> {
-  try {
-    const db = await openFilesDB()
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(IDB_STORE, 'readwrite')
-      tx.objectStore(IDB_STORE).put({ files }, ticketId)
-      tx.oncomplete = () => resolve()
-      tx.onerror = () => reject(tx.error)
-    })
-  } catch {}
 }
 
 // IDB에서 File 배열을 꺼내 blob URL로 변환. 데이터가 없거나 오류면 빈 배열 반환.
@@ -256,7 +244,8 @@ function closeAnswer() {
 // 파일 input의 change 이벤트 → 기존 목록에 누적 추가, input 값은 매번 초기화해 같은 파일 재선택 허용
 function onFileChange(e: Event) {
   const inp = e.target as HTMLInputElement
-  uploadedFiles.value = [...uploadedFiles.value, ...Array.from(inp.files ?? [])]
+  const file = inp.files?.[0]
+  uploadedFiles.value = file ? [file] : []
   inp.value = ''
 }
 
@@ -266,7 +255,7 @@ function removeFile(i: number) {
 
 // 답변 제출 흐름:
 //   1. POST /tickets/{id}/answers  → BE가 티켓 상태를 COMPLETED로 전환
-//   2. 첨부 파일을 sessionFiles(blob URL)와 IDB(File 객체) 양쪽에 저장
+//   2. 첨부 파일이 있으면 presigned URL로 업로드하고 fileKey를 답변에 저장
 //   3. answeredInSession에 ticketId 추가 + localStorage 갱신
 //      → 다음 loadAll 호출 시 COMPLETED 티켓도 myTickets에 포함됨
 //   4. loadAll()로 세 버킷 갱신
@@ -277,11 +266,10 @@ async function submitAnswer() {
   submitError.value = ''
   try {
     const ticketId = selectedTicket.value.ticketId
-    const files = [...uploadedFiles.value]
-    await answerTicket(ticketId, answerText.value.trim())
-    // 메모리(blob URL) + IDB(File 객체, 새로고침 후 복원용) 동시 저장
-    sessionFiles[ticketId] = files.map(f => ({ name: f.name, size: f.size, url: URL.createObjectURL(f) }))
-    await saveToIDB(ticketId, files)
+    const fileKey = uploadedFiles.value[0]
+      ? await uploadTicketReply(uploadedFiles.value[0])
+      : null
+    await answerTicket(ticketId, answerText.value.trim(), fileKey)
     answeredInSession.add(ticketId)
     try { localStorage.setItem(ANSWERED_KEY, JSON.stringify([...answeredInSession])) } catch {}
     closeAnswer()
@@ -544,7 +532,6 @@ function ticketSender(content: string) {
             <input
               ref="fileInputEl"
               type="file"
-              multiple
               accept=".pdf,.txt,.docx"
               class="hidden-input"
               @change="onFileChange"

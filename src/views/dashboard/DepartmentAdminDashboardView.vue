@@ -14,12 +14,13 @@
 //   5. 만료 배지: ASSIGNED 48h 미처리 시 공통 접수 큐 이동 — updatedAt 기준 남은 시간을 배지로 표시.
 //   6. 승인 확인 모달: 승인 버튼 클릭 시 바로 API를 호출하지 않고 approveTargetItem에 대상을 저장해
 //      확인 모달을 먼저 표시한다. 확인 시 approveKnowledge()가 스토어에 즉시 push해 게시판에 반영한다.
-import { ref, computed, reactive, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import {
   Ticket, Clock, CheckCircle2, Bot, UserCheck, Paperclip, X,
   ChevronLeft, ChevronRight, Edit2, Send, ArrowRightLeft, TrendingUp, XCircle,
 } from '@lucide/vue'
 import { getTickets, answerTicket, transferTicket, getLatestAnswer } from '@/api/ticketApi'
+import { uploadTicketReply } from '@/api/storageApi'
 import {
   getTeamKnowledgeCandidates, approveKnowledgeCandidate, rejectKnowledgeCandidate,
   getKnowledgeTrend, getChatbotTicketTrend,
@@ -113,10 +114,6 @@ const transferring = ref(false)
 const submitError = ref('')
 const transferError = ref('')
 const fileInputEl = ref<HTMLInputElement | null>(null)
-
-// BE가 파일 첨부를 미지원하므로 blob URL로 세션 메모리에만 저장
-type SavedFile = { name: string; size: number; url: string }
-const sessionFiles = reactive<Record<number, SavedFile[]>>({})
 
 // 이관 가능 여부: AI가 자동 배정(AUTO_ASSIGNED)한 ASSIGNED 티켓에 한해 허용한다.
 // 시스템 관리자가 공동 접수 큐에서 부서를 직접 선택해 배정(ADMIN_REVIEW)한 티켓은
@@ -288,7 +285,8 @@ function closeAnswer() {
 
 function onFileChange(e: Event) {
   const inp = e.target as HTMLInputElement
-  uploadedFiles.value = [...uploadedFiles.value, ...Array.from(inp.files ?? [])]
+  const file = inp.files?.[0]
+  uploadedFiles.value = file ? [file] : []
   inp.value = ''
 }
 
@@ -297,7 +295,7 @@ function removeFile(i: number) {
 }
 
 // 답변 등록 시 BE가 티켓 상태를 COMPLETED로 전환하고 AI 지식화 초안을 생성한다.
-// 파일 첨부는 BE 미지원으로 blob URL로 세션 메모리에만 보관하며 페이지 새로고침 시 사라진다.
+// 파일 첨부는 presigned URL로 스토리지에 업로드한 뒤 답변의 fileKey로 저장한다.
 // 답변 후 loadTickets + loadKnowledge를 재호출해 티켓 목록과 지식화 큐를 즉시 갱신한다.
 async function submitAnswer() {
   if (!selectedTicket.value || !answerText.value.trim()) return
@@ -305,10 +303,10 @@ async function submitAnswer() {
   submitError.value = ''
   try {
     const ticketId = selectedTicket.value.ticketId
-    await answerTicket(ticketId, answerText.value.trim())
-    sessionFiles[ticketId] = uploadedFiles.value.map(f => ({
-      name: f.name, size: f.size, url: URL.createObjectURL(f),
-    }))
+    const fileKey = uploadedFiles.value[0]
+      ? await uploadTicketReply(uploadedFiles.value[0])
+      : null
+    await answerTicket(ticketId, answerText.value.trim(), fileKey)
     await loadTickets()
     // loadTickets()는 myDoneTickets를 assigneeId === auth.userId 로 필터링한다.
     // assigneeId가 null인 미배정 티켓에 DEPT_ADMIN·SYSTEM_ADMIN이 답변할 경우 BE가
@@ -668,18 +666,11 @@ function ticketSender(content: string) {
                   <span class="answer-time">{{ fromNow(detailAnswer.answeredAt) }}</span>
                 </div>
                 <div class="detail-content" style="white-space:pre-line;">{{ detailAnswer.content }}</div>
-                <!-- 첨부 파일: BE fileUrl 우선, 없으면 세션 임시 파일(blob URL) -->
-                <div v-if="detailAnswer.fileUrl || sessionFiles[selectedTicket.ticketId]?.length" class="file-list" style="margin-top:8px;">
-                  <a v-if="detailAnswer.fileUrl" :href="detailAnswer.fileUrl" target="_blank" class="file-item file-item--link">
+                <div v-if="detailAnswer.fileUrl" class="file-list" style="margin-top:8px;">
+                  <a :href="detailAnswer.fileUrl" target="_blank" class="file-item file-item--link">
                     <Paperclip :size="13" style="color:#aeb2bb;" />
                     <span class="file-name">{{ detailAnswer.fileName ?? '첨부 파일' }}</span>
                     <span v-if="detailAnswer.fileSize" class="file-size">({{ (detailAnswer.fileSize / 1024).toFixed(1) }}KB)</span>
-                  </a>
-                  <!-- 세션 임시 파일 (BE 파일 미지원 → blob URL, 새로고침 시 초기화) -->
-                  <a v-for="f in sessionFiles[selectedTicket.ticketId] ?? []" :key="f.name" :href="f.url" target="_blank" class="file-item file-item--link">
-                    <Paperclip :size="13" style="color:#aeb2bb;" />
-                    <span class="file-name">{{ f.name }}</span>
-                    <span class="file-size">({{ (f.size / 1024).toFixed(1) }}KB)</span>
                   </a>
                 </div>
               </div>
@@ -729,7 +720,7 @@ function ticketSender(content: string) {
           </div>
           <div class="field">
             <label class="field-label">파일 첨부</label>
-            <input ref="fileInputEl" type="file" multiple accept=".pdf,image/*" class="hidden-input" @change="onFileChange" />
+            <input ref="fileInputEl" type="file" accept=".pdf,image/*" class="hidden-input" @change="onFileChange" />
             <button class="btn btn-outline" @click="fileInputEl?.click()">
               <Paperclip :size="13" /> 파일 선택
             </button>
