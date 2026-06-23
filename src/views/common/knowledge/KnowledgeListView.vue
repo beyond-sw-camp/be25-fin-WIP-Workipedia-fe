@@ -12,8 +12,9 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Library, Search, Clock, Building2, ChevronLeft, ChevronRight, Trash2 } from '@lucide/vue'
+import BaseToast from '@/components/common/BaseToast.vue'
 import { useKnowledgeStore } from '@/stores/useKnowledgeStore'
-import { deleteKnowledgeData } from '@/api/knowledgeApi'
+import { deleteKnowledgeData, deleteKnowledgeDataAsAdmin } from '@/api/knowledgeApi'
 import { useAuthStore } from '@/stores/authStore'
 import { ROLES } from '@/constants/roles'
 import type { KnowledgeDataResponse } from '@/types/knowledge'
@@ -80,18 +81,25 @@ function canDelete(item: KnowledgeDataResponse): boolean {
   return false
 }
 
+// 삭제 대상을 ref에 보관해 확인 모달을 먼저 띄운 뒤 confirmDelete에서 실행한다.
+// 카드 클릭 이벤트와 충돌하지 않도록 삭제 버튼에 @click.stop을 적용한다.
 const deleteTarget = ref<KnowledgeDataResponse | null>(null)
 const isDeleting = ref(false)
 const deleteError = ref('')
+const showDeleteToast = ref(false)
 
+// SYSTEM_ADMIN은 전용 엔드포인트, TEAM_ADMIN은 팀 스코프 엔드포인트를 호출한다.
+// API 성공 직후 store에서도 항목을 제거해 목록이 새로고침 없이 즉시 갱신되도록 한다.
 async function confirmDelete() {
   if (!deleteTarget.value) return
   isDeleting.value = true
   deleteError.value = ''
   try {
-    await deleteKnowledgeData(deleteTarget.value.knowledgeDataId)
+    const id = deleteTarget.value.knowledgeDataId
+    await (auth.role === ROLES.SYSTEM_ADMIN ? deleteKnowledgeDataAsAdmin(id) : deleteKnowledgeData(id))
     knowledgeStore.remove(deleteTarget.value.knowledgeDataId)
     deleteTarget.value = null
+    showDeleteToast.value = true
   } catch (e: unknown) {
     const err = e as { response?: { status?: number; data?: { message?: string } } }
     deleteError.value = err.response?.data?.message ?? `삭제 실패 (${err.response?.status ?? '네트워크 오류'})`
@@ -195,6 +203,8 @@ onMounted(() => { knowledgeStore.load() })
       </template>
     </template>
   </div>
+
+  <BaseToast v-model="showDeleteToast" title="지식이 삭제됐습니다" type="success" />
 
   <!-- 삭제 확인 모달 -->
   <div v-if="deleteTarget" class="modal-overlay" @click.self="deleteTarget = null">

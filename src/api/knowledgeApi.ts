@@ -38,9 +38,14 @@ export function updateKnowledgeData(id: number, question: string, answer: string
   return http.patch<KnowledgeDataResponse>(`/admin/team/knowledge-data/${id}`, { question, answer })
 }
 
-// 지식화 삭제
+// TEAM_ADMIN 전용: BE가 호출자의 부서와 게시글 부서를 비교해 권한을 검증한다.
 export function deleteKnowledgeData(id: number) {
   return http.delete<void>(`/admin/team/knowledge-data/${id}`)
+}
+
+// SYSTEM_ADMIN 전용: 부서 제한 없이 모든 게시글 삭제 가능한 별도 엔드포인트.
+export function deleteKnowledgeDataAsAdmin(id: number) {
+  return http.delete<void>(`/admin/knowledge-data/${id}`)
 }
 
 // ── 부서 대시보드 통계 트렌드 ────────────────────────────────────
