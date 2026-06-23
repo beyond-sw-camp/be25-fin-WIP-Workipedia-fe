@@ -6,14 +6,16 @@
 // 핵심 구현 포인트
 //   1. 티켓 버킷 분리: BE가 단일 status 필터만 지원하므로 ASSIGNED·COMPLETED를
 //      병렬 조회한 뒤 FE에서 deptTickets / myTickets / doneTickets 3개로 분류한다.
-//   2. 파일 영속: BE 파일 첨부 미지원 → 답변 시 blob URL(세션) + IndexedDB(새로고침 후 복원) 이중 저장.
+//   2. 파일 첨부: presigned URL로 R2/S3에 직접 업로드 후 objectKey를 BE에 전달한다.
+//      답변 조회 시 getLatestAnswer로 fileUrl을 받아 상세 다이얼로그에 표시한다.
 //   3. 내 답장 추적: 부서 공용 큐에서 답변하면 BE가 assigneeId를 갱신하지 않을 수 있어
 //      answeredInSession(localStorage 영속)으로 직접 답변한 ticketId를 추적한다.
 //   4. 만료 배지: ASSIGNED 48h 미처리 시 BE 스케줄러가 공통 접수 큐로 이동시키므로
 //      updatedAt 기준으로 남은 시간을 계산해 부서 티켓 목록에 배지로 표시한다.
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { Ticket, Clock, CheckCircle2, Bot, UserCheck, Paperclip, X, ChevronLeft, ChevronRight } from '@lucide/vue'
 import { getTickets, answerTicket, getLatestAnswer } from '@/api/ticketApi'
+import { uploadFileAndGetKey } from '@/api/storageApi'
 import { useAuthStore } from '@/stores/authStore'
 import type { TicketResponse, TicketAnswerResponse } from '@/types/ticket'
 import BaseToast from '@/components/common/BaseToast.vue'
@@ -74,7 +76,7 @@ const donePaged = computed(() => doneTickets.value.slice(donePage.value * PAGE_S
 const selectedTicket = ref<TicketResponse | null>(null)
 const showAnswerDialog = ref(false)
 const answerText = ref('')
-const uploadedFiles = ref<File[]>([])
+const uploadedFile = ref<File | null>(null)
 const submitting = ref(false)
 const submitError = ref('')
 const fileInputEl = ref<HTMLInputElement | null>(null)
@@ -87,57 +89,6 @@ const showDetailDialog = ref(false)
 const latestAnswer = ref<TicketAnswerResponse | null>(null)
 const detailLoading = ref(false)
 
-// ── 파일 저장소 ──────────────────────────────────────────────
-// BE가 파일 첨부를 아직 미지원하므로 FE에서 이중 저장 전략을 사용한다.
-//   sessionFiles : 메모리 내 reactive 객체. 답변 직후 blob URL로 즉시 표시.
-//                  페이지를 새로고침하면 초기화된다.
-//   IndexedDB    : File 객체(Blob 포함)를 브라우저 로컬 스토리지에 영속 저장.
-//                  새로고침 후 상세 다이얼로그를 열면 IDB에서 파일을 꺼내
-//                  URL.createObjectURL 로 blob URL을 재생성해 sessionFiles에 채운다.
-//                  결과적으로 사용자는 새로고침 후에도 첨부 파일을 열람할 수 있다.
-type SavedFile = { name: string; size: number; url: string }
-const sessionFiles = reactive<Record<number, SavedFile[]>>({})
-
-const IDB_NAME = 'wk_files', IDB_STORE = 'ticket_files'
-
-// IndexedDB 연결: objectStore가 없으면 onupgradeneeded에서 생성
-function openFilesDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(IDB_NAME, 1)
-    req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE)
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  })
-}
-
-// ticketId를 키로 File 배열을 IDB에 저장. 실패해도 UX를 막지 않도록 오류를 삼킨다.
-async function saveToIDB(ticketId: number, files: File[]): Promise<void> {
-  try {
-    const db = await openFilesDB()
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(IDB_STORE, 'readwrite')
-      tx.objectStore(IDB_STORE).put({ files }, ticketId)
-      tx.oncomplete = () => resolve()
-      tx.onerror = () => reject(tx.error)
-    })
-  } catch {}
-}
-
-// IDB에서 File 배열을 꺼내 blob URL로 변환. 데이터가 없거나 오류면 빈 배열 반환.
-async function loadFromIDB(ticketId: number): Promise<SavedFile[]> {
-  try {
-    const db = await openFilesDB()
-    return await new Promise<SavedFile[]>((resolve) => {
-      const req = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(ticketId)
-      req.onsuccess = () => {
-        const record: { files: File[] } | undefined = req.result
-        if (!record?.files?.length) { resolve([]); return }
-        resolve(record.files.map(f => ({ name: f.name, size: f.size, url: URL.createObjectURL(f) })))
-      }
-      req.onerror = () => resolve([])
-    })
-  } catch { return [] }
-}
 
 // 이번 세션(페이지 로드 이후)에 직접 답변한 티켓 ID 집합.
 // 새로고침 후에도 myTickets에 남아야 하므로 localStorage에 영속한다.
@@ -240,7 +191,7 @@ function fromNow(iso: string) {
 function openAnswer(t: TicketResponse) {
   selectedTicket.value = t
   answerText.value = ''
-  uploadedFiles.value = []
+  uploadedFile.value = null
   submitError.value = ''
   showAnswerDialog.value = true
 }
@@ -249,24 +200,19 @@ function closeAnswer() {
   showAnswerDialog.value = false
   selectedTicket.value = null
   answerText.value = ''
-  uploadedFiles.value = []
+  uploadedFile.value = null
   submitError.value = ''
 }
 
-// 파일 input의 change 이벤트 → 기존 목록에 누적 추가, input 값은 매번 초기화해 같은 파일 재선택 허용
 function onFileChange(e: Event) {
   const inp = e.target as HTMLInputElement
-  uploadedFiles.value = [...uploadedFiles.value, ...Array.from(inp.files ?? [])]
+  uploadedFile.value = inp.files?.[0] ?? null
   inp.value = ''
 }
 
-function removeFile(i: number) {
-  uploadedFiles.value = uploadedFiles.value.filter((_, idx) => idx !== i)
-}
-
 // 답변 제출 흐름:
-//   1. POST /tickets/{id}/answers  → BE가 티켓 상태를 COMPLETED로 전환
-//   2. 첨부 파일을 sessionFiles(blob URL)와 IDB(File 객체) 양쪽에 저장
+//   1. 파일이 있으면 uploadFileAndGetKey로 presigned URL 업로드 → objectKey 획득
+//   2. POST /tickets/{id}/answers(fileKey) → BE가 티켓 COMPLETED 전환 + 파일 DB 저장
 //   3. answeredInSession에 ticketId 추가 + localStorage 갱신
 //      → 다음 loadAll 호출 시 COMPLETED 티켓도 myTickets에 포함됨
 //   4. loadAll()로 세 버킷 갱신
@@ -277,11 +223,10 @@ async function submitAnswer() {
   submitError.value = ''
   try {
     const ticketId = selectedTicket.value.ticketId
-    const files = [...uploadedFiles.value]
-    await answerTicket(ticketId, answerText.value.trim())
-    // 메모리(blob URL) + IDB(File 객체, 새로고침 후 복원용) 동시 저장
-    sessionFiles[ticketId] = files.map(f => ({ name: f.name, size: f.size, url: URL.createObjectURL(f) }))
-    await saveToIDB(ticketId, files)
+    const fileKey = uploadedFile.value
+      ? await uploadFileAndGetKey(uploadedFile.value)
+      : undefined
+    await answerTicket(ticketId, answerText.value.trim(), fileKey)
     answeredInSession.add(ticketId)
     try { localStorage.setItem(ANSWERED_KEY, JSON.stringify([...answeredInSession])) } catch {}
     closeAnswer()
@@ -303,10 +248,6 @@ async function submitAnswer() {
 
 // ── 상세 보기 다이얼로그 ─────────────────────────────────────
 // 내 답장·처리 완료 티켓 클릭 시 열린다. detailMode로 두 섹션이 같은 다이얼로그를 공유한다.
-// 다이얼로그를 먼저 열어 즉각 반응성을 주고, 답변 조회·IDB 파일 복원을 병렬로 수행한다.
-//   - IDB 복원: sessionFiles에 데이터가 없으면(새로고침 후) IDB에서 File 객체를 꺼내
-//               blob URL을 재생성해 sessionFiles에 채운다. 이후 템플릿이 자동으로 재렌더한다.
-//   - 답변 조회: GET /tickets/{id}/answers/latest 실패 시 null 유지, 답변란만 빈 상태로 표시.
 async function openDetail(t: TicketResponse, mode: 'my' | 'done') {
   detailTicket.value = t
   detailMode.value = mode
@@ -314,16 +255,8 @@ async function openDetail(t: TicketResponse, mode: 'my' | 'done') {
   detailLoading.value = true
   showDetailDialog.value = true
   try {
-    // IDB 복원과 최신 답변 조회를 병렬로 실행
-    const [idbFiles, answerRes] = await Promise.all([
-      sessionFiles[t.ticketId]?.length ? Promise.resolve<SavedFile[]>([]) : loadFromIDB(t.ticketId),
-      getLatestAnswer(t.ticketId).catch(() => null),
-    ])
-    // sessionFiles가 없을 때만 IDB 결과로 채움 (blob URL 재생성)
-    if (idbFiles.length && !sessionFiles[t.ticketId]?.length) {
-      sessionFiles[t.ticketId] = idbFiles
-    }
-    if (answerRes) latestAnswer.value = answerRes.data
+    const res = await getLatestAnswer(t.ticketId).catch(() => null)
+    if (res) latestAnswer.value = res.data
   } finally {
     detailLoading.value = false
   }
@@ -544,20 +477,19 @@ function ticketSender(content: string) {
             <input
               ref="fileInputEl"
               type="file"
-              multiple
-              accept=".pdf,.txt,.docx"
+              accept=".pdf,.txt,.docx,image/*"
               class="hidden-input"
               @change="onFileChange"
             />
             <button class="btn btn-outline" @click="fileInputEl?.click()">
               <Paperclip :size="13" /> 파일 선택
             </button>
-            <div v-if="uploadedFiles.length" class="file-list">
-              <div v-for="(f, i) in uploadedFiles" :key="i" class="file-item">
+            <div v-if="uploadedFile" class="file-list">
+              <div class="file-item">
                 <Paperclip :size="13" style="color:#aeb2bb;flex-shrink:0;" />
-                <span class="file-name">{{ f.name }}</span>
-                <span class="file-size">({{ (f.size / 1024).toFixed(1) }}KB)</span>
-                <button class="file-remove" @click.stop="removeFile(i)"><X :size="13" /></button>
+                <span class="file-name">{{ uploadedFile.name }}</span>
+                <span class="file-size">({{ (uploadedFile.size / 1024).toFixed(1) }}KB)</span>
+                <button class="file-remove" @click.stop="uploadedFile = null"><X :size="13" /></button>
               </div>
             </div>
           </div>
@@ -623,30 +555,34 @@ function ticketSender(content: string) {
                 {{ detailMode === 'my' ? '아직 답변이 작성되지 않았습니다.' : '답변 내용을 불러올 수 없습니다.' }}
               </div>
             </div>
-            <!-- 첨부 파일: BE fileUrl 또는 sessionFiles (IDB 복원 포함) -->
-            <template v-if="latestAnswer?.fileUrl || sessionFiles[detailTicket.ticketId]?.length">
+            <!-- 첨부 파일: files[] 우선, 없으면 단일 fileUrl fallback -->
+            <template v-if="latestAnswer?.files?.length || latestAnswer?.fileUrl">
               <div class="detail-files-label">첨부 파일</div>
               <div class="file-list">
+                <template v-if="latestAnswer?.files?.length">
+                  <a
+                    v-for="f in latestAnswer.files"
+                    :key="f.fileKey"
+                    :href="f.fileUrl ?? '#'"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="file-item file-item--link"
+                  >
+                    <Paperclip :size="13" style="color:#aeb2bb;flex-shrink:0;" />
+                    <span class="file-name">{{ f.fileName ?? '첨부 파일' }}</span>
+                    <span v-if="f.fileSize" class="file-size">({{ (f.fileSize / 1024).toFixed(1) }}KB)</span>
+                  </a>
+                </template>
                 <a
-                  v-if="latestAnswer?.fileUrl"
+                  v-else-if="latestAnswer?.fileUrl"
                   :href="latestAnswer.fileUrl"
                   target="_blank"
+                  rel="noopener noreferrer"
                   class="file-item file-item--link"
                 >
                   <Paperclip :size="13" style="color:#aeb2bb;flex-shrink:0;" />
                   <span class="file-name">{{ latestAnswer.fileName ?? '첨부 파일' }}</span>
                   <span v-if="latestAnswer.fileSize" class="file-size">({{ (latestAnswer.fileSize / 1024).toFixed(1) }}KB)</span>
-                </a>
-                <a
-                  v-for="(f, i) in sessionFiles[detailTicket.ticketId] ?? []"
-                  :key="i"
-                  :href="f.url"
-                  target="_blank"
-                  class="file-item file-item--link"
-                >
-                  <Paperclip :size="13" style="color:#aeb2bb;flex-shrink:0;" />
-                  <span class="file-name">{{ f.name }}</span>
-                  <span class="file-size">({{ (f.size / 1024).toFixed(1) }}KB)</span>
                 </a>
               </div>
             </template>

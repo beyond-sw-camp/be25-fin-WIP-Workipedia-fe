@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ChevronLeft, Building2 } from '@lucide/vue'
+import { ChevronLeft, Building2, Paperclip } from '@lucide/vue'
 import { getMyTicketDetail } from '@/api/mypageApi'
+import { getLatestAnswer } from '@/api/ticketApi'
 import type { MyTicketDetailResponse } from '@/types/mypage'
+import type { AnswerFileInfo } from '@/types/ticket'
 
 const router = useRouter()
 const route = useRoute()
 
 const ticket = ref<MyTicketDetailResponse | null>(null)
+const answerFiles = ref<AnswerFileInfo[]>([])
 const loading = ref(false)
 const error = ref('')
 
@@ -27,10 +30,40 @@ onMounted(async () => {
   if (!Number.isFinite(id)) { error.value = '잘못된 접근입니다.'; return }
   loading.value = true
   try {
-    const res = await getMyTicketDetail(id)
-    ticket.value = res.data
-  } catch {
-    error.value = '티켓을 불러오지 못했습니다.'
+    // 티켓 상세와 최신 답변을 병렬 조회한다.
+    // getLatestAnswer는 TEAM_ADMIN 전용 엔드포인트일 수 있어 USER 권한으로 403이 날 수 있다.
+    // Promise.allSettled로 한 쪽이 실패해도 나머지 결과를 처리한다.
+    const [ticketRes, answerRes] = await Promise.allSettled([
+      getMyTicketDetail(id),
+      getLatestAnswer(id),
+    ])
+    if (ticketRes.status === 'fulfilled') {
+      ticket.value = ticketRes.value.data
+    } else {
+      error.value = '티켓을 불러오지 못했습니다.'
+    }
+    if (answerRes.status === 'fulfilled') {
+      // getLatestAnswer 성공: files[] 우선, 없으면 단일 fileUrl
+      const a = answerRes.value.data
+      if (a.files?.length) {
+        answerFiles.value = a.files.filter(f => !!f.fileUrl)
+      } else if (a.fileUrl) {
+        answerFiles.value = [{ fileKey: a.fileKey ?? '', fileUrl: a.fileUrl, fileName: a.fileName, fileContentType: a.fileContentType, fileSize: a.fileSize }]
+      }
+    } else {
+      // getLatestAnswer 실패(권한 없음 등) 시 GET /me/tickets/{id} 응답의
+      // answer.fileUrl로 폴백한다. BE가 이 필드를 채우면 자동으로 표시된다.
+      const fallback = ticket.value?.answer
+      if (fallback?.fileUrl) {
+        answerFiles.value = [{
+          fileKey: '',
+          fileUrl: fallback.fileUrl,
+          fileName: fallback.fileName ?? null,
+          fileContentType: null,
+          fileSize: fallback.fileSize ?? null,
+        }]
+      }
+    }
   } finally {
     loading.value = false
   }
@@ -77,6 +110,11 @@ onMounted(async () => {
           </div>
           <p class="detail-content answer-content">{{ ticket.answer.content }}</p>
           <div class="answer-date">{{ formatDateTime(ticket.answer.answeredAt) }}</div>
+          <a v-for="f in answerFiles" :key="f.fileKey" :href="f.fileUrl ?? '#'" target="_blank" rel="noopener noreferrer" class="answer-file">
+            <Paperclip :size="13" />
+            <span>{{ f.fileName ?? '첨부 파일' }}</span>
+            <span v-if="f.fileSize" class="answer-file-size">({{ (f.fileSize / 1024).toFixed(1) }}KB)</span>
+          </a>
         </div>
 
         <!-- Meta -->
@@ -114,4 +152,13 @@ onMounted(async () => {
 .answer-date { font-size: 12px; color: #aeb2bb; }
 
 .detail-meta { font-size: 12px; color: #aeb2bb; border-top: 1px solid var(--line); padding-top: 16px; }
+
+.answer-file {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 12px; border: 1px solid #bbf7d0; border-radius: 8px;
+  font-size: 13px; color: #00a63e; text-decoration: none;
+  transition: background 0.12s;
+}
+.answer-file:hover { background: #f0fdf4; }
+.answer-file-size { color: #aeb2bb; font-size: 12px; }
 </style>
