@@ -9,16 +9,19 @@
 //   3. 90일 경과 배너: 오래된 문서임을 독자에게 경고해 신뢰도를 명시적으로 안내한다.
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ChevronLeft, Clock, AlertTriangle, Paperclip } from '@lucide/vue'
+import { ChevronLeft, Clock, AlertTriangle, Paperclip, Trash2 } from '@lucide/vue'
 import { useKnowledgeStore } from '@/stores/useKnowledgeStore'
-import { getKnowledgeDetail } from '@/api/knowledgeApi'
+import { getKnowledgeDetail, deleteKnowledgeData } from '@/api/knowledgeApi'
 import { getLatestAnswer, getTicketDetail } from '@/api/ticketApi'
+import { useAuthStore } from '@/stores/authStore'
+import { ROLES } from '@/constants/roles'
 import type { KnowledgeDataResponse } from '@/types/knowledge'
 
 const router = useRouter()
 const route = useRoute()
 const id = Number(route.params.id)
 
+const auth = useAuthStore()
 const knowledgeStore = useKnowledgeStore()
 // store에 없는 항목(size 상한 초과 등)을 위한 단건 조회 fallback 결과
 const fetchedItem = ref<KnowledgeDataResponse | null>(null)
@@ -80,6 +83,34 @@ watch(item, async (newItem) => {
   } catch { /* 조회 실패는 무시한다. */ }
 }, { immediate: true })
 
+// SYSTEM_ADMIN: 전체 삭제 / TEAM_ADMIN: 자기 부서만 삭제
+const canDelete = computed(() => {
+  if (!item.value) return false
+  if (auth.role === ROLES.SYSTEM_ADMIN) return true
+  if (auth.role === ROLES.TEAM_ADMIN) return item.value.departmentId === auth.departmentId
+  return false
+})
+
+const showDeleteModal = ref(false)
+const isDeleting = ref(false)
+const deleteError = ref('')
+
+async function handleDelete() {
+  if (!item.value) return
+  isDeleting.value = true
+  deleteError.value = ''
+  try {
+    await deleteKnowledgeData(item.value.knowledgeDataId)
+    knowledgeStore.remove(item.value.knowledgeDataId)
+    router.replace('/knowledge')
+  } catch (e: unknown) {
+    const err = e as { response?: { status?: number; data?: { message?: string } } }
+    deleteError.value = err.response?.data?.message ?? `삭제 실패 (${err.response?.status ?? '네트워크 오류'})`
+  } finally {
+    isDeleting.value = false
+  }
+}
+
 onMounted(async () => {
   await knowledgeStore.load()
   // 목록 로드 후에도 없으면 단건 API로 재조회한다. (직접 URL 진입 또는 size 한도 초과 항목)
@@ -99,9 +130,14 @@ onMounted(async () => {
 
 <template>
   <div class="content-inner">
-    <button class="btn" style="margin-bottom: 20px;" @click="router.back()">
-      <ChevronLeft :size="16" /> 목록으로
-    </button>
+    <div class="top-actions">
+      <button class="btn" @click="router.back()">
+        <ChevronLeft :size="16" /> 목록으로
+      </button>
+      <button v-if="canDelete" class="btn btn-danger-outline" @click="showDeleteModal = true">
+        <Trash2 :size="14" /> 삭제
+      </button>
+    </div>
 
     <div v-if="knowledgeStore.loading || fallbackLoading || (!knowledgeStore.loaded && !knowledgeStore.error)" class="empty-ph" style="height: 240px;">불러오는 중...</div>
     <div v-else-if="!item" class="empty-ph" style="height: 240px;">문서를 불러올 수 없습니다</div>
@@ -153,10 +189,49 @@ onMounted(async () => {
         </div>
       </div>
     </template>
+
+    <!-- 삭제 확인 모달 -->
+    <div v-if="showDeleteModal" class="modal-overlay" @click.self="showDeleteModal = false">
+      <div class="modal-box">
+        <p class="modal-msg">이 지식을 삭제할까요?</p>
+        <p class="modal-sub">{{ item?.question }}</p>
+        <div class="modal-actions">
+          <p v-if="deleteError" class="delete-error">{{ deleteError }}</p>
+          <button class="btn" :disabled="isDeleting" @click="showDeleteModal = false">취소</button>
+          <button class="btn btn-danger" :disabled="isDeleting" @click="handleDelete">
+            {{ isDeleting ? '삭제 중...' : '삭제' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.top-actions { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+.btn-danger-outline {
+  display: inline-flex; align-items: center; gap: 6px;
+  border-color: #e03131; color: #e03131; background: transparent;
+}
+.btn-danger-outline:hover { background: #fff0f0; }
+.btn-danger { background: #e03131; color: #fff; border-color: #e03131; }
+.btn-danger:hover:not(:disabled) { background: #c92a2a; }
+.delete-error { font-size: 13px; color: #e03131; margin: 0; }
+
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+  display: flex; align-items: center; justify-content: center; z-index: 200;
+}
+.modal-box {
+  background: #fff; border-radius: 14px; padding: 28px 32px;
+  min-width: 320px; max-width: 440px; display: flex; flex-direction: column; gap: 12px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+}
+.modal-msg { font-size: 16px; font-weight: 700; color: #1f2430; margin: 0; }
+.modal-sub { font-size: 13.5px; color: #717182; margin: 0; line-height: 1.5;
+  display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
 .detail-badges { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
 
 .stale-banner {

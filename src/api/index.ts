@@ -55,7 +55,7 @@ http.interceptors.response.use(
       )
       const newToken: string = data.accessToken
       const auth = useAuthStore()
-      auth.setAuth(newToken, auth.role!, auth.userId!, auth.nickname!, auth.team)
+      auth.setAuth(newToken, auth.role!, auth.userId!, auth.nickname!, auth.team, auth.departmentId)
       processQueue(null, newToken)
       originalRequest.headers.Authorization = `Bearer ${newToken}`
       return http(originalRequest)
