@@ -9,6 +9,12 @@ export default defineConfig({
     vue(),
     cssInjectedByJsPlugin(), // CSS를 JS 번들에 인라인으로 주입 → 고객사에 스크립트 한 줄만 전달
   ],
+  // lib 빌드는 "다른 번들러가 다시 처리할 라이브러리" 전제라 Vite가 process.env.NODE_ENV를
+  // 치환하지 않는다. 그대로 두면 고객사 브라우저에서 Vue 런타임의 process.env 참조가
+  // `process is not defined`로 터져 위젯이 동작하지 않는다. 직접 치환해 자립 실행되게 한다.
+  define: {
+    'process.env.NODE_ENV': JSON.stringify('production'),
+  },
   publicDir: false,  // widget 빌드 시 public 폴더 복사 불필요 (outDir과 동일 경로 경고 방지)
   resolve: {
     alias: {

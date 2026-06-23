@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Workipedia 위젯 확인</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Noto Sans KR', 'Segoe UI', sans-serif;
+        padding: 48px;
+        background: #eef0f6;
+        color: #222;
+        line-height: 1.7;
+      }
+      h1 { font-size: 20px; margin: 0 0 12px; }
+      code { background: #dde; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+      a { color: #6d4fea; }
+      .row { margin: 8px 0; }
+      .hint { color: #717182; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <h1>Workipedia 임베디드 위젯 확인 페이지</h1>
+    <p class="hint">
+      우측 하단(또는 선택한 위치) 런처 → 로그인 → 노잇에게 질문해 보세요.<br />
+      위젯은 <code>https://workipedia.wiki</code> 에 직접 연결됩니다. <b>본인 사번/비밀번호</b>로 로그인하면 실제 답변이 옵니다.
+    </p>
+
+    <div class="row">
+      테마 · 위치 바꿔보기:
+      <a href="?theme=light&pos=bottom-right">라이트·우하단</a> ·
+      <a href="?theme=dark&pos=bottom-right">다크·우하단</a> ·
+      <a href="?theme=light&pos=bottom-left">라이트·좌하단</a> ·
+      <a href="?theme=dark&pos=top-right">다크·우상단</a>
+    </div>
+
+    <p class="hint">
+      실제 고객사 임베드 스니펫:
+      <code>&lt;script src="https://workipedia.wiki/widget.js" data-theme="light" data-position="bottom-right"&gt;&lt;/script&gt;</code>
+    </p>
+
+    <!--
+      위젯 로드. data-api-base 를 지정하지 않으므로 번들에 박힌 기본 BE(workipedia.wiki)로 붙는다.
+      로컬 BE 로 붙여 테스트하려면 data-api-base="http://localhost:8080/api/v1" 를 추가하면 된다.
+    -->
+    <script>
+      const p = new URLSearchParams(location.search)
+      const s = document.createElement('script')
+      s.src = '/workipedia-chat.iife.js'
+      s.setAttribute('data-theme', p.get('theme') || 'light')
+      s.setAttribute('data-position', p.get('pos') || 'bottom-right')
+      document.body.appendChild(s)
+    </script>
+  </body>
+</html>
