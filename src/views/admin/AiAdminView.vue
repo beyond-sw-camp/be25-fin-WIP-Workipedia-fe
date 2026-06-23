@@ -1116,10 +1116,10 @@ onMounted(() => {
           <label v-if="toolForm.toolType === 'HTTP_API'">HTTP Method
             <select v-model="toolForm.httpMethod">
               <option>GET</option>
-              <option>POST</option>
-              <option>PUT</option>
-              <option>PATCH</option>
-              <option>DELETE</option>
+              <option disabled>POST</option>
+              <option disabled>PUT</option>
+              <option disabled>PATCH</option>
+              <option disabled>DELETE</option>
             </select>
           </label>
           <label v-else>Datasource Key
