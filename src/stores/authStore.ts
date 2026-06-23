@@ -13,7 +13,7 @@ function loadFromStorage() {
   }
 }
 
-function saveToStorage(data: { token: string; role: Role; userId: number; nickname: string; team: string | null }) {
+function saveToStorage(data: { token: string; role: Role; userId: number; nickname: string; team: string | null; departmentId: number | null }) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
 }
 
@@ -29,16 +29,20 @@ export const useAuthStore = defineStore('auth', () => {
   const userId = ref<number | null>(saved?.userId ?? null)
   const nickname = ref<string | null>(saved?.nickname ?? null)
   const team = ref<string | null>(saved?.team ?? null)
+  // 지식화 게시판 삭제 버튼 표시 조건(item.departmentId === auth.departmentId)에 사용한다.
+  // 실제 권한 검증은 BE가 처리하며, 이 값은 UI 표시 여부 판단 전용이다.
+  const departmentId = ref<number | null>(saved?.departmentId ?? null)
 
   const isLoggedIn = computed(() => !!accessToken.value)
 
-  function setAuth(token: string, userRole: Role, id: number, nick: string, userTeam: string | null = null) {
+  function setAuth(token: string, userRole: Role, id: number, nick: string, userTeam: string | null = null, deptId: number | null = null) {
     accessToken.value = token
     role.value = userRole
     userId.value = id
     nickname.value = nick
     team.value = userTeam
-    saveToStorage({ token, role: userRole, userId: id, nickname: nick, team: userTeam })
+    departmentId.value = deptId
+    saveToStorage({ token, role: userRole, userId: id, nickname: nick, team: userTeam, departmentId: deptId })
   }
 
   function clearAuth() {
@@ -47,8 +51,9 @@ export const useAuthStore = defineStore('auth', () => {
     userId.value = null
     nickname.value = null
     team.value = null
+    departmentId.value = null
     clearStorage()
   }
 
-  return { accessToken, role, userId, nickname, team, isLoggedIn, setAuth, clearAuth }
+  return { accessToken, role, userId, nickname, team, departmentId, isLoggedIn, setAuth, clearAuth }
 })

@@ -1,4 +1,4 @@
-import type { TicketStatus } from './ticket'
+import type { TicketStatus, AnswerFileInfo } from './ticket'
 
 // GET /me/profile 응답 (nested 구조)
 export interface MyProfileResponse {
@@ -49,4 +49,8 @@ export interface MyTicketAnswer {
   content: string
   answeredAt: string
   authorNickname: string | null
+  fileUrl?: string | null
+  fileName?: string | null
+  fileSize?: number | null
+  files?: AnswerFileInfo[]
 }

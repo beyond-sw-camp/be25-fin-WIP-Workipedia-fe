@@ -45,6 +45,8 @@ export function updateUserStatus(userId: number, status: 'ACTIVE' | 'INACTIVE') 
 }
 
 // ── 매뉴얼 관리 ────────────────────────────────────────────────
+export type ManualAiSyncStatus = 'SYNCED' | 'PENDING' | 'PROCESSING' | 'FAILED' | 'EMPTY'
+
 export interface AdminManual {
   manualId: number
   departmentId: number | null
@@ -59,6 +61,10 @@ export interface AdminManual {
   createdBy?: number | null
   createdAt?: string
   updatedAt: string
+  // AI Vector Store 적재 상태
+  syncStatus?: ManualAiSyncStatus | null
+  syncedAt?: string | null
+  syncError?: string | null
 }
 export interface AdminManualVersion {
   manualVersionId: number

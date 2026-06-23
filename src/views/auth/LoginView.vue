@@ -39,14 +39,14 @@ async function handleLogin() {
   serverError.value = ''
   try {
     const res = await login({ employeeId: employeeId.value, password: password.value })
-    const { accessToken, userId, role, nickname, departmentName, status } = res.data
+    const { accessToken, userId, departmentId, role, nickname, departmentName, status } = res.data
 
     if (status === 'INACTIVE') {
       serverError.value = '비활성화된 계정입니다. 관리자에게 문의해주세요.'
       return
     }
 
-    auth.setAuth(accessToken, role, userId, nickname, departmentName)
+    auth.setAuth(accessToken, role, userId, nickname, departmentName, departmentId)
 
     const redirect = route.query.redirect as string | undefined
     router.push(redirect || '/knowit')

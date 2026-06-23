@@ -11,11 +11,17 @@
 //   5. 프론트엔드 페이지네이션: PAGE_SIZE=8, query 변경 시 currentPage를 0으로 초기화한다.
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Library, Search, Clock, Building2, ChevronLeft, ChevronRight } from '@lucide/vue'
+import { Library, Search, Clock, Building2, ChevronLeft, ChevronRight, Trash2 } from '@lucide/vue'
+import BaseToast from '@/components/common/BaseToast.vue'
 import { useKnowledgeStore } from '@/stores/useKnowledgeStore'
+import { deleteKnowledgeData, deleteKnowledgeDataAsAdmin } from '@/api/knowledgeApi'
+import { useAuthStore } from '@/stores/authStore'
+import { ROLES } from '@/constants/roles'
+import type { KnowledgeDataResponse } from '@/types/knowledge'
 
 const router = useRouter()
 const knowledgeStore = useKnowledgeStore()
+const auth = useAuthStore()
 const query = ref('')
 
 // 전체 항목을 최근 업데이트(approvedAt) 내림차순으로 정렬해 즉시 표시한다.
@@ -66,6 +72,40 @@ function formatDate(iso: string) {
 
 function truncate(text: string, max = 120) {
   return text.length > max ? text.slice(0, max) + '…' : text
+}
+
+// SYSTEM_ADMIN: 전체 삭제 가능 / TEAM_ADMIN: 자기 부서(departmentId 일치)만 삭제 가능
+function canDelete(item: KnowledgeDataResponse): boolean {
+  if (auth.role === ROLES.SYSTEM_ADMIN) return true
+  if (auth.role === ROLES.TEAM_ADMIN) return item.departmentId === auth.departmentId
+  return false
+}
+
+// 삭제 대상을 ref에 보관해 확인 모달을 먼저 띄운 뒤 confirmDelete에서 실행한다.
+// 카드 클릭 이벤트와 충돌하지 않도록 삭제 버튼에 @click.stop을 적용한다.
+const deleteTarget = ref<KnowledgeDataResponse | null>(null)
+const isDeleting = ref(false)
+const deleteError = ref('')
+const showDeleteToast = ref(false)
+
+// SYSTEM_ADMIN은 전용 엔드포인트, TEAM_ADMIN은 팀 스코프 엔드포인트를 호출한다.
+// API 성공 직후 store에서도 항목을 제거해 목록이 새로고침 없이 즉시 갱신되도록 한다.
+async function confirmDelete() {
+  if (!deleteTarget.value) return
+  isDeleting.value = true
+  deleteError.value = ''
+  try {
+    const id = deleteTarget.value.knowledgeDataId
+    await (auth.role === ROLES.SYSTEM_ADMIN ? deleteKnowledgeDataAsAdmin(id) : deleteKnowledgeData(id))
+    knowledgeStore.remove(deleteTarget.value.knowledgeDataId)
+    deleteTarget.value = null
+    showDeleteToast.value = true
+  } catch (e: unknown) {
+    const err = e as { response?: { status?: number; data?: { message?: string } } }
+    deleteError.value = err.response?.data?.message ?? `삭제 실패 (${err.response?.status ?? '네트워크 오류'})`
+  } finally {
+    isDeleting.value = false
+  }
 }
 
 onMounted(() => { knowledgeStore.load() })
@@ -134,7 +174,17 @@ onMounted(() => { knowledgeStore.load() })
                   {{ daysSince(item.approvedAt) }}일 전
                 </span>
               </div>
-              <span class="item-date">{{ formatDate(item.approvedAt) }}</span>
+              <div class="item-actions">
+                <span class="item-date">{{ formatDate(item.approvedAt) }}</span>
+                <button
+                  v-if="canDelete(item)"
+                  class="btn-delete"
+                  title="삭제"
+                  @click.stop="deleteTarget = item"
+                >
+                  <Trash2 :size="14" />
+                </button>
+              </div>
             </div>
             <h3 class="item-question">{{ item.question }}</h3>
             <p class="item-preview">{{ truncate(item.answer) }}</p>
@@ -152,6 +202,23 @@ onMounted(() => { knowledgeStore.load() })
         </div>
       </template>
     </template>
+  </div>
+
+  <BaseToast v-model="showDeleteToast" title="지식이 삭제됐습니다" type="success" />
+
+  <!-- 삭제 확인 모달 -->
+  <div v-if="deleteTarget" class="modal-overlay" @click.self="deleteTarget = null">
+    <div class="modal-box">
+      <p class="modal-msg">이 지식을 삭제할까요?</p>
+      <p class="modal-sub">{{ deleteTarget.question }}</p>
+      <div class="modal-actions">
+        <p v-if="deleteError" class="delete-error">{{ deleteError }}</p>
+        <button class="btn" :disabled="isDeleting" @click="deleteTarget = null">취소</button>
+        <button class="btn btn-danger" :disabled="isDeleting" @click="confirmDelete">
+          {{ isDeleting ? '삭제 중...' : '삭제' }}
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -188,7 +255,31 @@ onMounted(() => { knowledgeStore.load() })
 
 .item-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .item-badges { display: flex; gap: 6px; flex-wrap: wrap; }
-.item-date { font-size: 12px; color: #aeb2bb; white-space: nowrap; flex-shrink: 0; }
+.item-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.item-date { font-size: 12px; color: #aeb2bb; white-space: nowrap; }
+.btn-delete {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 6px; border: none;
+  background: transparent; color: #aeb2bb; cursor: pointer; transition: background 0.12s, color 0.12s;
+}
+.btn-delete:hover { background: #fee2e2; color: #e03131; }
+
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+  display: flex; align-items: center; justify-content: center; z-index: 200;
+}
+.modal-box {
+  background: #fff; border-radius: 14px; padding: 28px 32px;
+  min-width: 320px; max-width: 440px; display: flex; flex-direction: column; gap: 12px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+}
+.modal-msg { font-size: 16px; font-weight: 700; color: #1f2430; margin: 0; }
+.modal-sub { font-size: 13.5px; color: #717182; margin: 0; line-height: 1.5;
+  display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.btn-danger { background: #e03131; color: #fff; border-color: #e03131; }
+.btn-danger:hover:not(:disabled) { background: #c92a2a; }
+.delete-error { font-size: 13px; color: #e03131; margin: 0; }
 .item-question { font-size: 15px; font-weight: 700; color: #1f2430; margin: 0; line-height: 1.4; }
 .item-preview { font-size: 13.5px; color: #717182; line-height: 1.6; margin: 0; }
 

@@ -55,7 +55,8 @@ http.interceptors.response.use(
       )
       const newToken: string = data.accessToken
       const auth = useAuthStore()
-      auth.setAuth(newToken, auth.role!, auth.userId!, auth.nickname!, auth.team)
+      // departmentId를 빠뜨리면 리프레시 후 null로 덮어써져 삭제 버튼이 사라진다.
+      auth.setAuth(newToken, auth.role!, auth.userId!, auth.nickname!, auth.team, auth.departmentId)
       processQueue(null, newToken)
       originalRequest.headers.Authorization = `Bearer ${newToken}`
       return http(originalRequest)

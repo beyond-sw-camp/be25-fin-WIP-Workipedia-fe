@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { KnowledgeDataResponse } from '@/types/knowledge'
-import { getKnowledgeList } from '@/api/knowledgeApi'
+import { getKnowledgeList, getTeamKnowledgeList } from '@/api/knowledgeApi'
 import { useAuthStore } from '@/stores/authStore'
 
 // 지식화 게시판 데이터를 앱 전역에서 공유한다.
@@ -21,9 +21,29 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     loading.value = true
     error.value = false
     try {
-      // 1-based 페이지네이션. size 최대 100.
-      const res = await getKnowledgeList({ page: 1, size: 100 })
-      items.value = res.data.content
+      const auth = useAuthStore()
+      const isTeamAdmin = auth.role === 'TEAM_ADMIN'
+      // 공개 엔드포인트(GET /knowledge-data)는 ticketId를 반환하지 않는다.
+      // ticketId가 없으면 KnowledgeDetailView에서 getLatestAnswer를 호출할 수 없어
+      // 첨부 파일을 표시할 방법이 없다.
+      // TEAM_ADMIN은 admin 엔드포인트(팀 스코프, ticketId 포함)를 병렬 조회한 뒤
+      // 같은 knowledgeDataId 항목에 ticketId를 병합해 파일 표시를 가능하게 한다.
+      const [pubRes, adminRes] = await Promise.allSettled([
+        getKnowledgeList({ page: 1, size: 100 }),
+        isTeamAdmin ? getTeamKnowledgeList({ page: 1, size: 100 }) : Promise.reject(null),
+      ])
+      if (pubRes.status !== 'fulfilled') throw pubRes.reason
+      let content = pubRes.value.data.content
+      if (adminRes.status === 'fulfilled') {
+        const ticketIdMap = new Map(
+          adminRes.value.data.content.map(i => [i.knowledgeDataId, i.ticketId]),
+        )
+        content = content.map(item => ({
+          ...item,
+          ticketId: ticketIdMap.get(item.knowledgeDataId) ?? item.ticketId,
+        }))
+      }
+      items.value = content
       loaded.value = true
     } catch {
       error.value = true
@@ -42,5 +62,9 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     })
   }
 
-  return { items, loading, loaded, error, load, push }
+  function remove(id: number) {
+    items.value = items.value.filter(i => i.knowledgeDataId !== id)
+  }
+
+  return { items, loading, loaded, error, load, push, remove }
 })

@@ -89,3 +89,43 @@ export function updateAiTool(aiToolId: number, body: UpdateAiToolRequest) {
 export function editRoutingPromptInstruction(instruction: string) {
   return http.patch<AdminDepartment[]>('/admin/departments/routing-prompt/instruction', { instruction })
 }
+
+export interface AiSyncSetting {
+  retentionDays: number
+}
+
+export interface UpdateAiSyncSettingRequest {
+  retentionDays: number
+}
+
+export interface AiSyncCleanupResult {
+  deleted: number
+  skipped: number
+  failed: number
+}
+
+export interface AiSyncCleanupLog {
+  triggeredBy: string
+  deletedCount: number
+  skippedCount: number
+  failedCount: number
+  completedAt: string
+}
+
+export function getAiSyncSetting() {
+  return http.get<AiSyncSetting>('/admin/ai-sync-jobs/settings')
+}
+
+export function updateAiSyncSetting(body: UpdateAiSyncSettingRequest) {
+  return http.put<AiSyncSetting>('/admin/ai-sync-jobs/settings', body)
+}
+
+export function cleanupWorkiAiSyncJobs() {
+  return http.post<AiSyncCleanupResult>('/admin/ai-sync-jobs/cleanup-worki')
+}
+
+export function getAiSyncCleanupLogs(limit = 10) {
+  return http.get<AiSyncCleanupLog[]>('/admin/ai-sync-jobs/cleanup-worki/logs', {
+    params: { limit },
+  })
+}

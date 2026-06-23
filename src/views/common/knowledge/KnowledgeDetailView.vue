@@ -7,17 +7,22 @@
 //      직접 URL 진입(목록 캐시 없음) 또는 size 한도(100건) 초과 항목 진입에 대응하기 위함이다.
 //   2. 경과일 색상: 7일 초록 → 30일 파랑 → 90일 주황 → 초과 빨강. 목록 뷰와 동일한 기준을 사용한다.
 //   3. 90일 경과 배너: 오래된 문서임을 독자에게 경고해 신뢰도를 명시적으로 안내한다.
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ChevronLeft, Clock, AlertTriangle } from '@lucide/vue'
+import { ChevronLeft, Clock, AlertTriangle, Paperclip, Trash2 } from '@lucide/vue'
+import BaseToast from '@/components/common/BaseToast.vue'
 import { useKnowledgeStore } from '@/stores/useKnowledgeStore'
-import { getKnowledgeDetail } from '@/api/knowledgeApi'
+import { getKnowledgeDetail, deleteKnowledgeData, deleteKnowledgeDataAsAdmin } from '@/api/knowledgeApi'
+import { getLatestAnswer, getTicketDetail } from '@/api/ticketApi'
+import { useAuthStore } from '@/stores/authStore'
+import { ROLES } from '@/constants/roles'
 import type { KnowledgeDataResponse } from '@/types/knowledge'
 
 const router = useRouter()
 const route = useRoute()
 const id = Number(route.params.id)
 
+const auth = useAuthStore()
 const knowledgeStore = useKnowledgeStore()
 // store에 없는 항목(size 상한 초과 등)을 위한 단건 조회 fallback 결과
 const fetchedItem = ref<KnowledgeDataResponse | null>(null)
@@ -48,6 +53,72 @@ function formatDate(iso: string) {
   return iso.slice(0, 10).replace(/-/g, '.')
 }
 
+// item이 확정되면 원본 티켓 답변의 첨부파일과 원본 본문을 가져온다.
+// onMounted 대신 watch(item, { immediate }) 를 쓰는 이유:
+//   item은 store 캐시(목록 경유)와 단건 API(직접 URL 진입) 두 경로로 확정되므로
+//   어느 쪽이든 item이 변경되는 순간 한 번만 실행하면 된다.
+// ticketId는 admin 엔드포인트에서만 반환되므로 USER 권한 등에서는 조기 종료된다.
+const answerFiles = ref<{ fileUrl: string; fileName: string | null; fileSize: number | null }[]>([])
+const originalTicketBody = ref('')
+const SENDER_RE = /\n##SENDER:(.+)##$/
+watch(item, async (newItem) => {
+  answerFiles.value = []
+  originalTicketBody.value = ''
+  if (!newItem?.ticketId) return
+  try {
+    const [ansRes, ticketRes] = await Promise.allSettled([
+      getLatestAnswer(newItem.ticketId),
+      getTicketDetail(newItem.ticketId),
+    ])
+    if (ansRes.status === 'fulfilled') {
+      const d = ansRes.value.data
+      if (d.files?.length) {
+        answerFiles.value = d.files.filter(f => f.fileUrl).map(f => ({ fileUrl: f.fileUrl!, fileName: f.fileName, fileSize: f.fileSize }))
+      } else if (d.fileUrl) {
+        answerFiles.value = [{ fileUrl: d.fileUrl, fileName: d.fileName, fileSize: d.fileSize }]
+      }
+    }
+    if (ticketRes.status === 'fulfilled') {
+      originalTicketBody.value = ticketRes.value.data.content.replace(SENDER_RE, '').trim()
+    }
+  } catch { /* 조회 실패는 무시한다. */ }
+}, { immediate: true })
+
+// SYSTEM_ADMIN: 전체 삭제 / TEAM_ADMIN: 자기 부서만 삭제
+const canDelete = computed(() => {
+  if (!item.value) return false
+  if (auth.role === ROLES.SYSTEM_ADMIN) return true
+  if (auth.role === ROLES.TEAM_ADMIN) return item.value.departmentId === auth.departmentId
+  return false
+})
+
+const showDeleteModal = ref(false)
+const isDeleting = ref(false)
+const deleteError = ref('')
+const showDeleteToast = ref(false)
+
+// 삭제 성공 시 모달을 먼저 닫고 토스트를 띄운 뒤 1.5초 후 목록으로 이동한다.
+// setTimeout으로 이동을 지연하는 이유: 즉시 navigate하면 토스트가 표시되기 전에 페이지가 사라진다.
+// knowledgeStore.remove()를 먼저 호출해 목록 캐시에서도 제거하므로 목록으로 돌아가도 해당 항목이 보이지 않는다.
+async function handleDelete() {
+  if (!item.value) return
+  isDeleting.value = true
+  deleteError.value = ''
+  try {
+    const id = item.value.knowledgeDataId
+    await (auth.role === ROLES.SYSTEM_ADMIN ? deleteKnowledgeDataAsAdmin(id) : deleteKnowledgeData(id))
+    knowledgeStore.remove(item.value.knowledgeDataId)
+    showDeleteModal.value = false
+    showDeleteToast.value = true
+    setTimeout(() => router.replace('/knowledge'), 1500)
+  } catch (e: unknown) {
+    const err = e as { response?: { status?: number; data?: { message?: string } } }
+    deleteError.value = err.response?.data?.message ?? `삭제 실패 (${err.response?.status ?? '네트워크 오류'})`
+  } finally {
+    isDeleting.value = false
+  }
+}
+
 onMounted(async () => {
   await knowledgeStore.load()
   // 목록 로드 후에도 없으면 단건 API로 재조회한다. (직접 URL 진입 또는 size 한도 초과 항목)
@@ -67,9 +138,14 @@ onMounted(async () => {
 
 <template>
   <div class="content-inner">
-    <button class="btn" style="margin-bottom: 20px;" @click="router.back()">
-      <ChevronLeft :size="16" /> 목록으로
-    </button>
+    <div class="top-actions">
+      <button class="btn" @click="router.back()">
+        <ChevronLeft :size="16" /> 목록으로
+      </button>
+      <button v-if="canDelete" class="btn btn-danger-outline" @click="showDeleteModal = true">
+        <Trash2 :size="14" /> 삭제
+      </button>
+    </div>
 
     <div v-if="knowledgeStore.loading || fallbackLoading || (!knowledgeStore.loaded && !knowledgeStore.error)" class="empty-ph" style="height: 240px;">불러오는 중...</div>
     <div v-else-if="!item" class="empty-ph" style="height: 240px;">문서를 불러올 수 없습니다</div>
@@ -90,11 +166,24 @@ onMounted(async () => {
       <div class="card section-card">
         <div class="section-label">질문</div>
         <p class="section-text">{{ item.question }}</p>
+        <template v-if="originalTicketBody && originalTicketBody !== item.question">
+          <div class="original-body-label">내용</div>
+          <p class="section-text original-body-text">{{ originalTicketBody }}</p>
+        </template>
       </div>
 
       <div class="card section-card">
         <div class="section-label">답변</div>
         <p class="section-text">{{ item.answer }}</p>
+      </div>
+
+      <div v-if="answerFiles.length" class="card section-card">
+        <div class="section-label">첨부 파일</div>
+        <a v-for="(f, i) in answerFiles" :key="i" :href="f.fileUrl" target="_blank" rel="noopener noreferrer" class="file-link">
+          <Paperclip :size="14" />
+          <span>{{ f.fileName ?? '첨부 파일' }}</span>
+          <span v-if="f.fileSize" class="file-size">({{ (f.fileSize / 1024).toFixed(1) }}KB)</span>
+        </a>
       </div>
 
       <div class="card meta-card">
@@ -108,10 +197,51 @@ onMounted(async () => {
         </div>
       </div>
     </template>
+
+    <BaseToast v-model="showDeleteToast" title="지식이 삭제됐습니다" type="success" />
+
+    <!-- 삭제 확인 모달 -->
+    <div v-if="showDeleteModal" class="modal-overlay" @click.self="showDeleteModal = false">
+      <div class="modal-box">
+        <p class="modal-msg">이 지식을 삭제할까요?</p>
+        <p class="modal-sub">{{ item?.question }}</p>
+        <div class="modal-actions">
+          <p v-if="deleteError" class="delete-error">{{ deleteError }}</p>
+          <button class="btn" :disabled="isDeleting" @click="showDeleteModal = false">취소</button>
+          <button class="btn btn-danger" :disabled="isDeleting" @click="handleDelete">
+            {{ isDeleting ? '삭제 중...' : '삭제' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.top-actions { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+.btn-danger-outline {
+  display: inline-flex; align-items: center; gap: 6px;
+  border-color: #e03131; color: #e03131; background: transparent;
+}
+.btn-danger-outline:hover { background: #fff0f0; }
+.btn-danger { background: #e03131; color: #fff; border-color: #e03131; }
+.btn-danger:hover:not(:disabled) { background: #c92a2a; }
+.delete-error { font-size: 13px; color: #e03131; margin: 0; }
+
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+  display: flex; align-items: center; justify-content: center; z-index: 200;
+}
+.modal-box {
+  background: #fff; border-radius: 14px; padding: 28px 32px;
+  min-width: 320px; max-width: 440px; display: flex; flex-direction: column; gap: 12px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+}
+.modal-msg { font-size: 16px; font-weight: 700; color: #1f2430; margin: 0; }
+.modal-sub { font-size: 13.5px; color: #717182; margin: 0; line-height: 1.5;
+  display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
 .detail-badges { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
 
 .stale-banner {
@@ -128,6 +258,20 @@ onMounted(async () => {
 }
 
 .section-card { padding: 24px 28px; margin-bottom: 14px; }
+.file-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #2b7fff;
+  text-decoration: none;
+  transition: background 0.12s;
+}
+.file-link:hover { background: #f0f9ff; }
+.file-link .file-size { color: #94a3b8; font-size: 12px; }
 .section-label {
   font-size: 12px;
   font-weight: 700;
@@ -137,6 +281,8 @@ onMounted(async () => {
   margin-bottom: 12px;
 }
 .section-text { font-size: 15px; color: #1f2430; line-height: 1.75; margin: 0; white-space: pre-wrap; }
+.original-body-label { font-size: 11.5px; font-weight: 600; color: #aeb2bb; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 14px; margin-bottom: 6px; }
+.original-body-text { font-size: 13.5px; color: #6b7280; border-left: 2px solid #e5e7eb; padding-left: 10px; }
 
 .meta-card { padding: 20px 28px; display: flex; flex-direction: column; gap: 12px; }
 .meta-row { display: flex; align-items: center; gap: 16px; }

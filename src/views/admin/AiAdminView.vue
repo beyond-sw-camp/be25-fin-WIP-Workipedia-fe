@@ -3,19 +3,28 @@ import { computed, ref, watch, onMounted } from 'vue'
 import { isAxiosError } from 'axios'
 import { Bot } from '@lucide/vue'
 import BaseToast from '@/components/common/BaseToast.vue'
+import BaseModal from '@/components/common/BaseModal.vue'
 import {
   getAiPromptSettings, updateAiPromptSettings,
   getAiTools, createAiTool, updateAiTool,
   editRoutingPromptInstruction,
+  getAiSyncSetting, updateAiSyncSetting,
+  cleanupWorkiAiSyncJobs, getAiSyncCleanupLogs,
   type AiTool, type ToolType, type HttpMethod,
+  type AiSyncCleanupLog, type AiSyncCleanupResult,
 } from '@/api/aiAdminApi'
-import { getAdminDepartments, updateDepartmentRoutingPrompt, type AdminDepartment } from '@/api/adminApi'
+import {
+  getAdminDepartments, updateDepartmentRoutingPrompt, type AdminDepartment,
+  getAdminManuals, updateAdminManualMeta, deleteAdminManual, type AdminManual, type ManualAiSyncStatus,
+} from '@/api/adminApi'
 
-type Section = 'prompt' | 'department' | 'tools'
+type Section = 'prompt' | 'department' | 'manual' | 'sync' | 'tools'
 
 const sections: { id: Section; label: string; group: string }[] = [
   { id: 'prompt', label: '프롬프트 관리', group: 'AI 설정' },
   { id: 'department', label: '부서 티켓 배정 관리', group: 'AI 설정' },
+  { id: 'manual', label: '매뉴얼 문서 관리', group: 'AI 설정' },
+  { id: 'sync', label: 'AI 동기화 관리', group: 'AI 설정' },
   { id: 'tools', label: 'API Tool 관리', group: 'AI 설정' },
 ]
 
@@ -32,6 +41,18 @@ const sectionNotices: Record<Section, { label: string; tone: 'optional' | 'requi
     title: '배정 기준을 등록하지 않아도 티켓 기능은 정상 동작합니다.',
     description: '추천 근거가 없거나 점수가 부족한 티켓은 공통 접수 티켓으로 이동하며, 관리자가 담당 부서를 지정합니다.',
   },
+  manual: {
+    label: '선택 설정',
+    tone: 'optional',
+    title: '매뉴얼 문서가 없어도 AI 서비스는 구동됩니다.',
+    description: '매뉴얼 RAG에서 답을 찾지 못하면 Tool, 해결 티켓 이력, 티켓 생성 제안으로 다음 경로를 진행합니다.',
+  },
+  sync: {
+    label: '운영 설정',
+    tone: 'monitor',
+    title: 'WORKI 청킹 데이터의 보존 기간과 정리 이력을 관리합니다.',
+    description: '오래된 WORKI AI 적재 데이터를 정리해 저장소 용량과 검색 품질을 관리합니다.',
+  },
   tools: {
     label: '선택 설정',
     tone: 'optional',
@@ -42,11 +63,15 @@ const sectionNotices: Record<Section, { label: string; tone: 'optional' | 'requi
 
 // localStorage에 마지막 활성 탭을 저장해 새로고침 후에도 탭을 유지한다.
 // 저장된 값이 유효한 Section이 아닌 경우(직접 조작 등) 기본값 'prompt'로 폴백한다.
-const VALID_SECTIONS: Section[] = ['prompt', 'department', 'tools']
+const VALID_SECTIONS: Section[] = ['prompt', 'department', 'manual', 'sync', 'tools']
 const TAB_LS_KEY = 'workipedia_ai_admin_tab'
 const storedTab = localStorage.getItem(TAB_LS_KEY) as Section | null
 const activeSection = ref<Section>(storedTab && VALID_SECTIONS.includes(storedTab) ? storedTab : 'prompt')
-watch(activeSection, (s) => localStorage.setItem(TAB_LS_KEY, s))
+watch(activeSection, (s) => {
+  localStorage.setItem(TAB_LS_KEY, s)
+  if (s === 'manual') loadManuals()
+  if (s === 'sync') loadAiSyncCleanup()
+})
 
 // ── 토스트 (BaseToast 공통 컴포넌트 사용) ──────────────────────
 const toastVisible = ref(false)
@@ -135,8 +160,8 @@ function deptBadge(dept: AdminDepartment): { text: string; cls: string } {
 // SYNCED/FAILED는 syncInfo(BE 제공 날짜 문자열)를 포함해 표시하고, syncInfo가 null이면 날짜 없이 표시한다.
 // EMPTY는 routingPrompt가 한 번도 등록된 적 없으므로 문구를 표시하지 않는다.
 function deptSyncLabel(dept: AdminDepartment): string | null {
-  if (dept.syncStatus === 'SYNCED')  return dept.syncInfo ? `마지막 동기화: ${dept.syncInfo}` : '동기화 완료'
-  if (dept.syncStatus === 'PENDING') return '동기화 대기 중'
+  if (dept.syncStatus === 'SYNCED')  return dept.syncInfo ?? '동기화 완료'
+  if (dept.syncStatus === 'PENDING') return dept.syncInfo ?? '동기화 대기 중'
   if (dept.syncStatus === 'FAILED')  return dept.syncInfo ? `마지막 동기화 실패: ${dept.syncInfo}` : '동기화 실패'
   return null // EMPTY — 미표시
 }
@@ -221,6 +246,230 @@ async function applyAiInstruction() {
     showSaved('AI 수정에 실패했습니다.', 'error')
   } finally {
     aiLoading.value = false
+  }
+}
+
+// ── 매뉴얼 문서 관리 ──────────────────────────────────────────
+// 매뉴얼의 AI Vector Store 적재 상태를 모니터링하고 FAILED 문서를 재시도한다.
+// 문서 등록·메타데이터 편집(제목·버전·부서)은 설정 관리 > 매뉴얼 탭에서 수행한다.
+const adminManuals = ref<AdminManual[]>([])
+const manualSearch = ref('')
+const manualAiFilter = ref<ManualAiSyncStatus | ''>('')
+const manualCurrentPage = ref(1)
+const MANUAL_PAGE_SIZE = 5
+// null이면 모달 닫힘, 숫자면 해당 manualId의 삭제 확인 모달이 열림.
+const deleteManualId = ref<number | null>(null)
+
+// 상태 레이블·클래스는 파이프라인 순서(미적재→PENDING→PROCESSING→SYNCED/FAILED)를 반영한다.
+const AI_STATUS_LABEL: Record<ManualAiSyncStatus, string> = {
+  SYNCED: 'SYNCED', PENDING: 'PENDING', PROCESSING: 'PROCESSING', FAILED: 'FAILED', EMPTY: '미적재',
+}
+const AI_STATUS_CLS: Record<ManualAiSyncStatus, string> = {
+  SYNCED: 'badge--ai-synced', PENDING: 'badge--ai-pending',
+  PROCESSING: 'badge--ai-processing', FAILED: 'badge--ai-failed', EMPTY: 'badge--ai-none',
+}
+
+// BE가 syncStatus를 반환하지 않는 구 문서는 EMPTY(미적재)로 처리한다.
+function manualAiStatus(m: AdminManual): ManualAiSyncStatus {
+  return m.syncStatus ?? 'EMPTY'
+}
+
+// presigned URL에는 ?X-Amz-... 쿼리스트링이 붙으므로 경로 부분만 떼어 확장자를 판단한다.
+// 끝 앵커($)를 사용해 쿼리스트링 내부의 우연한 매칭을 방지한다.
+function manualFileType(m: AdminManual): string {
+  const path = (m.fileUrls?.[0] ?? m.fileUrl ?? m.sourceUrl ?? '').split('?')[0] ?? ''
+  if (/\.pdf$/i.test(path)) return 'PDF'
+  if (/\.txt$/i.test(path)) return '텍스트'
+  if (/\.docx?$/i.test(path)) return 'DOCX'
+  return '문서'
+}
+
+// SYNCED일 때만 적재 완료 시각을 표시한다.
+// PENDING/PROCESSING은 아직 미완료, FAILED의 시각은 오류 툴팁에서 표시한다.
+function manualSyncTime(m: AdminManual): string {
+  if (manualAiStatus(m) === 'SYNCED' && m.syncedAt) {
+    return m.syncedAt.slice(0, 16).replace('T', ' ')
+  }
+  return '—'
+}
+
+// FAILED일 때 오류 열에 표시할 짧은 텍스트 (최대 28자).
+function manualErrorText(m: AdminManual): string | null {
+  if (manualAiStatus(m) !== 'FAILED') return null
+  return m.syncError ?? null
+}
+
+// 오류 텍스트를 28자로 잘라 말줄임표를 붙인다. 템플릿에서 반복 호출을 줄이기 위해 분리.
+function manualErrorShort(m: AdminManual): string | null {
+  const err = manualErrorText(m)
+  if (!err) return null
+  return err.length > 28 ? err.slice(0, 28) + '…' : err
+}
+
+// FAILED 오류 툴팁: 마지막 실패 시각(syncedAt) + 에러 메시지 조합.
+// syncedAt은 SYNCED에서는 성공 시각, FAILED에서는 마지막 실패 시각으로 사용된다.
+function manualErrorTooltip(m: AdminManual): string {
+  const parts: string[] = []
+  if (m.syncedAt)   parts.push(`${m.syncedAt.slice(0, 16).replace('T', ' ')}에 마지막 실패`)
+  if (m.syncError)  parts.push(m.syncError)
+  return parts.join('\n')
+}
+
+// 검색어·상태 필터는 클라이언트 사이드로 처리한다(전체 목록을 한 번에 로드).
+// filteredManuals 변경 시 페이지를 1로 리셋해 이전 페이지 빈 결과를 방지한다.
+const filteredManuals = computed(() => {
+  const q = manualSearch.value.trim().toLowerCase()
+  let list = adminManuals.value
+  if (manualAiFilter.value) list = list.filter(m => manualAiStatus(m) === manualAiFilter.value)
+  if (!q) return list
+  return list.filter(m => m.title.toLowerCase().includes(q))
+})
+
+const manualTotalPages = computed(() => Math.max(1, Math.ceil(filteredManuals.value.length / MANUAL_PAGE_SIZE)))
+const pagedManuals = computed(() => {
+  const start = (manualCurrentPage.value - 1) * MANUAL_PAGE_SIZE
+  return filteredManuals.value.slice(start, start + MANUAL_PAGE_SIZE)
+})
+watch(filteredManuals, () => { manualCurrentPage.value = 1 })
+
+async function loadManuals() {
+  try {
+    // BasePageRequest @Max(100) 제약으로 size 최대값은 100이다.
+    // 매뉴얼이 100개를 초과하는 시점에 전 페이지 순회 방식으로 전환해야 한다.
+    const res = await getAdminManuals({ size: 100 })
+    adminManuals.value = res.data.content ?? []
+  } catch {
+    showSaved('매뉴얼 목록을 불러오지 못했습니다.', 'error')
+  }
+}
+
+async function retryManualSync(m: AdminManual) {
+  // 낙관적 업데이트: API 호출 전에 UI를 즉시 PENDING으로 전환해 응답 대기 중 피드백을 준다.
+  // 실패하면 이전 상태로 되돌린다.
+  // 현재 updateAdminManualMeta를 통한 우회 방식으로 동작한다.
+  // AdminManualService.update()가 항상 AiSync를 enqueue하므로 실질적으로는 재적재가 트리거되지만,
+  // 전용 재적재 엔드포인트(POST /admin/manuals/{id}/retry 등)가 생기면 해당 엔드포인트로 교체해야 한다.
+  const prevStatus = m.syncStatus
+  const prevError = m.syncError
+  const prevSyncedAt = m.syncedAt
+  m.syncStatus = 'PENDING'
+  m.syncError = null
+  m.syncedAt = null
+  try {
+    await updateAdminManualMeta(m.manualId, { status: m.status })
+    showSaved(`${m.title} 재적재를 요청했습니다.`)
+  } catch {
+    m.syncStatus = prevStatus
+    m.syncError = prevError
+    m.syncedAt = prevSyncedAt
+    showSaved('재시도에 실패했습니다.', 'error')
+  }
+}
+
+async function confirmDeleteManual() {
+  if (deleteManualId.value === null) return
+  const id = deleteManualId.value
+  // 모달을 API 호출 전에 먼저 닫는다.
+  // 실패 시 아이템이 목록에 남아 있으므로 사용자가 다시 삭제를 시도할 수 있다.
+  deleteManualId.value = null
+  try {
+    await deleteAdminManual(id)
+    // 서버 재요청 없이 로컬 목록에서 즉시 제거한다.
+    adminManuals.value = adminManuals.value.filter(m => m.manualId !== id)
+    showSaved('문서를 삭제했습니다.')
+  } catch {
+    showSaved('삭제에 실패했습니다.', 'error')
+  }
+}
+
+// ── AI 동기화 관리 ───────────────────────────────────────────
+const retentionOptions = [
+  { label: '90일', value: 90 },
+  { label: '180일', value: 180 },
+  { label: '1년', value: 365 },
+  { label: '2년', value: 730 },
+  { label: '3년', value: 1095 },
+  { label: '4년', value: 1460 },
+  { label: '5년', value: 1825 },
+  { label: '기한 없음', value: 0 },
+]
+const syncRetentionDays = ref(90)
+const syncSettingLoading = ref(false)
+const syncSettingSaving = ref(false)
+const syncCleanupRunning = ref(false)
+const syncCleanupResult = ref<AiSyncCleanupResult | null>(null)
+const syncCleanupLogs = ref<AiSyncCleanupLog[]>([])
+
+const syncRetentionLabel = computed(() => {
+  return retentionOptions.find(option => option.value === syncRetentionDays.value)?.label ?? `${syncRetentionDays.value}일`
+})
+
+function formatSyncCleanupTime(value?: string | null) {
+  if (!value) return '-'
+  return value.slice(0, 16).replace('T', ' ')
+}
+
+function cleanupLogTriggerLabel(triggeredBy: string) {
+  if (triggeredBy === 'MANUAL') return '수동'
+  if (triggeredBy === 'SCHEDULE') return '자동'
+  return triggeredBy
+}
+
+function cleanupResultLabel(log: AiSyncCleanupLog) {
+  return log.failedCount > 0 ? '일부 실패' : '완료'
+}
+
+async function loadAiSyncCleanup() {
+  await Promise.all([loadAiSyncSetting(), loadAiSyncLogs()])
+}
+
+async function loadAiSyncSetting() {
+  syncSettingLoading.value = true
+  try {
+    const res = await getAiSyncSetting()
+    syncRetentionDays.value = res.data.retentionDays
+  } catch (error) {
+    showSaved('AI 동기화 설정을 불러오지 못했습니다.', 'error', getErrorMessage(error))
+  } finally {
+    syncSettingLoading.value = false
+  }
+}
+
+async function loadAiSyncLogs() {
+  try {
+    const res = await getAiSyncCleanupLogs(10)
+    syncCleanupLogs.value = res.data
+  } catch (error) {
+    showSaved('정리 이력을 불러오지 못했습니다.', 'error', getErrorMessage(error))
+  }
+}
+
+async function saveAiSyncSetting() {
+  if (syncSettingSaving.value) return
+  syncSettingSaving.value = true
+  try {
+    const res = await updateAiSyncSetting({ retentionDays: syncRetentionDays.value })
+    syncRetentionDays.value = res.data.retentionDays
+    showSaved('AI 동기화 보존 기간이 저장되었습니다.')
+  } catch (error) {
+    showSaved('AI 동기화 설정 저장에 실패했습니다.', 'error', getErrorMessage(error))
+  } finally {
+    syncSettingSaving.value = false
+  }
+}
+
+async function runWorkiCleanup() {
+  if (syncCleanupRunning.value) return
+  syncCleanupRunning.value = true
+  try {
+    const res = await cleanupWorkiAiSyncJobs()
+    syncCleanupResult.value = res.data
+    await loadAiSyncLogs()
+    showSaved('WORKI 청킹 데이터 정리를 실행했습니다.')
+  } catch (error) {
+    showSaved('정리 실행에 실패했습니다.', 'error', getErrorMessage(error))
+  } finally {
+    syncCleanupRunning.value = false
   }
 }
 
@@ -398,6 +647,8 @@ async function saveTool() {
 onMounted(() => {
   loadPromptSettings()
   loadDepts()
+  if (activeSection.value === 'manual') loadManuals()
+  if (activeSection.value === 'sync') loadAiSyncCleanup()
   loadTools()
 })
 </script>
@@ -571,6 +822,208 @@ onMounted(() => {
           </div>
         </template>
 
+        <!-- ── 매뉴얼 문서 관리 ── -->
+        <template v-else-if="activeSection === 'manual'">
+          <div class="workspace-title">
+            <div>
+              <h2>매뉴얼 문서 관리</h2>
+              <p>문서의 AI 적재(Vector Store 반영) 상태를 확인하고 실패한 문서를 재시도합니다.</p>
+            </div>
+          </div>
+
+          <!-- 툴바 -->
+          <div class="manual-toolbar">
+            <input v-model="manualSearch" class="search-input" placeholder="제목 검색" />
+            <select v-model="manualAiFilter" class="manual-filter-select">
+              <option value="">전체 AI 상태</option>
+              <option value="SYNCED">SYNCED</option>
+              <option value="PENDING">PENDING</option>
+              <option value="PROCESSING">PROCESSING</option>
+              <option value="FAILED">FAILED</option>
+              <option value="EMPTY">미적재</option>
+            </select>
+            <button class="button button--secondary" @click="manualSearch = ''; manualAiFilter = ''">전체 보기</button>
+            <button class="button button--primary" @click="loadManuals()">조회</button>
+          </div>
+
+          <!-- 문서 테이블 -->
+          <div class="table-wrap">
+            <table class="manual-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>제목</th>
+                  <th>파일 유형</th>
+                  <th>버전</th>
+                  <th>AI 적재 상태</th>
+                  <th>적재 시간</th>
+                  <th>오류</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="m in pagedManuals" :key="m.manualId">
+                  <td>{{ m.manualId }}</td>
+                  <td>
+                    <div class="manual-title-cell">
+                      <span class="manual-file-icon">📄</span>
+                      {{ m.title }}
+                    </div>
+                  </td>
+                  <td>{{ manualFileType(m) }}</td>
+                  <td>{{ m.version ?? 'v1' }}</td>
+                  <td>
+                    <span :class="['manual-ai-badge', AI_STATUS_CLS[manualAiStatus(m)]]">
+                      {{ AI_STATUS_LABEL[manualAiStatus(m)] }}
+                    </span>
+                  </td>
+                  <td>{{ manualSyncTime(m) }}</td>
+                  <td>
+                    <span v-if="manualErrorShort(m)" class="manual-error-text" :title="manualErrorTooltip(m)">
+                      {{ manualErrorShort(m) }}
+                    </span>
+                    <span v-else>—</span>
+                  </td>
+                  <td>
+                    <div class="manual-actions">
+                      <button
+                        v-if="manualAiStatus(m) === 'FAILED'"
+                        class="manual-btn-retry"
+                        @click="retryManualSync(m)"
+                      >재시도</button>
+                      <button class="manual-btn-delete" @click="deleteManualId = m.manualId">삭제</button>
+                    </div>
+                  </td>
+                </tr>
+                <tr v-if="pagedManuals.length === 0">
+                  <td colspan="8" style="text-align: center; color: #b0b8c1; padding: 28px;">등록된 문서가 없습니다.</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <!-- 페이지네이션 -->
+            <div v-if="manualTotalPages > 1" class="manual-pagination">
+              <button class="manual-page-btn" :disabled="manualCurrentPage === 1" @click="manualCurrentPage--">‹</button>
+              <button
+                v-for="p in manualTotalPages"
+                :key="p"
+                :class="['manual-page-btn', { 'manual-page-btn--active': p === manualCurrentPage }]"
+                @click="manualCurrentPage = p"
+              >{{ p }}</button>
+              <button class="manual-page-btn" :disabled="manualCurrentPage === manualTotalPages" @click="manualCurrentPage++">›</button>
+            </div>
+          </div>
+
+          <div class="inline-note routing-note">
+            제목·버전·부서 등 메타데이터 수정은 설정 관리 &gt; 매뉴얼 탭에서 수행합니다.
+          </div>
+        </template>
+
+        <!-- ── AI 동기화 관리 ── -->
+        <template v-else-if="activeSection === 'sync'">
+          <div class="workspace-title">
+            <div>
+              <h2>AI 동기화 관리</h2>
+              <p>WORKI 청킹 데이터의 보존 기간을 설정하고 오래된 적재 데이터를 정리합니다.</p>
+            </div>
+          </div>
+
+          <div class="sync-grid">
+            <section class="setting-block sync-panel">
+              <div class="setting-heading">
+                <div>
+                  <h3>정리 설정</h3>
+                  <p>WORKI AI 청킹 데이터를 보관할 기간을 선택합니다.</p>
+                </div>
+                <button class="button button--primary" :disabled="syncSettingSaving || syncSettingLoading" @click="saveAiSyncSetting">
+                  {{ syncSettingSaving ? '저장 중...' : '저장' }}
+                </button>
+              </div>
+              <label class="sync-field">
+                <span>보존 기간</span>
+                <select v-model.number="syncRetentionDays" class="manual-filter-select">
+                  <option v-for="option in retentionOptions" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+              </label>
+              <p class="sync-help" :class="{ 'sync-help--warning': syncRetentionDays === 0 }">
+                {{ syncRetentionDays === 0
+                  ? '기한 없음으로 저장하면 자동 정리가 수행되지 않습니다.'
+                  : `${syncRetentionLabel}보다 오래된 WORKI 동기화 데이터를 정리 대상으로 봅니다.` }}
+              </p>
+            </section>
+
+            <section class="setting-block sync-panel">
+              <div class="setting-heading">
+                <div>
+                  <h3>수동 정리 실행</h3>
+                  <p>현재 보존 기간 기준으로 오래된 WORKI 청킹 데이터를 즉시 정리합니다.</p>
+                </div>
+                <button class="button button--primary" :disabled="syncCleanupRunning" @click="runWorkiCleanup">
+                  {{ syncCleanupRunning ? '정리 중...' : '지금 정리 실행' }}
+                </button>
+              </div>
+              <div class="sync-result-row">
+                <div class="sync-result">
+                  <span>삭제</span>
+                  <strong>{{ syncCleanupResult?.deleted ?? '-' }}</strong>
+                </div>
+                <div class="sync-result">
+                  <span>스킵</span>
+                  <strong>{{ syncCleanupResult?.skipped ?? '-' }}</strong>
+                </div>
+                <div class="sync-result">
+                  <span>실패</span>
+                  <strong :class="{ 'sync-result--danger': (syncCleanupResult?.failed ?? 0) > 0 }">
+                    {{ syncCleanupResult?.failed ?? '-' }}
+                  </strong>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div class="workspace-title sync-history-title">
+            <div>
+              <h3>실행 이력</h3>
+              <p>최근 정리 내역 10건을 표시합니다.</p>
+            </div>
+            <button class="button button--secondary" @click="loadAiSyncLogs">새로고침</button>
+          </div>
+
+          <div class="table-wrap">
+            <table class="editable-table sync-history-table">
+              <thead>
+                <tr>
+                  <th>실행 시각</th>
+                  <th>트리거</th>
+                  <th>삭제</th>
+                  <th>스킵</th>
+                  <th>실패</th>
+                  <th>결과</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="log in syncCleanupLogs" :key="`${log.completedAt}-${log.triggeredBy}`">
+                  <td>{{ formatSyncCleanupTime(log.completedAt) }}</td>
+                  <td>{{ cleanupLogTriggerLabel(log.triggeredBy) }}</td>
+                  <td>{{ log.deletedCount }}</td>
+                  <td>{{ log.skippedCount }}</td>
+                  <td>{{ log.failedCount }}</td>
+                  <td>
+                    <span :class="['badge', log.failedCount > 0 ? 'badge--amber' : 'badge--green']">
+                      {{ cleanupResultLabel(log) }}
+                    </span>
+                  </td>
+                </tr>
+                <tr v-if="syncCleanupLogs.length === 0">
+                  <td colspan="6" style="text-align: center; color: #b0b8c1; padding: 28px;">실행 이력이 없습니다.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
+
         <!-- ── API Tool 관리 ── -->
         <template v-else-if="activeSection === 'tools'">
           <div class="workspace-title">
@@ -630,6 +1083,18 @@ onMounted(() => {
             </table>
           </div>
         </template>
+
+        <!-- 탭 전환 시 마운트 해제를 피하기 위해 v-else-if 블록 밖에 배치한다.
+             deleteManualId가 null이면 모달이 열리지 않으므로 다른 탭에서도 무해하다. -->
+        <BaseModal
+          :model-value="deleteManualId !== null"
+          title="문서 삭제"
+          message="삭제된 문서는 복구할 수 없으며 AI 검색에서 제거됩니다."
+          confirm-label="삭제"
+          :danger="true"
+          @update:model-value="(v) => { if (!v) deleteManualId = null }"
+          @confirm="confirmDeleteManual"
+        />
     </div>
 
     <!-- ── API Tool 등록 모달 ── -->
@@ -791,6 +1256,43 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
 .department-btn-retry { border: 1px solid #ef4444; color: #ef4444; background: #fff; font-size: 12px; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
 .department-btn-retry:hover { background: #fee2e2; }
 
+/* 매뉴얼 문서 관리 */
+.manual-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.manual-filter-select { min-height: 36px; padding: 0 10px; border: 1px solid #ccd3da; border-radius: 5px; background: #fff; color: #34404c; font: inherit; font-size: 12px; }
+.manual-title-cell { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #26323e; }
+.manual-file-icon { font-size: 15px; flex-shrink: 0; }
+.manual-ai-badge { display: inline-block; padding: 2px 9px; border-radius: 99px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.badge--ai-synced     { background: #d1fae5; color: #065f46; }
+.badge--ai-pending    { background: #fef3c7; color: #b45309; }
+.badge--ai-processing { background: #dbeafe; color: #1d4ed8; }
+.badge--ai-failed     { background: #fee2e2; color: #b91c1c; }
+.badge--ai-none       { background: #f3f4f6; color: #888; }
+.manual-error-text { font-size: 12px; color: #ef4444; cursor: default; }
+.manual-actions { display: flex; gap: 6px; align-items: center; justify-content: flex-end; white-space: nowrap; }
+.manual-btn-retry        { height: 28px; padding: 0 12px; border-radius: 5px; border: none; font-size: 12px; font-weight: 600; cursor: pointer; background: #fee2e2; color: #b91c1c; }
+.manual-btn-retry:hover  { background: #fecaca; }
+.manual-btn-delete       { height: 28px; padding: 0 12px; border-radius: 5px; border: none; font-size: 12px; font-weight: 600; cursor: pointer; background: #f3f4f6; color: #6b7280; }
+.manual-btn-delete:hover { background: #fee2e2; color: #b91c1c; }
+.manual-pagination { display: flex; justify-content: center; align-items: center; gap: 6px; padding: 16px 0; }
+.manual-page-btn { width: 30px; height: 30px; border-radius: 5px; border: 1px solid #e5e7eb; background: #fff; font-size: 12px; cursor: pointer; }
+.manual-page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.manual-page-btn--active { background: #1769c2; color: #fff; border-color: #1769c2; }
+
+.sync-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 22px; }
+.sync-panel { min-height: 190px; }
+.sync-field { display: flex; flex-direction: column; gap: 7px; color: #53606d; font-size: 12px; font-weight: 700; }
+.sync-field select { width: min(260px, 100%); }
+.sync-help { margin-top: 12px; color: #6f7a85; font-size: 12px; line-height: 1.55; }
+.sync-help--warning { color: #b45309; }
+.sync-result-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.sync-result { min-height: 76px; padding: 13px; border: 1px solid #e1e6eb; border-radius: 7px; background: #f8fafc; }
+.sync-result span { display: block; color: #74808b; font-size: 11px; }
+.sync-result strong { display: block; margin-top: 8px; color: #25313d; font-size: 22px; }
+.sync-result--danger { color: #b91c1c !important; }
+.sync-history-title { margin-top: 4px; margin-bottom: 12px; }
+.sync-history-title h3 { font-size: 16px; }
+.sync-history-table { min-width: 720px; }
+
 .toast { position: fixed; z-index: 30; top: 22px; right: 24px; padding: 10px 14px; border-radius: 5px; background: #253341; color: #fff; font-size: 12px; box-shadow: 0 6px 18px rgba(0,0,0,.14); }
 .modal-backdrop { position: fixed; z-index: 40; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(20,28,36,.45); }
 .modal { width: min(480px, 100%); padding: 22px; border-radius: 7px; background: #fff; box-shadow: 0 16px 44px rgba(0,0,0,.22); display: flex; flex-direction: column; gap: 15px; }
@@ -815,6 +1317,7 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
   .tab-bar { border-radius: 8px; }
   .workspace-title { align-items: flex-start; }
   .metric-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sync-grid { grid-template-columns: 1fr; }
   .table-wrap { overflow-x: auto; }
   table { min-width: 680px; }
 }
