@@ -29,6 +29,8 @@ export const useAuthStore = defineStore('auth', () => {
   const userId = ref<number | null>(saved?.userId ?? null)
   const nickname = ref<string | null>(saved?.nickname ?? null)
   const team = ref<string | null>(saved?.team ?? null)
+  // 지식화 게시판 삭제 버튼 표시 조건(item.departmentId === auth.departmentId)에 사용한다.
+  // 실제 권한 검증은 BE가 처리하며, 이 값은 UI 표시 여부 판단 전용이다.
   const departmentId = ref<number | null>(saved?.departmentId ?? null)
 
   const isLoggedIn = computed(() => !!accessToken.value)

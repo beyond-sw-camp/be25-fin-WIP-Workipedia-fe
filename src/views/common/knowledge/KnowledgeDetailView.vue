@@ -10,8 +10,9 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ChevronLeft, Clock, AlertTriangle, Paperclip, Trash2 } from '@lucide/vue'
+import BaseToast from '@/components/common/BaseToast.vue'
 import { useKnowledgeStore } from '@/stores/useKnowledgeStore'
-import { getKnowledgeDetail, deleteKnowledgeData } from '@/api/knowledgeApi'
+import { getKnowledgeDetail, deleteKnowledgeData, deleteKnowledgeDataAsAdmin } from '@/api/knowledgeApi'
 import { getLatestAnswer, getTicketDetail } from '@/api/ticketApi'
 import { useAuthStore } from '@/stores/authStore'
 import { ROLES } from '@/constants/roles'
@@ -94,15 +95,22 @@ const canDelete = computed(() => {
 const showDeleteModal = ref(false)
 const isDeleting = ref(false)
 const deleteError = ref('')
+const showDeleteToast = ref(false)
 
+// 삭제 성공 시 모달을 먼저 닫고 토스트를 띄운 뒤 1.5초 후 목록으로 이동한다.
+// setTimeout으로 이동을 지연하는 이유: 즉시 navigate하면 토스트가 표시되기 전에 페이지가 사라진다.
+// knowledgeStore.remove()를 먼저 호출해 목록 캐시에서도 제거하므로 목록으로 돌아가도 해당 항목이 보이지 않는다.
 async function handleDelete() {
   if (!item.value) return
   isDeleting.value = true
   deleteError.value = ''
   try {
-    await deleteKnowledgeData(item.value.knowledgeDataId)
+    const id = item.value.knowledgeDataId
+    await (auth.role === ROLES.SYSTEM_ADMIN ? deleteKnowledgeDataAsAdmin(id) : deleteKnowledgeData(id))
     knowledgeStore.remove(item.value.knowledgeDataId)
-    router.replace('/knowledge')
+    showDeleteModal.value = false
+    showDeleteToast.value = true
+    setTimeout(() => router.replace('/knowledge'), 1500)
   } catch (e: unknown) {
     const err = e as { response?: { status?: number; data?: { message?: string } } }
     deleteError.value = err.response?.data?.message ?? `삭제 실패 (${err.response?.status ?? '네트워크 오류'})`
@@ -189,6 +197,8 @@ onMounted(async () => {
         </div>
       </div>
     </template>
+
+    <BaseToast v-model="showDeleteToast" title="지식이 삭제됐습니다" type="success" />
 
     <!-- 삭제 확인 모달 -->
     <div v-if="showDeleteModal" class="modal-overlay" @click.self="showDeleteModal = false">
