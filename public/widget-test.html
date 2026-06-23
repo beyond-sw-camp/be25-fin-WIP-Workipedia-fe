@@ -1,54 +1,257 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ko">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Workipedia 위젯 확인</title>
     <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      :root {
+        --violet: #7c5cfc;
+        --violet-light: #a78bfa;
+        --violet-dark: #5b21b6;
+        --violet-bg: rgba(124, 92, 252, 0.1);
+        --ink: #0a0a0a;
+        --ink-2: #1a1a2e;
+        --muted: #717182;
+        --border: #e9eaee;
+        --bg-soft: #f7f7fc;
+        --nav-h: 60px;
+      }
       body {
         font-family: -apple-system, BlinkMacSystemFont, 'Noto Sans KR', 'Segoe UI', sans-serif;
-        padding: 48px;
-        background: #eef0f6;
-        color: #222;
-        line-height: 1.7;
+        min-height: 100vh;
+        background: linear-gradient(160deg, #ede8ff 0%, #f5f5fd 55%, #e8f7ef 100%);
+        color: var(--ink-2);
       }
-      h1 { font-size: 20px; margin: 0 0 12px; }
-      code { background: #dde; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
-      a { color: #6d4fea; }
-      .row { margin: 8px 0; }
-      .hint { color: #717182; font-size: 14px; }
+
+      /* nav */
+      nav {
+        position: sticky;
+        top: 0;
+        height: var(--nav-h);
+        z-index: 50;
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(14px);
+        border-bottom: 1px solid var(--border);
+      }
+      .nav-inner {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 0 28px;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .nav-logo { display: flex; align-items: center; gap: 10px; }
+      .nav-logo-icon {
+        width: 34px; height: 34px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, var(--violet), var(--violet-dark));
+        color: #fff; font-weight: 800; font-size: 16px;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .nav-logo-text { font-size: 17px; font-weight: 800; color: var(--ink); }
+      .nav-tag {
+        font-size: 12px; font-weight: 600; color: var(--violet);
+        background: var(--violet-bg); padding: 5px 12px; border-radius: 99px;
+      }
+
+      /* layout */
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 64px 28px 120px;
+        text-align: center;
+      }
+      .hero-badge {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 5px 14px; border-radius: 99px;
+        background: rgba(124, 92, 252, 0.12); color: var(--violet);
+        font-size: 12px; font-weight: 700; letter-spacing: 0.02em;
+        margin-bottom: 20px;
+      }
+      h1 {
+        font-size: clamp(30px, 4.5vw, 46px);
+        font-weight: 800; line-height: 1.2; letter-spacing: -0.02em;
+        color: var(--ink-2); margin-bottom: 16px;
+      }
+      h1 em {
+        font-style: normal;
+        background: linear-gradient(90deg, var(--violet), var(--violet-light));
+        -webkit-background-clip: text; background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      .hero-desc { font-size: 16px; color: var(--muted); line-height: 1.75; margin-bottom: 36px; }
+      .hero-desc b { color: var(--ink-2); }
+
+      /* control card */
+      .card {
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 24px;
+        text-align: left;
+        box-shadow: 0 2px 14px rgba(20, 20, 50, 0.05);
+        margin-bottom: 18px;
+      }
+      .card-label {
+        font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+        text-transform: uppercase; color: var(--muted); margin-bottom: 12px;
+      }
+      .ctrl-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+      .ctrl-row:last-child { margin-bottom: 0; }
+      .chip {
+        padding: 8px 16px; border-radius: 10px;
+        border: 1.5px solid var(--border); background: #fff;
+        font-size: 13px; font-weight: 600; color: var(--ink-2);
+        cursor: pointer; font-family: inherit;
+        transition: background 0.15s, border-color 0.15s, color 0.15s;
+      }
+      .chip:hover { border-color: var(--violet-light); }
+      .chip.active {
+        background: var(--violet); border-color: var(--violet); color: #fff;
+      }
+
+      /* code block (mac style) */
+      .code-block { background: #0f1117; border-radius: 14px; overflow: hidden; text-align: left; }
+      .code-header {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 10px 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      .code-dots { display: flex; gap: 6px; }
+      .code-dot { width: 10px; height: 10px; border-radius: 50%; }
+      .code-dot:nth-child(1) { background: #ff5f56; }
+      .code-dot:nth-child(2) { background: #febc2e; }
+      .code-dot:nth-child(3) { background: #28c840; }
+      .code-right { display: flex; align-items: center; gap: 10px; }
+      .code-fname { color: rgba(255, 255, 255, 0.3); font-size: 11px; font-family: monospace; }
+      .copy-btn {
+        display: inline-flex; align-items: center; gap: 5px;
+        padding: 4px 11px; border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        background: rgba(255, 255, 255, 0.07); color: rgba(255, 255, 255, 0.55);
+        font-size: 11px; font-weight: 500; cursor: pointer; font-family: inherit;
+        transition: background 0.15s, color 0.15s;
+      }
+      .copy-btn:hover { background: rgba(124, 92, 252, 0.3); color: #c4b5fd; }
+      .copy-btn.copied { background: rgba(5, 150, 105, 0.25); color: #34d399; border-color: rgba(5, 150, 105, 0.4); }
+      .code-body {
+        padding: 18px 20px; overflow-x: auto;
+        font-family: 'JetBrains Mono', 'Fira Code', 'Menlo', monospace;
+        font-size: 12.5px; line-height: 1.8; color: #e2e8f0; white-space: pre;
+      }
+      .ct { color: rgba(255, 255, 255, 0.28); }
+      .tg { color: #a78bfa; }
+      .at { color: #7dd3fc; }
+      .st { color: #86efac; }
+
+      .note {
+        font-size: 13px; color: var(--muted); line-height: 1.7;
+        margin-top: 22px;
+      }
+      .note b { color: var(--violet-dark); }
     </style>
   </head>
   <body>
-    <h1>Workipedia 임베디드 위젯 확인 페이지</h1>
-    <p class="hint">
-      우측 하단(또는 선택한 위치) 런처 → 로그인 → 노잇에게 질문해 보세요.<br />
-      위젯은 <code>https://workipedia.wiki</code> 에 직접 연결됩니다. <b>본인 사번/비밀번호</b>로 로그인하면 실제 답변이 옵니다.
-    </p>
+    <nav>
+      <div class="nav-inner">
+        <div class="nav-logo">
+          <div class="nav-logo-icon">W</div>
+          <span class="nav-logo-text">Workipedia</span>
+        </div>
+        <span class="nav-tag">위젯 확인 페이지</span>
+      </div>
+    </nav>
 
-    <div class="row">
-      테마 · 위치 바꿔보기:
-      <a href="?theme=light&pos=bottom-right">라이트·우하단</a> ·
-      <a href="?theme=dark&pos=bottom-right">다크·우하단</a> ·
-      <a href="?theme=light&pos=bottom-left">라이트·좌하단</a> ·
-      <a href="?theme=dark&pos=top-right">다크·우상단</a>
-    </div>
+    <main>
+      <div class="hero-badge">✦&nbsp;&nbsp;스크립트 한 줄로 연동</div>
+      <h1>임베디드 위젯 <em>확인 페이지</em></h1>
+      <p class="hero-desc">
+        우측 하단(또는 선택한 위치) 런처 → 로그인 → 노잇에게 질문해 보세요.<br />
+        실제 <b>workipedia.wiki</b> 백엔드에 연결되며, <b>본인 사번·비밀번호</b>로 로그인하면 진짜 답변이 옵니다.
+      </p>
 
-    <p class="hint">
-      실제 고객사 임베드 스니펫:
-      <code>&lt;script src="https://workipedia.wiki/widget.js" data-theme="light" data-position="bottom-right"&gt;&lt;/script&gt;</code>
-    </p>
+      <!-- 테마 / 위치 컨트롤 -->
+      <div class="card">
+        <p class="card-label">테마</p>
+        <div class="ctrl-row" id="theme-row"></div>
+        <p class="card-label">위치</p>
+        <div class="ctrl-row" id="pos-row"></div>
+      </div>
 
-    <!--
-      위젯 로드. data-api-base 를 지정하지 않으므로 번들에 박힌 기본 BE(workipedia.wiki)로 붙는다.
-      로컬 BE 로 붙여 테스트하려면 data-api-base="http://localhost:8080/api/v1" 를 추가하면 된다.
-    -->
+      <!-- 실제 임베드 스니펫 -->
+      <div class="code-block">
+        <div class="code-header">
+          <div class="code-dots"><div class="code-dot"></div><div class="code-dot"></div><div class="code-dot"></div></div>
+          <div class="code-right">
+            <span class="code-fname">index.html</span>
+            <button class="copy-btn" id="copyBtn">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              복사
+            </button>
+          </div>
+        </div>
+        <div class="code-body"><span class="ct">&lt;!-- body 닫는 태그 바로 위에 추가 --&gt;</span>
+<span class="tg">&lt;script</span> <span class="at">src</span>=<span class="st">"https://workipedia.wiki/workipedia-chat.iife.js"</span>
+        <span class="at">data-theme</span>=<span class="st">"light"</span> <span class="at">data-position</span>=<span class="st">"bottom-right"</span> <span class="at">async</span><span class="tg">&gt;&lt;/script&gt;</span></div>
+      </div>
+
+      <p class="note">
+        ※ 이 페이지는 <b>로컬 빌드 번들</b>(<code>/workipedia-chat.iife.js</code>)을 로드합니다 — 방금 <code>npm run build:widget</code> 한 결과를 확인합니다.<br />
+        로컬 BE로 붙여 테스트하려면 URL 뒤에 <code>?api=local</code> 을 붙이세요 (→ <code>http://localhost:8080/api/v1</code>).
+      </p>
+    </main>
+
     <script>
+      const SNIPPET =
+        '<script src="https://workipedia.wiki/workipedia-chat.iife.js" data-theme="light" data-position="bottom-right" async><\/script>'
       const p = new URLSearchParams(location.search)
+      const theme = p.get('theme') || 'light'
+      const pos = p.get('pos') || 'bottom-right'
+
+      // 컨트롤 칩 렌더 — 클릭 시 해당 옵션으로 페이지를 다시 로드해 위젯을 재주입한다.
+      function buildChips(rowId, key, current, options) {
+        const row = document.getElementById(rowId)
+        options.forEach(([val, label]) => {
+          const b = document.createElement('button')
+          b.className = 'chip' + (val === current ? ' active' : '')
+          b.textContent = label
+          b.onclick = () => {
+            const q = new URLSearchParams(location.search)
+            q.set(key, val)
+            location.search = q.toString()
+          }
+          row.appendChild(b)
+        })
+      }
+      buildChips('theme-row', 'theme', theme, [['light', '라이트'], ['dark', '다크']])
+      buildChips('pos-row', 'pos', pos, [
+        ['bottom-right', '우하단'], ['bottom-left', '좌하단'],
+        ['top-right', '우상단'], ['top-left', '좌상단'],
+      ])
+
+      // 복사 버튼
+      const copyBtn = document.getElementById('copyBtn')
+      copyBtn.onclick = async () => {
+        try {
+          await navigator.clipboard.writeText(SNIPPET)
+          copyBtn.classList.add('copied')
+          copyBtn.lastChild.textContent = ' 복사됨'
+          setTimeout(() => {
+            copyBtn.classList.remove('copied')
+            copyBtn.lastChild.textContent = ' 복사'
+          }, 1500)
+        } catch (e) { /* 클립보드 권한 없음 무시 */ }
+      }
+
+      // 위젯 로드 — 로컬 빌드 번들. data-api-base 미지정 시 번들 기본값(workipedia.wiki) 사용.
       const s = document.createElement('script')
       s.src = '/workipedia-chat.iife.js'
-      s.setAttribute('data-theme', p.get('theme') || 'light')
-      s.setAttribute('data-position', p.get('pos') || 'bottom-right')
+      s.setAttribute('data-theme', theme)
+      s.setAttribute('data-position', pos)
+      if (p.get('api') === 'local') s.setAttribute('data-api-base', 'http://localhost:8080/api/v1')
       document.body.appendChild(s)
     </script>
   </body>
