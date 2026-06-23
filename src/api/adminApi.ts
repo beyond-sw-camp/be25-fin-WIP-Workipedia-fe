@@ -43,6 +43,10 @@ export function getAdminUsers() {
 export function updateUserStatus(userId: number, status: 'ACTIVE' | 'INACTIVE') {
   return http.patch<ApiResponse<null>>(`/admin/users/${userId}/status`, { status })
 }
+// TEAM_ADMIN으로의 단방향 승격만 허용한다. 다른 role 값 전달 시 BE에서 400을 반환한다.
+export function updateUserRole(userId: number, role: 'TEAM_ADMIN') {
+  return http.patch<AdminUser>(`/admin/users/${userId}/role`, { role })
+}
 
 // ── 매뉴얼 관리 ────────────────────────────────────────────────
 export type ManualAiSyncStatus = 'SYNCED' | 'PENDING' | 'PROCESSING' | 'FAILED' | 'EMPTY'
