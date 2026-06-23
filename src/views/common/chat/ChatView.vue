@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/authStore'
 import MessageComposer from '@/components/common/MessageComposer.vue'
 import { getActiveMessages } from '@/api/chatApi'
 import type { FlashChatMessageResponse } from '@/types/chat'
+import { Zap, Clock, MessageCircle, ChevronDown, ChevronUp } from '@lucide/vue'
 
 const auth = useAuthStore()
 
@@ -36,6 +37,12 @@ let ticker: ReturnType<typeof setInterval>
 const timeouts = new Map<string, ReturnType<typeof setTimeout>>()
 
 const msgs = ref<ChatMsg[]>([])
+// 초기 메시지 로드가 끝나기 전에 안내 문구가 잠깐 보이는 플래시를 막기 위해 사용한다.
+// 초기 메시지 로드가 끝나기 전에 안내 문구가 잠깐 보이는 플래시를 막기 위해 사용한다.
+// onMounted의 getActiveMessages finally 블록에서 true로 설정된다.
+const initialLoaded = ref(false)
+// 안내 섹션의 접힘 상태. 기본값 true(펼침)이며 사용자가 직접 토글한다.
+const guideOpen = ref(true)
 
 // 메시지 expiresAt까지 남은 시간(ms)을 계산해 setTimeout으로 자동 제거를 예약한다.
 // 이미 만료된 메시지는 즉시 제거한다.
@@ -144,6 +151,10 @@ onMounted(async () => {
     msgs.value.forEach(scheduleDelete)
   } catch {
     // 초기 로드 실패해도 실시간 연결은 유지
+  } finally {
+    // API 실패 시에도 true로 설정해야 안내 문구가 표시된다.
+    // try에만 두면 네트워크 오류 시 안내 섹션이 영원히 나타나지 않는다.
+    initialLoaded.value = true
   }
 
   connectStomp().catch(console.error)
@@ -231,6 +242,44 @@ function isContinuation(i: number): boolean {
 
 <template>
   <div class="chat-page">
+    <!-- 스크롤 영역 밖에 배치해 메시지가 쌓여도 항상 상단에 고정된다. -->
+    <div v-if="initialLoaded" class="guide-wrap">
+      <div class="guide">
+          <!-- 항상 표시되는 헤더 행: 아이콘 + 요약 문구 + 접기/펼치기 버튼 -->
+          <div class="guide-header" @click="guideOpen = !guideOpen">
+            <div class="empty-icon-wrap">
+              <Zap :size="18" color="#2b7fff" />
+            </div>
+            <span class="guide-summary">팀원들과 실시간으로 소통하는 채널입니다. 메시지는 일정 시간이 지나면 자동으로 사라집니다.</span>
+            <ChevronUp v-if="guideOpen" :size="16" color="#aeb2bb" class="guide-chevron" />
+            <ChevronDown v-else :size="16" color="#aeb2bb" class="guide-chevron" />
+          </div>
+          <!-- 펼쳐진 상태에서만 보이는 상세 내용 -->
+          <template v-if="guideOpen">
+            <div class="empty-cards">
+              <div class="empty-card">
+                <Zap :size="18" color="#2b7fff" />
+                <div>
+                  <span class="empty-card-title">실시간 소통</span>
+                  <span class="empty-card-desc">팀원이 보낸 메시지를 즉시 확인하세요</span>
+                </div>
+              </div>
+              <div class="empty-card">
+                <Clock :size="18" color="#8b5cf6" />
+                <div>
+                  <span class="empty-card-title">자동 만료</span>
+                  <span class="empty-card-desc">메시지는 설정된 시간 후 자동 삭제됩니다</span>
+                </div>
+              </div>
+            </div>
+            <div class="empty-hint">
+              <MessageCircle :size="13" color="#aeb2bb" />
+              <span>아래 입력창에 메시지를 입력해 대화를 시작해보세요</span>
+            </div>
+          </template>
+        </div>
+    </div>
+
     <div ref="scrollEl" class="chat-scroll">
       <div class="chat-inner">
         <div v-for="(m, i) in msgs" :key="m.id" :data-msg-id="m.id" class="chat-row" :class="{ 'chat-row--me': m.me, 'chat-row--cont': isContinuation(i), 'chat-row--highlight': m.id === highlightedId }">
@@ -447,4 +496,94 @@ function isContinuation(i: number): boolean {
   flex-shrink: 0;
 }
 .reply-bar-close:hover { color: #1f2430; }
+
+/* ── 상단 고정 안내 섹션 ─────────────────────────────── */
+/* chat-scroll 밖에 있어 스크롤과 무관하게 항상 상단에 위치한다 */
+/* chat-scroll 밖에 위치해 메시지가 쌓여도 스크롤과 무관하게 항상 상단에 고정된다.
+   max-width는 chat-inner(1100px)에 양쪽 패딩(2% × 2 = 4%)을 더한 값으로
+   좌우 여백을 유지하면서 채팅 영역 너비와 일치시킨다. */
+.guide-wrap {
+  padding: 16px 2% 0;
+  max-width: calc(1100px + 4%);
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.guide {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 20px;
+  border-radius: 14px;
+  border: 1px solid #eceef2;
+  background: #fafbfc;
+}
+
+.guide-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.guide-summary {
+  flex: 1;
+  font-size: 13px;
+  color: #717182;
+  line-height: 1.5;
+}
+
+.guide-chevron { flex-shrink: 0; }
+
+.empty-icon-wrap {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #eaf2ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.empty-cards {
+  display: flex;
+  gap: 10px;
+}
+
+.empty-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #eceef2;
+  background: #fff;
+  flex: 1;
+}
+
+.empty-card-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1f2430;
+}
+
+.empty-card-desc {
+  display: block;
+  font-size: 12px;
+  color: #aeb2bb;
+  line-height: 1.4;
+  margin-top: 2px;
+}
+
+.empty-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: #aeb2bb;
+}
 </style>
