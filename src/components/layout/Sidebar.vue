@@ -72,12 +72,7 @@ const initials = computed(() =>
     <!-- 로고 + 알림 -->
     <div class="sidebar-top">
       <RouterLink to="/knowit" class="sidebar-logo">
-        <svg width="30" height="34" viewBox="0 0 56 64" xmlns="http://www.w3.org/2000/svg" class="logo-svg">
-          <polygon points="28,2 54,17 28,31 2,17" fill="#bab4ab"/>
-          <polygon points="2,17 28,31 28,62 2,48" fill="#9e9890"/>
-          <polygon points="4,21 25,31 25,55 4,45" fill="white"/>
-          <polygon points="28,31 54,17 54,48 28,62" fill="#88817a"/>
-        </svg>
+        <img src="/workiIcon.png" alt="Workipedia" class="logo-svg" />
         <span class="logo-text">Workipedia</span>
       </RouterLink>
       <button class="bell-btn" @click="toggleNotification">
@@ -230,6 +225,10 @@ const initials = computed(() =>
 
 .logo-svg {
   flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  border-radius: 8px;
   filter: drop-shadow(0 0 6px rgba(99, 102, 241, 0.3));
 }
 

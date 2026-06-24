@@ -33,9 +33,20 @@ export interface AiTool {
   name: string
   description: string
   toolType: ToolType
+  endpointUrl?: string
+  httpMethod?: HttpMethod
+  datasourceKey?: string
+  queryTemplate?: string
+  parametersSchema?: string
+  responseSchema?: string
+  authType?: AuthType
+  credentialRef?: string
+  timeoutMs?: number
+  maxResultCount?: number
   approvalStatus: ApprovalStatus
   active: boolean
   createdAt: string
+  updatedAt?: string
 }
 
 interface BaseCreateAiToolRequest {
@@ -69,6 +80,16 @@ export type CreateAiToolRequest = CreateHttpApiToolRequest | CreateDbQueryToolRe
 export interface UpdateAiToolRequest {
   active?: boolean
   description?: string
+  endpointUrl?: string
+  httpMethod?: HttpMethod
+  datasourceKey?: string
+  queryTemplate?: string
+  parametersSchema?: string
+  responseSchema?: string
+  authType?: AuthType
+  credentialRef?: string
+  timeoutMs?: number
+  maxResultCount?: number
   approvalStatus?: ApprovalStatus
 }
 

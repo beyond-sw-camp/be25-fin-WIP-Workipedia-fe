@@ -1,11 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, watch, onMounted } from 'vue'
 import { sendSignupCode, verifySignupCode, signup } from '@/api/authApi'
 import { useDeptStore } from '@/stores/deptStore'
 import type { AxiosError } from 'axios'
 
-const router = useRouter()
 const deptStore = useDeptStore()
 
 // 로그인 전 페이지라 AppLayout이 없으므로 여기서 직접 로드
@@ -19,6 +17,7 @@ const password = ref('')
 const confirmPassword = ref('')
 const isLoading = ref(false)
 const serverError = ref('')
+const signupSuccess = ref(false)
 
 // 이메일 인증 상태
 const verificationCode = ref('')
@@ -34,6 +33,29 @@ const errors = ref({
   email: '',
   password: '',
   confirmPassword: '',
+})
+
+// 입력값이 유효해지는 순간 에러 메시지를 즉시 제거해 사용자가 정상 입력 여부를 바로 확인할 수 있도록 한다.
+watch(employeeId, (val) => {
+  if (val.trim()) errors.value.employeeId = ''
+})
+watch(departmentId, (val) => {
+  if (val !== '') errors.value.departmentId = ''
+})
+watch(email, (val) => {
+  if (!val) return
+  if (errors.value.email === '이메일을 입력해주세요.') errors.value.email = ''
+  else if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) errors.value.email = ''
+})
+watch(password, (val) => {
+  if (!val) return
+  if (errors.value.password === '비밀번호를 입력해주세요.') errors.value.password = ''
+  else if (/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(val)) errors.value.password = ''
+})
+watch(confirmPassword, (val) => {
+  if (!val) return
+  if (val === password.value) errors.value.confirmPassword = ''
+  else if (errors.value.confirmPassword === '비밀번호 확인을 입력해주세요.') errors.value.confirmPassword = ''
 })
 
 // 이메일 인증코드 발송
@@ -128,10 +150,15 @@ async function handleSignup() {
       email: email.value,
       password: password.value,
     })
-    router.push('/login')
+    signupSuccess.value = true
   } catch (e) {
     const err = e as AxiosError<{ message: string }>
-    serverError.value = err.response?.data?.message ?? '회원가입에 실패했습니다.'
+    const msg = err.response?.data?.message ?? '회원가입에 실패했습니다.'
+    if (msg.includes('사번')) {
+      errors.value.employeeId = msg
+    } else {
+      serverError.value = msg
+    }
   } finally {
     isLoading.value = false
   }
@@ -147,8 +174,16 @@ async function handleSignup() {
       <div class="blob blob-3"></div>
     </div>
 
+    <!-- 회원가입 완료 카드 -->
+    <div v-if="signupSuccess" class="register-card success-card">
+      <div class="success-icon">✓</div>
+      <h2 class="success-title">회원가입이 완료되었습니다!</h2>
+      <p class="success-desc">로그인 후 Workipedia를 사용해 보세요.</p>
+      <router-link to="/login" class="success-login-link">로그인으로 이동</router-link>
+    </div>
+
     <!-- 회원가입 카드 -->
-    <div class="register-card">
+    <div v-else class="register-card">
       <!-- 로고 -->
       <div class="card-header">
         <svg width="56" height="64" viewBox="0 0 56 64" xmlns="http://www.w3.org/2000/svg" class="card-logo">
@@ -202,7 +237,7 @@ async function handleSignup() {
             <input
               id="email"
               v-model="email"
-              type="email"
+              type="text"
               placeholder="example@company.com"
               class="field-input"
               :class="{ 'field-input--error': errors.email }"
@@ -590,5 +625,63 @@ async function handleSignup() {
 
 .footer-link:hover {
   color: #44403c;
+}
+
+/* 회원가입 완료 */
+.success-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 1rem;
+  padding: 2.5rem;
+  min-height: 480px;
+}
+
+.success-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #10b981;
+  color: #fff;
+  font-size: 1.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.success-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1c1917;
+}
+
+.success-desc {
+  font-size: 0.9rem;
+  color: #57534e;
+}
+
+.success-login-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 2.5rem;
+  margin-top: 1.25rem;
+  border-radius: 0.75rem;
+  border: 1px solid #1c1917;
+  background: #f5f5f4;
+  color: #1c1917;
+  font-size: 0.95rem;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.success-login-link:hover {
+  background: #1c1917;
+  color: #fff;
 }
 </style>

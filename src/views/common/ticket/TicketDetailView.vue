@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ChevronLeft, Info } from '@lucide/vue'
+import { ChevronLeft, Info, Paperclip } from '@lucide/vue'
 import { getTicketDetail } from '@/api/ticketApi'
 import { TICKET_STATUS_META } from '@/constants/ticketStatus'
 import type { TicketResponse } from '@/types/ticket'
@@ -16,6 +16,16 @@ const error = ref('')
 // KnowIt 발행 티켓의 content에 삽입된 발신자 마커가 상세 페이지에서 그대로 노출되는 문제를 방지한다.
 const SENDER_RE = /\n##SENDER:(.+)##$/
 function ticketBody(content: string) { return content.replace(SENDER_RE, '').trim() }
+
+function ticketFiles(t: TicketResponse | null) {
+  if (!t) return []
+  if (t.files?.length) return t.files.filter(f => !!f.fileUrl)
+  return t.fileUrl ? [{ fileKey: '', fileUrl: t.fileUrl, fileName: '첨부 이미지', fileContentType: null, fileSize: null }] : []
+}
+
+function fileSizeLabel(size: number | null) {
+  return size ? `(${(size / 1024).toFixed(1)}KB)` : ''
+}
 
 function formatDateTime(iso: string) {
   const d = new Date(iso)
@@ -80,6 +90,22 @@ onMounted(async () => {
         <hr class="divider" />
 
         <p class="ticket-body">{{ ticketBody(ticket.content) }}</p>
+
+        <div v-if="ticketFiles(ticket).length" class="ticket-files">
+          <div class="files-label">첨부 사진</div>
+          <a
+            v-for="f in ticketFiles(ticket)"
+            :key="f.fileKey || f.fileUrl || f.fileName || 'file'"
+            :href="f.fileUrl ?? '#'"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="file-item"
+          >
+            <Paperclip :size="13" />
+            <span class="file-name">{{ f.fileName ?? '첨부 이미지' }}</span>
+            <span v-if="f.fileSize" class="file-size">{{ fileSizeLabel(f.fileSize) }}</span>
+          </a>
+        </div>
       </div>
 
       <!-- 라우팅 근거: BE가 자동 배정 시 제공 -->
@@ -119,6 +145,16 @@ onMounted(async () => {
 .meta-item strong { font-size: 14px; color: #1f2430; }
 .divider { border: none; border-top: 1px solid var(--line); margin: 0 0 20px; }
 .ticket-body { font-size: 15px; color: #404055; line-height: 1.75; margin: 0; white-space: pre-wrap; }
+.ticket-files { display: flex; flex-direction: column; gap: 7px; margin-top: 20px; }
+.files-label { font-size: 12.5px; font-weight: 700; color: #6b7280; }
+.file-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px;
+  color: #1f2430; text-decoration: none; background: #f8fafc;
+}
+.file-item:hover { background: #eff6ff; border-color: #bfdbfe; }
+.file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.file-size { flex-shrink: 0; font-size: 12px; color: #aeb2bb; }
 
 .routing-card { padding: 22px 26px; }
 .routing-head { display: flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 700; color: #1f2430; margin: 0 0 12px; }

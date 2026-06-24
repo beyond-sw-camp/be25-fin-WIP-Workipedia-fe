@@ -8,7 +8,7 @@ import {
 import BaseToast from '@/components/common/BaseToast.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import {
-  getDashboardSummary, getAdminUsers, updateUserStatus,
+  getDashboardSummary, getAdminUsers, updateUserStatus, updateUserRole,
   getAdminManuals, createAdminManual, updateAdminManual, updateAdminManualMeta, deleteAdminManual,
   getAdminDepartments, createAdminDepartment, updateAdminDepartment, updateDepartmentRoutingPrompt, deleteAdminDepartment,
   getAdminPoints, deductAdminPoints,
@@ -18,6 +18,7 @@ import {
   type AdminDirectData,
 } from '@/api/adminApi'
 import { getManualDetail } from '@/api/manualApi'
+import type { AxiosError } from 'axios'
 
 const auth = useAuthStore()
 
@@ -101,6 +102,40 @@ async function toggleUserStatus(userId: number, current: 'ACTIVE' | 'INACTIVE') 
   }
 }
 
+// USER → TEAM_ADMIN 단방향 승격. BE는 이미 TEAM_ADMIN이거나 USER가 아닌 경우 400을 반환한다.
+// 승격은 되돌릴 수 없으므로 confirmPromoteTarget으로 모달을 먼저 띄운 뒤 confirmPromote에서 실행한다.
+// 같은 부서에 활성 TEAM_ADMIN이 이미 있으면 모달 대신 에러 토스트를 띄운다.
+const confirmPromoteTarget = ref<AdminUser | null>(null)
+
+function openPromoteModal(user: AdminUser) {
+  const existing = adminUsers.value.find(
+    u => u.departmentId === user.departmentId && u.role === 'TEAM_ADMIN' && u.status === 'ACTIVE'
+  )
+  if (existing) {
+    showToast(
+      '이미 부서 관리자가 존재합니다.',
+      `${user.departmentName ?? '해당 부서'}의 팀 관리자(${existing.employeeId})가 이미 있습니다.`,
+      'error'
+    )
+    return
+  }
+  confirmPromoteTarget.value = user
+}
+
+async function confirmPromote() {
+  if (!confirmPromoteTarget.value) return
+  try {
+    const res = await updateUserRole(confirmPromoteTarget.value.userId, 'TEAM_ADMIN')
+    const idx = adminUsers.value.findIndex(u => u.userId === confirmPromoteTarget.value!.userId)
+    if (idx !== -1) adminUsers.value[idx] = res.data
+    showToast('팀 관리자로 승격되었습니다.')
+  } catch {
+    showToast('역할 변경에 실패했습니다.', '', 'error')
+  } finally {
+    confirmPromoteTarget.value = null
+  }
+}
+
 // ── 매뉴얼 관리 ────────────────────────────────────────────────
 const adminManuals = ref<AdminManual[]>([])
 const manualsLoading = ref(false)
@@ -120,7 +155,7 @@ type EditManual = {
   currentVersion?: string | null
   originalFileCount?: number
   departmentId: number | null
-  currentFileUrl?: string | null
+  currentFileUrls?: string[]
 }
 const editingManual = ref<EditManual | null>(null)
 const uploadedFiles = ref<File[]>([])
@@ -229,6 +264,11 @@ function fmtVersion(v: string | null | undefined): string | null {
   const { major, minor } = parseVersion(v)
   return `v${major}.${minor}`
 }
+function manualFileUrls(m: Pick<AdminManual, 'fileUrl' | 'fileUrls'> | null | undefined): string[] {
+  if (!m) return []
+  if (m.fileUrls?.length) return m.fileUrls.filter(Boolean)
+  return m.fileUrl ? [m.fileUrl] : []
+}
 // 신규 매뉴얼 폼을 초기화한 뒤 폼 DOM으로 스크롤한다. nextTick은 v-if가 DOM을 렌더링한 후 ref가 유효해지는 시점을 보장한다.
 function openManualForm() {
   editingManual.value = { title: '', description: '', category: '인사 관리', departmentId: null }
@@ -238,27 +278,33 @@ function openManualForm() {
   nextTick(() => manualFormRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
 }
 async function openEditManualForm(m: AdminManual) {
+  const currentFileUrls = manualFileUrls(m)
   editingManual.value = {
     id: m.manualId,
     title: m.title,
     description: m.description ?? '',
     category: m.category,
     currentVersion: m.version,
-    originalFileCount: 1,
+    originalFileCount: currentFileUrls.length,
     departmentId: m.departmentId ?? null,
-    currentFileUrl: m.fileUrl ?? null,
+    currentFileUrls,
   }
   uploadedFiles.value = []
   fileError.value = false
   fileConflict.value = false
   nextTick(() => manualFormRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
-  // 목록 API는 fileUrl을 포함하지 않는 경우가 있어, 폼을 열 때 상세 API를 별도 호출해 fileUrl을 보완한다.
-  // 스크롤은 즉시, fileUrl 갱신은 비동기로 처리해 UX 지연을 최소화한다.
-  if (!m.fileUrl) {
+  // 목록 API가 파일 URL을 포함하지 않는 경우가 있어, 폼을 열 때 상세 API를 별도 호출해 파일 목록을 보완한다.
+  // 스크롤은 즉시, 파일 목록 갱신은 비동기로 처리해 UX 지연을 최소화한다.
+  if (currentFileUrls.length === 0) {
     try {
       const res = await getManualDetail(m.manualId)
       if (editingManual.value?.id === m.manualId) {
-        editingManual.value = { ...editingManual.value, currentFileUrl: res.data.fileUrl ?? null }
+        const detailFileUrls = manualFileUrls(res.data)
+        editingManual.value = {
+          ...editingManual.value,
+          currentFileUrls: detailFileUrls,
+          originalFileCount: detailFileUrls.length,
+        }
       }
     } catch { /* silent */ }
   }
@@ -326,6 +372,7 @@ async function saveManual() {
       const fileCountChanged = newCount !== origCount
       const nextVer = calcNextVersion(editingManual.value.currentVersion, fileCountChanged)
       const hasNewFile = uploadedFiles.value.length > 0
+      let savedVersion = editingManual.value.currentVersion
       if (hasNewFile) {
         const formData = new FormData()
         formData.append('title', editingManual.value.title)
@@ -337,15 +384,18 @@ async function saveManual() {
         if (editingManual.value.departmentId != null) {
           formData.append('departmentId', String(editingManual.value.departmentId))
         }
-        await updateAdminManual(editingManual.value.id, formData)
+        const updateRes = await updateAdminManual(editingManual.value.id, formData)
+        savedVersion = updateRes.data.version
       } else {
-        await updateAdminManualMeta(editingManual.value.id, {
+        const updateRes = await updateAdminManualMeta(editingManual.value.id, {
           title: editingManual.value.title,
           version: nextVer,
           departmentId: editingManual.value.departmentId,
         })
+        savedVersion = updateRes.data.version
       }
-      showToast(`매뉴얼이 수정되었습니다. (${nextVer})`)
+      const toastVersion = fmtVersion(savedVersion)
+      showToast(toastVersion ? `매뉴얼이 수정되었습니다. (${toastVersion})` : '매뉴얼이 수정되었습니다.')
       editingManual.value = null
       uploadedFiles.value = []
       await loadManuals()
@@ -464,8 +514,10 @@ async function confirmDeleteDept() {
     await deleteAdminDepartment(deleteDeptId.value)
     adminDepts.value = adminDepts.value.filter(d => d.departmentId !== deleteDeptId.value)
     showToast('부서가 삭제되었습니다.')
-  } catch {
-    showToast('부서 삭제에 실패했습니다.', '', 'error')
+  } catch (e) {
+    const err = e as AxiosError<{ message: string }>
+    const msg = err.response?.data?.message
+    showToast(msg || '부서 삭제에 실패했습니다.', '', 'error')
   }
   deleteDeptId.value = null
 }
@@ -830,17 +882,18 @@ onMounted(() => {
         </div>
         <div v-if="editingManual.id" class="field">
           <label>현재 파일</label>
-          <div class="current-file-row">
-            <FileText :size="14" color="#3b82f6" style="flex-shrink:0" />
-            <template v-if="editingManual.currentFileUrl">
-              <span class="current-file-name">{{ extractFileName(editingManual.currentFileUrl) }}</span>
-              <a :href="editingManual.currentFileUrl" target="_blank" rel="noopener noreferrer" class="file-view-btn">
+          <div v-if="editingManual.currentFileUrls?.length" class="current-file-list">
+            <div v-for="(url, index) in editingManual.currentFileUrls" :key="`${url}-${index}`" class="current-file-row">
+              <FileText :size="14" color="#3b82f6" style="flex-shrink:0" />
+              <span class="current-file-name">{{ extractFileName(url) }}</span>
+              <a :href="url" target="_blank" rel="noopener noreferrer" class="file-view-btn">
                 <ExternalLink :size="13" /> 보기
               </a>
-            </template>
-            <template v-else>
-              <span class="current-file-unknown">불러오는 중...</span>
-            </template>
+            </div>
+          </div>
+          <div v-else class="current-file-row">
+            <FileText :size="14" color="#3b82f6" style="flex-shrink:0" />
+            <span class="current-file-unknown">불러오는 중...</span>
           </div>
         </div>
         <div class="field">
@@ -1007,7 +1060,7 @@ onMounted(() => {
       <div class="sec-head" style="margin-bottom:20px;">
         <div>
           <h3 class="sec-title"><Users :size="17" color="#1f2430" /> 사용자 관리</h3>
-          <p class="sec-desc">사용자 계정을 검색하고 활성화/비활성화할 수 있습니다</p>
+          <p class="sec-desc">사용자 계정을 검색하고 활성화/비활성화하거나 팀 관리자로 승격할 수 있습니다</p>
         </div>
       </div>
 
@@ -1031,17 +1084,28 @@ onMounted(() => {
           <div class="user-info">
             <div class="user-id-row">
               <span class="user-id">{{ u.employeeId }}</span>
+              <span v-if="u.role === 'TEAM_ADMIN'" class="badge" style="background:#eff6ff; color:#2b7fff; font-size:11px;">팀 관리자</span>
+              <span v-else-if="u.role === 'SYSTEM_ADMIN'" class="badge" style="background:#faf5ff; color:#a855f7; font-size:11px;">시스템 관리자</span>
               <span v-if="u.status === 'INACTIVE'" class="badge" style="background:#fef2f2; color:#ef4444; font-size:11px;">비활성</span>
             </div>
             <div class="user-meta">{{ u.departmentName }} · 최근 로그인: {{ u.lastLoginAt?.slice(0, 10) ?? '기록 없음' }}</div>
           </div>
-          <button
-            :class="['btn', u.status === 'ACTIVE' ? 'danger' : 'primary']"
-            :disabled="u.userId === auth.userId || u.role === 'SYSTEM_ADMIN'"
-            :title="u.userId === auth.userId ? '본인 계정은 변경할 수 없습니다' : u.role === 'SYSTEM_ADMIN' ? '관리자 계정은 변경할 수 없습니다' : ''"
-            @click="toggleUserStatus(u.userId, u.status)">
-            {{ u.status === 'ACTIVE' ? '비활성화' : '활성화' }}
-          </button>
+          <div class="user-btns">
+            <button
+              v-if="u.role === 'USER'"
+              class="btn role-promote"
+              title="팀 관리자로 승격"
+              @click="openPromoteModal(u)">
+              팀 관리자 승격
+            </button>
+            <button
+              :class="['btn', u.status === 'ACTIVE' ? 'danger' : 'primary']"
+              :disabled="u.userId === auth.userId || u.role === 'SYSTEM_ADMIN'"
+              :title="u.userId === auth.userId ? '본인 계정은 변경할 수 없습니다' : u.role === 'SYSTEM_ADMIN' ? '관리자 계정은 변경할 수 없습니다' : ''"
+              @click="toggleUserStatus(u.userId, u.status)">
+              {{ u.status === 'ACTIVE' ? '비활성화' : '활성화' }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -1240,6 +1304,22 @@ onMounted(() => {
         </div>
       </div>
 
+      <!-- 팀 관리자 승격 확인 -->
+      <div v-if="confirmPromoteTarget" class="modal-overlay" @click.self="confirmPromoteTarget = null">
+        <div class="modal-box">
+          <h4 class="modal-title">팀 관리자로 승격하시겠습니까?</h4>
+          <p class="modal-desc">
+            <strong>{{ confirmPromoteTarget.employeeId }}</strong> 님을
+            팀 관리자로 승격합니다.<br />
+            <span class="promote-warn">⚠️ 한 번 승격하면 일반 사용자로 되돌릴 수 없습니다.</span>
+          </p>
+          <div class="btn-row" style="justify-content:flex-end;">
+            <button class="btn" @click="confirmPromoteTarget = null">취소</button>
+            <button class="btn primary" @click="confirmPromote">승격</button>
+          </div>
+        </div>
+      </div>
+
       <!-- 수기 지식 삭제 -->
       <BaseModal
         :model-value="deleteKnowledgeId !== null"
@@ -1319,6 +1399,7 @@ onMounted(() => {
   padding: 9px 14px; background: #f0f6ff; border: 1px solid #bfdbfe;
   border-radius: 8px; font-size: 13px;
 }
+.current-file-list { display: flex; flex-direction: column; gap: 6px; }
 .current-file-name { color: #1d4ed8; font-weight: 500; word-break: break-all; flex: 1; }
 .current-file-unknown { color: #aeb2bb; }
 .file-view-btn {
@@ -1392,6 +1473,10 @@ onMounted(() => {
 .btn.danger { background: #fef2f2; color: #ef4444; border: none; }
 .btn.danger:hover { background: #fee2e2; }
 .btn:disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
+.user-btns { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.btn.role-promote { background: #eff6ff; color: #2b7fff; border-color: #bfdbfe; font-size: 12px; white-space: nowrap; }
+.btn.role-promote:hover { background: #dbeafe; }
+.promote-warn { display: inline-block; margin-top: 8px; font-size: 12.5px; color: #e25c1e; }
 
 /* ── Points ── */
 .deduct-form {

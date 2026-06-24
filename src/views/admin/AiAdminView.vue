@@ -10,7 +10,7 @@ import {
   editRoutingPromptInstruction,
   getAiSyncSetting, updateAiSyncSetting,
   cleanupWorkiAiSyncJobs, getAiSyncCleanupLogs,
-  type AiTool, type ToolType, type HttpMethod,
+  type AiTool, type ToolType, type HttpMethod, type AuthType,
   type AiSyncCleanupLog, type AiSyncCleanupResult,
 } from '@/api/aiAdminApi'
 import {
@@ -478,6 +478,8 @@ const tools = ref<AiTool[]>([])
 const toolFilter = ref('전체')
 const toolModalOpen = ref(false)
 const toolSaving = ref(false)
+const toolModalMode = ref<'create' | 'edit'>('create')
+const editingToolId = ref<number | null>(null)
 const toolForm = ref({
   name: '',
   description: '',
@@ -486,19 +488,45 @@ const toolForm = ref({
   httpMethod: 'GET' as HttpMethod,
   datasourceKey: '',
   queryTemplate: '',
+  authType: 'NONE' as AuthType,
+  credentialRef: '',
   timeoutMs: 5000,
   maxResultCount: 100,
 })
-// parametersSchema 는 BE가 JSON 문자열로 요구하므로 저장 전 JSON 형식만 검증한다.
-const toolParamsText = ref('')
 // 입력 파라미터가 없는 Tool(예: 인자 없이 호출하는 조회 API)을 명시적으로 표시한다.
 // 체크 시 빈 properties 스키마를 저장하고, 미체크 시에는 properties 1개 이상을 강제해
 // "실수로 비운 것"과 "의도적으로 없는 것"을 구분한다(#121).
 const EMPTY_PARAMS_SCHEMA = '{"type":"object","properties":{}}'
 const toolNoParams = ref(false)
+type ParamType = 'string' | 'number' | 'integer' | 'boolean'
+interface ToolParamRow {
+  id: number
+  name: string
+  type: ParamType
+  description: string
+  required: boolean
+}
+const toolParamRows = ref<ToolParamRow[]>([])
+let toolParamRowSeq = 0
 
 const TOOL_TYPE_LABEL: Record<string, string> = { HTTP_API: 'HTTP API', DB_QUERY: 'DB Query' }
 const APPROVAL_LABEL: Record<string, string> = { DRAFT: '검토 전', APPROVED: '승인', REJECTED: '반려' }
+const AUTH_TYPE_LABEL: Record<AuthType, string> = {
+  NONE: '없음',
+  API_KEY: 'X-API-Key',
+  BEARER_TOKEN: 'Bearer Token',
+}
+
+const generatedParamsSchema = computed(() => buildParamsSchemaText())
+const isToolSubmitDisabled = computed(() => {
+  if (toolSaving.value) return true
+  if (!toolForm.value.name.trim() || !toolForm.value.description.trim()) return true
+  if (toolForm.value.toolType === 'HTTP_API' && !toolForm.value.endpointUrl.trim()) return true
+  if (toolForm.value.toolType === 'DB_QUERY' && (!toolForm.value.datasourceKey.trim() || !toolForm.value.queryTemplate.trim())) return true
+  if (!toolNoParams.value && toolParamRows.value.length === 0) return true
+  if (toolForm.value.authType !== 'NONE' && !toolForm.value.credentialRef.trim()) return true
+  return false
+})
 
 const filteredTools = computed(() => {
   if (toolFilter.value === '전체') return tools.value
@@ -523,6 +551,8 @@ async function toggleTool(tool: AiTool) {
 }
 
 function resetToolForm() {
+  toolModalMode.value = 'create'
+  editingToolId.value = null
   toolForm.value = {
     name: '',
     description: '',
@@ -531,11 +561,43 @@ function resetToolForm() {
     httpMethod: 'GET',
     datasourceKey: '',
     queryTemplate: '',
+    authType: 'NONE',
+    credentialRef: '',
     timeoutMs: 5000,
     maxResultCount: 100,
   }
-  toolParamsText.value = ''
+  toolParamRows.value = []
   toolNoParams.value = false
+}
+
+function openCreateToolModal() {
+  resetToolForm()
+  toolModalOpen.value = true
+}
+
+function openEditToolModal(tool: AiTool) {
+  toolModalMode.value = 'edit'
+  editingToolId.value = tool.aiToolId
+  toolForm.value = {
+    name: tool.name,
+    description: tool.description ?? '',
+    toolType: tool.toolType,
+    endpointUrl: tool.endpointUrl ?? '',
+    httpMethod: 'GET',
+    datasourceKey: tool.datasourceKey ?? '',
+    queryTemplate: tool.queryTemplate ?? '',
+    authType: (tool.authType ?? 'NONE') as AuthType,
+    credentialRef: tool.credentialRef ?? '',
+    timeoutMs: tool.timeoutMs ?? 5000,
+    maxResultCount: tool.maxResultCount ?? 100,
+  }
+  setParamRowsFromSchema(tool.parametersSchema ?? EMPTY_PARAMS_SCHEMA)
+  toolModalOpen.value = true
+}
+
+function closeToolModal() {
+  toolModalOpen.value = false
+  resetToolForm()
 }
 
 function readApiErrorMessage(error: unknown) {
@@ -556,26 +618,112 @@ function isHttpEndpoint(value: string) {
   }
 }
 
-// parametersSchema 검증. 문제 없으면 null, 있으면 사용자에게 보여줄 메시지를 반환한다.
-// "입력 파라미터 없음"(toolNoParams)이면 빈 properties를 허용하고, 아니면 1개 이상을 강제해
-// 실수로 비운 채 등록돼 Tool이 무동작하는 것을 막는다(#121).
-function validateParamsSchema(text: string): string | null {
-  if (!text) return 'Parameters JSON Schema를 입력하세요. (파라미터가 없는 Tool이면 "입력 파라미터 없음"을 체크하세요)'
-  let parsed: unknown
+function inferParamType(value: string): ParamType {
+  const normalized = value.trim().toLowerCase()
+  if (normalized === 'true' || normalized === 'false') return 'boolean'
+  if (/^-?\d+$/.test(normalized)) return 'integer'
+  if (/^-?\d+(\.\d+)?$/.test(normalized)) return 'number'
+  return 'string'
+}
+
+function addParamRow(row?: Partial<Omit<ToolParamRow, 'id'>>) {
+  toolNoParams.value = false
+  toolParamRows.value.push({
+    id: ++toolParamRowSeq,
+    name: row?.name ?? '',
+    type: row?.type ?? 'string',
+    description: row?.description ?? '',
+    required: row?.required ?? true,
+  })
+}
+
+function removeParamRow(id: number) {
+  toolParamRows.value = toolParamRows.value.filter(row => row.id !== id)
+}
+
+function extractQueryParams() {
+  const endpointUrl = toolForm.value.endpointUrl.trim()
+  if (!endpointUrl) {
+    showSaved('Endpoint URL을 먼저 입력하세요.')
+    return
+  }
+  let url: URL
   try {
-    parsed = JSON.parse(text)
+    url = new URL(endpointUrl)
   } catch {
-    return 'Parameters JSON 형식이 올바르지 않습니다.'
+    showSaved('Endpoint URL 형식이 올바르지 않습니다.')
+    return
   }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    return 'Parameters JSON Schema는 객체 형식이어야 합니다.'
+  const params = Array.from(url.searchParams.entries())
+  if (params.length === 0) {
+    showSaved('추출할 query parameter가 없습니다.')
+    return
   }
-  const properties = (parsed as Record<string, unknown>).properties
-  if (typeof properties !== 'object' || properties === null || Array.isArray(properties)) {
-    return 'Parameters JSON Schema에 properties 객체가 있어야 합니다.'
+
+  const existingNames = new Set(toolParamRows.value.map(row => row.name).filter(Boolean))
+  params.forEach(([name, value]) => {
+    if (existingNames.has(name)) return
+    existingNames.add(name)
+    addParamRow({
+      name,
+      type: inferParamType(value),
+      description: name,
+      required: true,
+    })
+  })
+  url.search = ''
+  url.hash = ''
+  toolForm.value.endpointUrl = url.toString()
+  showSaved('Query parameter를 추출했습니다.')
+}
+
+function buildParamsSchemaText() {
+  if (toolNoParams.value) return JSON.stringify({ type: 'object', properties: {} }, null, 2)
+  const properties: Record<string, { type: ParamType; description: string; required: boolean }> = {}
+  for (const row of toolParamRows.value) {
+    const name = row.name.trim()
+    if (!name) continue
+    properties[name] = {
+      type: row.type,
+      description: row.description.trim() || name,
+      required: row.required,
+    }
   }
-  if (Object.keys(properties).length === 0) {
-    return 'properties에 파라미터를 1개 이상 정의하세요. (파라미터가 없는 Tool이면 "입력 파라미터 없음"을 체크하세요)'
+  return JSON.stringify({ type: 'object', properties }, null, 2)
+}
+
+function setParamRowsFromSchema(schemaText: string) {
+  toolParamRows.value = []
+  try {
+    const parsed = JSON.parse(schemaText) as { properties?: Record<string, { type?: ParamType; description?: string; required?: boolean }> }
+    const properties = parsed.properties ?? {}
+    const entries = Object.entries(properties)
+    toolNoParams.value = entries.length === 0
+    entries.forEach(([name, config]) => {
+      addParamRow({
+        name,
+        type: ['string', 'number', 'integer', 'boolean'].includes(config.type ?? '') ? config.type : 'string',
+        description: config.description ?? name,
+        required: config.required ?? false,
+      })
+    })
+  } catch {
+    toolNoParams.value = false
+  }
+}
+
+function validateParamRows(): string | null {
+  if (toolNoParams.value) return null
+  if (toolParamRows.value.length === 0) {
+    return '파라미터를 1개 이상 추가하세요. (파라미터가 없는 Tool이면 "입력 파라미터 없음"을 체크하세요)'
+  }
+  const names = new Set<string>()
+  for (const row of toolParamRows.value) {
+    const name = row.name.trim()
+    if (!name) return '파라미터 이름을 입력하세요.'
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return '파라미터 이름은 영문, 숫자, 언더스코어만 사용할 수 있으며 숫자로 시작할 수 없습니다.'
+    if (names.has(name)) return `중복된 파라미터 이름이 있습니다: ${name}`
+    names.add(name)
   }
   return null
 }
@@ -595,38 +743,60 @@ async function saveTool() {
     return
   }
 
-  // "입력 파라미터 없음"이면 빈 properties 스키마를 그대로 저장하고, 아니면 검증을 거친다(#121).
-  let parametersSchema: string
-  if (toolNoParams.value) {
-    parametersSchema = EMPTY_PARAMS_SCHEMA
-  } else {
-    const schemaError = validateParamsSchema(toolParamsText.value.trim())
-    if (schemaError) {
-      showSaved(schemaError)
-      return
-    }
-    parametersSchema = toolParamsText.value.trim()
+  const paramsError = validateParamRows()
+  if (paramsError) {
+    showSaved(paramsError)
+    return
   }
+  const parametersSchema = generatedParamsSchema.value
 
   toolSaving.value = true
   try {
     const commonPayload = {
-      name: toolForm.value.name.trim(),
       description: toolForm.value.description.trim(),
       parametersSchema,
       timeoutMs: toolForm.value.timeoutMs,
       maxResultCount: toolForm.value.maxResultCount,
     }
+    const authPayload = {
+      authType: toolForm.value.authType,
+      credentialRef: toolForm.value.authType === 'NONE' ? undefined : toolForm.value.credentialRef.trim(),
+    }
+    if (toolModalMode.value === 'edit' && editingToolId.value !== null) {
+      const res = await updateAiTool(editingToolId.value, toolForm.value.toolType === 'HTTP_API'
+        ? {
+            ...commonPayload,
+            ...authPayload,
+            endpointUrl,
+            httpMethod: 'GET',
+          }
+        : {
+            ...commonPayload,
+            datasourceKey,
+            queryTemplate,
+            authType: 'NONE',
+            credentialRef: undefined,
+          })
+      const index = tools.value.findIndex(tool => tool.aiToolId === res.data.aiToolId)
+      if (index >= 0) tools.value[index] = res.data
+      toolModalOpen.value = false
+      resetToolForm()
+      showSaved('Tool을 수정했습니다.')
+      return
+    }
+
     const res = await createAiTool(toolForm.value.toolType === 'HTTP_API'
       ? {
           ...commonPayload,
+          ...authPayload,
+          name: toolForm.value.name.trim(),
           toolType: 'HTTP_API',
           endpointUrl,
-          httpMethod: toolForm.value.httpMethod,
-          authType: 'NONE',
+          httpMethod: 'GET',
         }
       : {
           ...commonPayload,
+          name: toolForm.value.name.trim(),
           toolType: 'DB_QUERY',
           datasourceKey,
           queryTemplate,
@@ -1031,7 +1201,7 @@ onMounted(() => {
               <h2>API Tool 관리</h2>
               <p>등록된 API 명세를 런타임 Tool로 바인딩합니다. DB Query는 승인된 항목만 활성화할 수 있습니다.</p>
             </div>
-            <button class="button button--primary" @click="toolModalOpen = true">Tool 등록</button>
+            <button class="button button--primary" @click="openCreateToolModal">Tool 등록</button>
           </div>
           <div class="toolbar">
             <div class="segmented">
@@ -1053,6 +1223,7 @@ onMounted(() => {
                   <th>유형</th>
                   <th>승인 상태</th>
                   <th>등록일</th>
+                  <th>편집</th>
                   <th>활성</th>
                 </tr>
               </thead>
@@ -1070,6 +1241,9 @@ onMounted(() => {
                   </td>
                   <td>{{ tool.createdAt?.slice(0, 10) }}</td>
                   <td>
+                    <button class="text-button" type="button" @click="openEditToolModal(tool)">편집</button>
+                  </td>
+                  <td>
                     <label class="toggle">
                       <input :checked="tool.active" type="checkbox" @change="toggleTool(tool)" />
                       <span></span>
@@ -1077,7 +1251,7 @@ onMounted(() => {
                   </td>
                 </tr>
                 <tr v-if="filteredTools.length === 0">
-                  <td colspan="5" style="text-align: center; color: #b0b8c1; padding: 28px;">등록된 Tool이 없습니다.</td>
+                  <td colspan="6" style="text-align: center; color: #b0b8c1; padding: 28px;">등록된 Tool이 없습니다.</td>
                 </tr>
               </tbody>
             </table>
@@ -1097,36 +1271,43 @@ onMounted(() => {
         />
     </div>
 
-    <!-- ── API Tool 등록 모달 ── -->
+    <!-- ── API Tool 등록/수정 모달 ── -->
     <div v-if="toolModalOpen" class="modal-backdrop">
-      <div class="modal">
+      <div class="modal modal--tool">
         <div class="modal-header">
-          <h2>API Tool 등록</h2>
-          <button aria-label="닫기" @click="toolModalOpen = false; resetToolForm()">×</button>
+          <h2>API Tool {{ toolModalMode === 'edit' ? '수정' : '등록' }}</h2>
+          <button aria-label="닫기" @click="closeToolModal">×</button>
         </div>
-        <label>Tool 이름<input v-model="toolForm.name" placeholder="예: get_travel_expense" /></label>
+
+        <label>Tool 이름
+          <input v-model="toolForm.name" :disabled="toolModalMode === 'edit'" placeholder="예: get_current_weather" />
+          <small v-if="toolModalMode === 'edit'" class="field-hint">Tool 이름은 수정하지 않습니다. 필요한 경우 새 Tool로 등록하세요.</small>
+        </label>
         <label>설명<textarea v-model="toolForm.description" placeholder="LLM이 이 Tool을 선택해야 하는 조건을 입력하세요."></textarea></label>
+
         <div class="modal-grid">
           <label>유형
-            <select v-model="toolForm.toolType">
+            <select v-model="toolForm.toolType" :disabled="toolModalMode === 'edit'">
               <option value="HTTP_API">HTTP API</option>
               <option value="DB_QUERY">DB Query</option>
             </select>
           </label>
           <label v-if="toolForm.toolType === 'HTTP_API'">HTTP Method
-            <select v-model="toolForm.httpMethod">
-              <option>GET</option>
-              <option>POST</option>
-              <option>PUT</option>
-              <option>PATCH</option>
-              <option>DELETE</option>
-            </select>
+            <input value="GET" disabled />
+            <small class="field-hint">현재 API Tool은 GET 요청만 지원합니다.</small>
           </label>
           <label v-else>Datasource Key
             <input v-model="toolForm.datasourceKey" placeholder="예: workipediaReadonly" />
           </label>
         </div>
-        <label v-if="toolForm.toolType === 'HTTP_API'">Endpoint URL<input v-model="toolForm.endpointUrl" placeholder="https://internal-api.example.com/v1/..." /></label>
+
+        <label v-if="toolForm.toolType === 'HTTP_API'">Endpoint URL
+          <div class="endpoint-row">
+            <input v-model="toolForm.endpointUrl" placeholder="https://weather.workipedia.wiki/api/weather/current?lat=37.5665&lon=126.9780" />
+            <button class="button button--secondary" type="button" @click="extractQueryParams">Query 추출</button>
+          </div>
+          <small class="field-hint">URL의 query string은 파라미터 표로 분리되고, 저장 시 Endpoint URL에는 경로만 저장됩니다.</small>
+        </label>
         <label v-else>Query Template
           <textarea
             v-model="toolForm.queryTemplate"
@@ -1134,22 +1315,83 @@ onMounted(() => {
             placeholder="SELECT name FROM employee_vacations WHERE employee_id = :employeeId LIMIT 1"
           ></textarea>
         </label>
-        <label class="checkbox-row">
-          <input v-model="toolNoParams" type="checkbox" />
-          <span>입력 파라미터 없음 (인자 없이 호출하는 Tool)</span>
-        </label>
-        <label v-if="!toolNoParams">Parameters JSON Schema
-          <textarea v-model="toolParamsText" class="code-input" placeholder='{"type":"object","properties":{"employeeId":{"type":"string","required":true}}}'></textarea>
-          <small class="field-hint">필수 파라미터는 각 속성 안에 <code>"required": true</code>로 표기하세요. (BE 검증기는 최상위 <code>required</code> 배열을 인식하지 않습니다)</small>
-        </label>
+
+        <section class="tool-section">
+          <div class="tool-section-head">
+            <div>
+              <h3>Query Parameters</h3>
+              <p>GET API는 대부분 query parameter만으로 호출합니다. 필요한 값만 표에 추가하세요.</p>
+            </div>
+            <label class="checkbox-row checkbox-row--compact">
+              <input v-model="toolNoParams" type="checkbox" />
+              <span>입력 파라미터 없음</span>
+            </label>
+          </div>
+
+          <div v-if="!toolNoParams" class="param-table">
+            <div class="param-row param-row--head">
+              <span>이름</span>
+              <span>타입</span>
+              <span>설명</span>
+              <span>필수</span>
+              <span></span>
+            </div>
+            <div v-for="row in toolParamRows" :key="row.id" class="param-row">
+              <input v-model="row.name" placeholder="lat" />
+              <select v-model="row.type">
+                <option value="string">string</option>
+                <option value="number">number</option>
+                <option value="integer">integer</option>
+                <option value="boolean">boolean</option>
+              </select>
+              <input v-model="row.description" placeholder="LLM이 값을 채울 때 참고할 설명" />
+              <label class="param-required">
+                <input v-model="row.required" type="checkbox" />
+              </label>
+              <button class="param-delete" type="button" aria-label="파라미터 삭제" @click="removeParamRow(row.id)">×</button>
+            </div>
+            <button class="button button--secondary param-add" type="button" @click="addParamRow()">+ 파라미터 추가</button>
+          </div>
+
+          <div v-else class="empty-param-box">저장 시 빈 parameters schema가 생성됩니다.</div>
+        </section>
+
+        <details class="advanced-box">
+          <summary>고급 설정</summary>
+          <div class="advanced-content">
+            <section v-if="toolForm.toolType === 'HTTP_API'" class="advanced-section">
+              <h3>인증</h3>
+              <div class="modal-grid">
+                <label>인증 방식
+                  <select v-model="toolForm.authType">
+                    <option value="NONE">{{ AUTH_TYPE_LABEL.NONE }}</option>
+                    <option value="API_KEY">{{ AUTH_TYPE_LABEL.API_KEY }}</option>
+                    <option value="BEARER_TOKEN">{{ AUTH_TYPE_LABEL.BEARER_TOKEN }}</option>
+                  </select>
+                </label>
+                <label>Credential Env Key
+                  <input v-model="toolForm.credentialRef" :disabled="toolForm.authType === 'NONE'" placeholder="예: WEATHER_API_KEY" />
+                </label>
+              </div>
+              <small class="field-hint">실제 secret 값이 아니라 BE 서버 .env에 등록된 환경변수 이름만 입력하세요.</small>
+            </section>
+
+            <section class="advanced-section">
+              <h3>Parameters JSON Schema</h3>
+              <textarea :value="generatedParamsSchema" class="code-input schema-preview" readonly></textarea>
+              <small class="field-hint">파라미터 표에서 자동 생성됩니다. 직접 수정이 필요하면 표를 수정하세요.</small>
+            </section>
+          </div>
+        </details>
+
         <div class="modal-actions">
-          <button class="button button--secondary" @click="toolModalOpen = false; resetToolForm()">취소</button>
+          <button class="button button--secondary" @click="closeToolModal">취소</button>
           <button
             class="button button--primary"
-            :disabled="!toolForm.name.trim() || !toolForm.description.trim() || (!toolNoParams && !toolParamsText.trim()) || (toolForm.toolType === 'HTTP_API' ? !toolForm.endpointUrl.trim() : !toolForm.datasourceKey.trim() || !toolForm.queryTemplate.trim()) || toolSaving"
+            :disabled="isToolSubmitDisabled"
             @click="saveTool"
           >
-            {{ toolSaving ? '등록 중...' : '등록' }}
+            {{ toolSaving ? '저장 중...' : toolModalMode === 'edit' ? '수정' : '등록' }}
           </button>
         </div>
       </div>
@@ -1296,6 +1538,7 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
 .toast { position: fixed; z-index: 30; top: 22px; right: 24px; padding: 10px 14px; border-radius: 5px; background: #253341; color: #fff; font-size: 12px; box-shadow: 0 6px 18px rgba(0,0,0,.14); }
 .modal-backdrop { position: fixed; z-index: 40; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(20,28,36,.45); }
 .modal { width: min(480px, 100%); padding: 22px; border-radius: 7px; background: #fff; box-shadow: 0 16px 44px rgba(0,0,0,.22); display: flex; flex-direction: column; gap: 15px; }
+.modal--tool { width: min(760px, 100%); max-height: calc(100vh - 40px); overflow-y: auto; }
 .modal-header { display: flex; align-items: center; justify-content: space-between; }
 .modal-header h2 { font-size: 17px; }
 .modal-header p { margin-top: 4px; color: #76818c; font-size: 11px; }
@@ -1303,6 +1546,7 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
 .modal-notice { padding: 10px 12px; border-left: 3px solid #75a1cf; background: #f3f7fb; color: #627587; font-size: 10px; line-height: 1.5; }
 .modal label { display: flex; flex-direction: column; gap: 6px; color: #52606c; font-size: 11px; font-weight: 700; }
 .modal input, .modal select, .modal textarea { width: 100%; min-height: 38px; padding: 9px 10px; border: 1px solid #ccd3da; border-radius: 5px; background: #fff; color: #26323d; font: inherit; font-size: 12px; }
+.modal input:disabled, .modal select:disabled { background: #f3f5f7; color: #8a939e; cursor: not-allowed; }
 .modal textarea { min-height: 86px; resize: vertical; }
 .modal .code-input { min-height: 120px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .field-hint { display: block; margin-top: 6px; color: #667787; font-size: 11px; line-height: 1.5; }
@@ -1312,6 +1556,30 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
 .modal--wide { width: min(620px, 100%); }
 .modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.endpoint-row { display: flex; gap: 8px; align-items: center; }
+.endpoint-row input { flex: 1; }
+.endpoint-row .button { flex-shrink: 0; min-height: 38px; }
+.tool-section { padding-top: 4px; }
+.tool-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 10px; }
+.tool-section h3, .advanced-section h3 { margin: 0; color: #26323d; font-size: 13px; }
+.tool-section p { margin-top: 4px; color: #76818c; font-size: 11px; line-height: 1.5; }
+.checkbox-row--compact { flex-shrink: 0; margin-top: 2px; white-space: nowrap; }
+.param-table { overflow: hidden; border: 1px solid #dfe4e8; border-radius: 7px; background: #fff; }
+.param-row { display: grid; grid-template-columns: minmax(90px, 1fr) 118px minmax(160px, 1.6fr) 54px 42px; gap: 8px; align-items: center; padding: 9px 10px; border-top: 1px solid #e7eaed; }
+.param-row:first-child { border-top: 0; }
+.param-row--head { background: #f7f8fa; color: #6b7680; font-size: 11px; font-weight: 700; }
+.param-row input, .param-row select { min-height: 34px; padding: 7px 8px; font-size: 11px; }
+.param-required { display: flex !important; align-items: center; justify-content: center; }
+.param-required input { width: 16px; min-height: 16px; accent-color: #1769c2; }
+.param-delete { width: 30px; height: 30px; border: 0; border-radius: 5px; background: transparent; color: #7d8790; font-size: 18px; cursor: pointer; }
+.param-delete:hover { background: #fee2e2; color: #b91c1c; }
+.param-add { margin: 10px; }
+.empty-param-box { padding: 14px; border: 1px dashed #ccd3da; border-radius: 7px; background: #f8fafc; color: #7a8490; font-size: 12px; }
+.advanced-box { border: 1px solid #dfe4e8; border-radius: 7px; background: #fbfcfe; }
+.advanced-box summary { padding: 12px 14px; color: #33404d; font-size: 12px; font-weight: 700; cursor: pointer; }
+.advanced-content { padding: 0 14px 14px; }
+.advanced-section + .advanced-section { margin-top: 16px; padding-top: 16px; border-top: 1px solid #e7eaed; }
+.schema-preview { color: #334155; background: #fff; }
 
 @media (max-width: 800px) {
   .tab-bar { border-radius: 8px; }
@@ -1320,6 +1588,10 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
   .sync-grid { grid-template-columns: 1fr; }
   .table-wrap { overflow-x: auto; }
   table { min-width: 680px; }
+  .modal--tool { max-height: calc(100vh - 24px); }
+  .param-row { grid-template-columns: 1fr; }
+  .param-row--head { display: none; }
+  .param-required { justify-content: flex-start; flex-direction: row !important; }
 }
 
 @media (max-width: 520px) {
@@ -1328,5 +1600,7 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
   .toolbar { align-items: stretch; flex-direction: column; }
   .search-input { width: 100%; }
   .modal-grid { grid-template-columns: 1fr; }
+  .endpoint-row { flex-direction: column; align-items: stretch; }
+  .tool-section-head { flex-direction: column; }
 }
 </style>
