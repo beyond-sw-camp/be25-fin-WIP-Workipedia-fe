@@ -18,6 +18,7 @@ import {
   type AdminDirectData,
 } from '@/api/adminApi'
 import { getManualDetail } from '@/api/manualApi'
+import type { AxiosError } from 'axios'
 
 const auth = useAuthStore()
 
@@ -513,8 +514,10 @@ async function confirmDeleteDept() {
     await deleteAdminDepartment(deleteDeptId.value)
     adminDepts.value = adminDepts.value.filter(d => d.departmentId !== deleteDeptId.value)
     showToast('부서가 삭제되었습니다.')
-  } catch {
-    showToast('부서 삭제에 실패했습니다.', '', 'error')
+  } catch (e) {
+    const err = e as AxiosError<{ message: string }>
+    const msg = err.response?.data?.message
+    showToast(msg || '부서 삭제에 실패했습니다.', '', 'error')
   }
   deleteDeptId.value = null
 }
