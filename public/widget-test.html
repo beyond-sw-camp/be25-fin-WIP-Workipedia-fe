@@ -195,7 +195,7 @@
         </div>
         <div class="code-body"><span class="ct">&lt;!-- body 닫는 태그 바로 위에 추가 --&gt;</span>
 <span class="tg">&lt;script</span> <span class="at">src</span>=<span class="st">"https://workipedia.wiki/workipedia-chat.iife.js"</span>
-        <span class="at">data-theme</span>=<span class="st">"light"</span> <span class="at">data-position</span>=<span class="st">"bottom-right"</span> <span class="at">async</span><span class="tg">&gt;&lt;/script&gt;</span></div>
+        <span class="at">data-theme</span>=<span class="st" id="snip-theme">"light"</span> <span class="at">data-position</span>=<span class="st" id="snip-pos">"bottom-right"</span> <span class="at">async</span><span class="tg">&gt;&lt;/script&gt;</span></div>
       </div>
 
       <p class="note">
@@ -205,11 +205,16 @@
     </main>
 
     <script>
-      const SNIPPET =
-        '<script src="https://workipedia.wiki/workipedia-chat.iife.js" data-theme="light" data-position="bottom-right" async><\/script>'
       const p = new URLSearchParams(location.search)
       const theme = p.get('theme') || 'light'
       const pos = p.get('pos') || 'bottom-right'
+
+      // 현재 선택된 테마/위치를 스니펫(표시·복사)에 반영한다.
+      const SNIPPET =
+        '<script src="https://workipedia.wiki/workipedia-chat.iife.js" data-theme="' +
+        theme + '" data-position="' + pos + '" async><\/script>'
+      document.getElementById('snip-theme').textContent = '"' + theme + '"'
+      document.getElementById('snip-pos').textContent = '"' + pos + '"'
 
       // 컨트롤 칩 렌더 — 클릭 시 해당 옵션으로 페이지를 다시 로드해 위젯을 재주입한다.
       function buildChips(rowId, key, current, options) {
