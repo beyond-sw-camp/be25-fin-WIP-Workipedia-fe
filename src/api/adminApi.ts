@@ -76,9 +76,12 @@ export interface AdminManualVersion {
   userId: number | null
   manualNum: string
   updateReason: string | null
+  updateReasonLabel: string | null
   title: string | null
   description: string | null
   contentDiff: string | null
+  changeSummary: string | null
+  summaryStatus: string | null
   status: string
   sourceUrl: string | null
   version: string | null
