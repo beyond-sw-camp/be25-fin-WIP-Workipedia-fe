@@ -440,6 +440,15 @@ function ticketBody(content: string) { return content.replace(SENDER_RE, '').tri
 function ticketSender(content: string) {
   return content.match(SENDER_RE)?.[1]?.replaceAll('|', ' · ') ?? ''
 }
+function ticketFiles(t: TicketResponse | null) {
+  if (!t) return []
+  if (t.files?.length) return t.files.filter(f => !!f.fileUrl)
+  return t.fileUrl ? [{ fileKey: '', fileUrl: t.fileUrl, fileName: '첨부 이미지', fileContentType: null, fileSize: null }] : []
+}
+function knowledgeTicketFiles(item: KnowledgeTicketCandidateResponse) {
+  if (item.files?.length) return item.files.filter(f => !!f.fileUrl)
+  return item.fileUrl ? [{ fileKey: '', fileUrl: item.fileUrl, fileName: '첨부 이미지', fileContentType: null, fileSize: null }] : []
+}
 </script>
 
 <template>
@@ -491,6 +500,20 @@ function ticketSender(content: string) {
             </div>
             <p class="k-text">{{ item.question }}</p>
             <p v-if="kTicketBodies[item.ticketId]" class="k-original-body">{{ kTicketBodies[item.ticketId] }}</p>
+            <div v-if="knowledgeTicketFiles(item).length" class="file-list">
+              <a
+                v-for="f in knowledgeTicketFiles(item)"
+                :key="f.fileKey || f.fileUrl || f.fileName || 'ticket-file'"
+                :href="f.fileUrl ?? '#'"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="file-item file-item--link"
+              >
+                <Paperclip :size="13" style="color:#aeb2bb;" />
+                <span class="file-name">{{ f.fileName ?? '첨부 이미지' }}</span>
+                <span v-if="f.fileSize" class="file-size">({{ (f.fileSize / 1024).toFixed(1) }}KB)</span>
+              </a>
+            </div>
           </div>
           <div class="k-block">
             <div class="k-block-head">
@@ -692,6 +715,20 @@ function ticketSender(content: string) {
             <div class="ticket-preview">
               <div class="detail-content">{{ ticketBody(selectedTicket.content) }}</div>
               <div v-if="ticketSender(selectedTicket.content)" class="sender-info">발신자: {{ ticketSender(selectedTicket.content) }}</div>
+              <div v-if="ticketFiles(selectedTicket).length" class="file-list" style="margin-top:8px;">
+                <a
+                  v-for="f in ticketFiles(selectedTicket)"
+                  :key="f.fileKey || f.fileUrl || f.fileName || 'ticket-file'"
+                  :href="f.fileUrl ?? '#'"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="file-item file-item--link"
+                >
+                  <Paperclip :size="13" style="color:#aeb2bb;" />
+                  <span class="file-name">{{ f.fileName ?? '첨부 이미지' }}</span>
+                  <span v-if="f.fileSize" class="file-size">({{ (f.fileSize / 1024).toFixed(1) }}KB)</span>
+                </a>
+              </div>
             </div>
           </div>
 
@@ -763,6 +800,20 @@ function ticketSender(content: string) {
               <span v-if="ticketSender(selectedTicket.content)" class="ticket-sender">{{ ticketSender(selectedTicket.content) }}</span>
             </div>
             <div class="detail-content" style="margin-top:6px;">{{ ticketBody(selectedTicket.content) }}</div>
+            <div v-if="ticketFiles(selectedTicket).length" class="file-list" style="margin-top:8px;">
+              <a
+                v-for="f in ticketFiles(selectedTicket)"
+                :key="f.fileKey || f.fileUrl || f.fileName || 'ticket-file'"
+                :href="f.fileUrl ?? '#'"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="file-item file-item--link"
+              >
+                <Paperclip :size="13" style="color:#aeb2bb;" />
+                <span class="file-name">{{ f.fileName ?? '첨부 이미지' }}</span>
+                <span v-if="f.fileSize" class="file-size">({{ (f.fileSize / 1024).toFixed(1) }}KB)</span>
+              </a>
+            </div>
           </div>
           <div class="field">
             <label class="field-label">답변 내용</label>

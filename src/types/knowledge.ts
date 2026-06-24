@@ -1,3 +1,5 @@
+import type { TicketFileInfo } from './ticket'
+
 // BE: KnowledgeTicketCandidateResponse
 // 답변 완료 티켓을 기반으로 AI가 생성한 지식화 후보. TEAM_ADMIN 승인 대기 상태.
 export interface KnowledgeTicketCandidateResponse {
@@ -9,6 +11,8 @@ export interface KnowledgeTicketCandidateResponse {
   answerAuthorId: number
   completedAt: string
   answeredAt: string
+  fileUrl?: string | null
+  files?: TicketFileInfo[]
 }
 
 // BE: KnowledgeDataResponse
@@ -25,4 +29,6 @@ export interface KnowledgeDataResponse {
   approvedAt: string
   createdAt: string
   updatedAt: string
+  fileUrl?: string | null
+  files?: TicketFileInfo[]
 }

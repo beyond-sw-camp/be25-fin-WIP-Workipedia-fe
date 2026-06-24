@@ -32,6 +32,12 @@ const fallbackLoading = ref(false)
 const item = computed(() =>
   knowledgeStore.items.find(m => m.knowledgeDataId === id) ?? fetchedItem.value
 )
+const requestFiles = computed(() => {
+  const current = item.value
+  if (!current) return []
+  if (current.files?.length) return current.files.filter(f => !!f.fileUrl)
+  return current.fileUrl ? [{ fileKey: '', fileUrl: current.fileUrl, fileName: '첨부 이미지', fileContentType: null, fileSize: null }] : []
+})
 
 function daysSince(iso: string) {
   return Math.floor((Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24))
@@ -170,6 +176,22 @@ onMounted(async () => {
           <div class="original-body-label">내용</div>
           <p class="section-text original-body-text">{{ originalTicketBody }}</p>
         </template>
+      </div>
+
+      <div v-if="requestFiles.length" class="card section-card">
+        <div class="section-label">요청 첨부 이미지</div>
+        <a
+          v-for="f in requestFiles"
+          :key="f.fileKey || f.fileUrl || f.fileName || 'request-file'"
+          :href="f.fileUrl ?? '#'"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="file-link"
+        >
+          <Paperclip :size="14" />
+          <span>{{ f.fileName ?? '첨부 이미지' }}</span>
+          <span v-if="f.fileSize" class="file-size">({{ (f.fileSize / 1024).toFixed(1) }}KB)</span>
+        </a>
       </div>
 
       <div class="card section-card">

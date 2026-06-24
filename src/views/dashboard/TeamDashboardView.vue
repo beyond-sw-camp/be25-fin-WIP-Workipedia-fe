@@ -277,6 +277,11 @@ function ticketSender(content: string) {
   const m = content.match(SENDER_RE)
   return m?.[1]?.replaceAll('|', ' · ') ?? ''
 }
+function ticketFiles(t: TicketResponse | null) {
+  if (!t) return []
+  if (t.files?.length) return t.files.filter(f => !!f.fileUrl)
+  return t.fileUrl ? [{ fileKey: '', fileUrl: t.fileUrl, fileName: '첨부 이미지', fileContentType: null, fileSize: null }] : []
+}
 
 </script>
 
@@ -460,6 +465,20 @@ function ticketSender(content: string) {
             </div>
             <div class="ticket-title">{{ selectedTicket.title }}</div>
             <div class="ticket-body" style="margin-top:6px; max-height: none;">{{ ticketBody(selectedTicket.content) }}</div>
+            <div v-if="ticketFiles(selectedTicket).length" class="file-list">
+              <a
+                v-for="f in ticketFiles(selectedTicket)"
+                :key="f.fileKey || f.fileUrl || f.fileName || 'ticket-file'"
+                :href="f.fileUrl ?? '#'"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="file-item file-item--link"
+              >
+                <Paperclip :size="13" style="color:#aeb2bb;flex-shrink:0;" />
+                <span class="file-name">{{ f.fileName ?? '첨부 이미지' }}</span>
+                <span v-if="f.fileSize" class="file-size">({{ (f.fileSize / 1024).toFixed(1) }}KB)</span>
+              </a>
+            </div>
           </div>
 
           <div class="field">
@@ -540,6 +559,20 @@ function ticketSender(content: string) {
               <div class="ticket-title">{{ detailTicket.title }}</div>
               <div style="font-size:13px; color:#6b7280; line-height:1.6; margin-top:6px;">{{ ticketBody(detailTicket.content) }}</div>
               <div v-if="ticketSender(detailTicket.content)" class="sender-info">발신자: {{ ticketSender(detailTicket.content) }}</div>
+              <div v-if="ticketFiles(detailTicket).length" class="file-list">
+                <a
+                  v-for="f in ticketFiles(detailTicket)"
+                  :key="f.fileKey || f.fileUrl || f.fileName || 'ticket-file'"
+                  :href="f.fileUrl ?? '#'"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="file-item file-item--link"
+                >
+                  <Paperclip :size="13" style="color:#aeb2bb;flex-shrink:0;" />
+                  <span class="file-name">{{ f.fileName ?? '첨부 이미지' }}</span>
+                  <span v-if="f.fileSize" class="file-size">({{ (f.fileSize / 1024).toFixed(1) }}KB)</span>
+                </a>
+              </div>
             </div>
           </div>
 
