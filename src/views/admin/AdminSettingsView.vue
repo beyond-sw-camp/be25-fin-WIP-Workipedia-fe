@@ -154,7 +154,7 @@ type EditManual = {
   currentVersion?: string | null
   originalFileCount?: number
   departmentId: number | null
-  currentFileUrl?: string | null
+  currentFileUrls?: string[]
 }
 const editingManual = ref<EditManual | null>(null)
 const uploadedFiles = ref<File[]>([])
@@ -263,6 +263,11 @@ function fmtVersion(v: string | null | undefined): string | null {
   const { major, minor } = parseVersion(v)
   return `v${major}.${minor}`
 }
+function manualFileUrls(m: Pick<AdminManual, 'fileUrl' | 'fileUrls'> | null | undefined): string[] {
+  if (!m) return []
+  if (m.fileUrls?.length) return m.fileUrls.filter(Boolean)
+  return m.fileUrl ? [m.fileUrl] : []
+}
 // 신규 매뉴얼 폼을 초기화한 뒤 폼 DOM으로 스크롤한다. nextTick은 v-if가 DOM을 렌더링한 후 ref가 유효해지는 시점을 보장한다.
 function openManualForm() {
   editingManual.value = { title: '', description: '', category: '인사 관리', departmentId: null }
@@ -272,27 +277,33 @@ function openManualForm() {
   nextTick(() => manualFormRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
 }
 async function openEditManualForm(m: AdminManual) {
+  const currentFileUrls = manualFileUrls(m)
   editingManual.value = {
     id: m.manualId,
     title: m.title,
     description: m.description ?? '',
     category: m.category,
     currentVersion: m.version,
-    originalFileCount: 1,
+    originalFileCount: currentFileUrls.length,
     departmentId: m.departmentId ?? null,
-    currentFileUrl: m.fileUrl ?? null,
+    currentFileUrls,
   }
   uploadedFiles.value = []
   fileError.value = false
   fileConflict.value = false
   nextTick(() => manualFormRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
-  // 목록 API는 fileUrl을 포함하지 않는 경우가 있어, 폼을 열 때 상세 API를 별도 호출해 fileUrl을 보완한다.
-  // 스크롤은 즉시, fileUrl 갱신은 비동기로 처리해 UX 지연을 최소화한다.
-  if (!m.fileUrl) {
+  // 목록 API가 파일 URL을 포함하지 않는 경우가 있어, 폼을 열 때 상세 API를 별도 호출해 파일 목록을 보완한다.
+  // 스크롤은 즉시, 파일 목록 갱신은 비동기로 처리해 UX 지연을 최소화한다.
+  if (currentFileUrls.length === 0) {
     try {
       const res = await getManualDetail(m.manualId)
       if (editingManual.value?.id === m.manualId) {
-        editingManual.value = { ...editingManual.value, currentFileUrl: res.data.fileUrl ?? null }
+        const detailFileUrls = manualFileUrls(res.data)
+        editingManual.value = {
+          ...editingManual.value,
+          currentFileUrls: detailFileUrls,
+          originalFileCount: detailFileUrls.length,
+        }
       }
     } catch { /* silent */ }
   }
@@ -868,17 +879,18 @@ onMounted(() => {
         </div>
         <div v-if="editingManual.id" class="field">
           <label>현재 파일</label>
-          <div class="current-file-row">
-            <FileText :size="14" color="#3b82f6" style="flex-shrink:0" />
-            <template v-if="editingManual.currentFileUrl">
-              <span class="current-file-name">{{ extractFileName(editingManual.currentFileUrl) }}</span>
-              <a :href="editingManual.currentFileUrl" target="_blank" rel="noopener noreferrer" class="file-view-btn">
+          <div v-if="editingManual.currentFileUrls?.length" class="current-file-list">
+            <div v-for="(url, index) in editingManual.currentFileUrls" :key="`${url}-${index}`" class="current-file-row">
+              <FileText :size="14" color="#3b82f6" style="flex-shrink:0" />
+              <span class="current-file-name">{{ extractFileName(url) }}</span>
+              <a :href="url" target="_blank" rel="noopener noreferrer" class="file-view-btn">
                 <ExternalLink :size="13" /> 보기
               </a>
-            </template>
-            <template v-else>
-              <span class="current-file-unknown">불러오는 중...</span>
-            </template>
+            </div>
+          </div>
+          <div v-else class="current-file-row">
+            <FileText :size="14" color="#3b82f6" style="flex-shrink:0" />
+            <span class="current-file-unknown">불러오는 중...</span>
           </div>
         </div>
         <div class="field">
@@ -1384,6 +1396,7 @@ onMounted(() => {
   padding: 9px 14px; background: #f0f6ff; border: 1px solid #bfdbfe;
   border-radius: 8px; font-size: 13px;
 }
+.current-file-list { display: flex; flex-direction: column; gap: 6px; }
 .current-file-name { color: #1d4ed8; font-weight: 500; word-break: break-all; flex: 1; }
 .current-file-unknown { color: #aeb2bb; }
 .file-view-btn {
