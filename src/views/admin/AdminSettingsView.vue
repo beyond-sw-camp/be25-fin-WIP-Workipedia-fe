@@ -360,6 +360,7 @@ async function saveManual() {
       const fileCountChanged = newCount !== origCount
       const nextVer = calcNextVersion(editingManual.value.currentVersion, fileCountChanged)
       const hasNewFile = uploadedFiles.value.length > 0
+      let savedVersion = editingManual.value.currentVersion
       if (hasNewFile) {
         const formData = new FormData()
         formData.append('title', editingManual.value.title)
@@ -371,15 +372,18 @@ async function saveManual() {
         if (editingManual.value.departmentId != null) {
           formData.append('departmentId', String(editingManual.value.departmentId))
         }
-        await updateAdminManual(editingManual.value.id, formData)
+        const updateRes = await updateAdminManual(editingManual.value.id, formData)
+        savedVersion = updateRes.data.version
       } else {
-        await updateAdminManualMeta(editingManual.value.id, {
+        const updateRes = await updateAdminManualMeta(editingManual.value.id, {
           title: editingManual.value.title,
           version: nextVer,
           departmentId: editingManual.value.departmentId,
         })
+        savedVersion = updateRes.data.version
       }
-      showToast(`매뉴얼이 수정되었습니다. (${nextVer})`)
+      const toastVersion = fmtVersion(savedVersion)
+      showToast(toastVersion ? `매뉴얼이 수정되었습니다. (${toastVersion})` : '매뉴얼이 수정되었습니다.')
       editingManual.value = null
       uploadedFiles.value = []
       await loadManuals()
