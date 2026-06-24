@@ -17,6 +17,20 @@ export function createTicket(data: CreateTicketRequest) {
   return http.post<TicketResponse>('/tickets', data)
 }
 
+export function createTicketWithFiles(data: CreateTicketRequest, files: File[]) {
+  const formData = new FormData()
+  if (data.sourceChatbotMessageId != null) {
+    formData.append('sourceChatbotMessageId', String(data.sourceChatbotMessageId))
+  }
+  if (data.priority) {
+    formData.append('priority', data.priority)
+  }
+  formData.append('title', data.title)
+  formData.append('content', data.content)
+  files.forEach((file) => formData.append('files', file))
+  return http.post<TicketResponse>('/tickets', formData)
+}
+
 // 내 팀 티켓 목록 (status 필터 + 페이징, ticketId desc 고정)
 export function getTickets(params: PageParams & { status?: TicketStatus } = {}) {
   return http.get<PageResponse<TicketResponse>>('/tickets', { params })

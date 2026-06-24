@@ -5,7 +5,7 @@ import { ChevronLeft, Building2, Paperclip } from '@lucide/vue'
 import { getMyTicketDetail } from '@/api/mypageApi'
 import { getLatestAnswer } from '@/api/ticketApi'
 import type { MyTicketDetailResponse } from '@/types/mypage'
-import type { AnswerFileInfo } from '@/types/ticket'
+import type { AnswerFileInfo, TicketFileInfo } from '@/types/ticket'
 
 const router = useRouter()
 const route = useRoute()
@@ -18,6 +18,12 @@ const error = ref('')
 // KnowIt 발행 티켓의 content에 삽입된 발신자 마커가 마이페이지 상세에서 그대로 노출되는 문제를 방지한다.
 const SENDER_RE = /\n##SENDER:(.+)##$/
 function ticketBody(content: string) { return content.replace(SENDER_RE, '').trim() }
+
+function ticketFiles(t: MyTicketDetailResponse | null): TicketFileInfo[] {
+  if (!t) return []
+  if (t.files?.length) return t.files.filter(f => !!f.fileUrl)
+  return t.fileUrl ? [{ fileKey: '', fileUrl: t.fileUrl, fileName: '첨부 이미지', fileContentType: null, fileSize: null }] : []
+}
 
 function formatDateTime(iso: string) {
   const d = new Date(iso)
@@ -100,6 +106,20 @@ onMounted(async () => {
         <div class="detail-section">
           <div class="section-label">질문 내용</div>
           <p class="detail-content">{{ ticketBody(ticket.content) }}</p>
+          <div v-if="ticketFiles(ticket).length" class="request-files">
+            <a
+              v-for="f in ticketFiles(ticket)"
+              :key="f.fileKey || f.fileUrl || f.fileName || 'ticket-file'"
+              :href="f.fileUrl ?? '#'"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="answer-file"
+            >
+              <Paperclip :size="13" />
+              <span>{{ f.fileName ?? '첨부 이미지' }}</span>
+              <span v-if="f.fileSize" class="answer-file-size">({{ (f.fileSize / 1024).toFixed(1) }}KB)</span>
+            </a>
+          </div>
         </div>
 
         <!-- Answer -->
@@ -140,6 +160,7 @@ onMounted(async () => {
 .detail-section { display: flex; flex-direction: column; gap: 8px; }
 .section-label { font-size: 12.5px; font-weight: 600; color: #aeb2bb; text-transform: uppercase; letter-spacing: 0.05em; }
 .detail-content { font-size: 15px; line-height: 1.7; color: #1f2430; white-space: pre-line; margin: 0; }
+.request-files { display: flex; flex-direction: column; gap: 7px; margin-top: 8px; }
 
 .answer-section {
   display: flex; flex-direction: column; gap: 10px;
