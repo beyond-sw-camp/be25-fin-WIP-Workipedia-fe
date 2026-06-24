@@ -66,5 +66,11 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     items.value = items.value.filter(i => i.knowledgeDataId !== id)
   }
 
-  return { items, loading, loaded, error, load, push, remove }
+  function reset() {
+    items.value = []
+    loaded.value = false
+    error.value = false
+  }
+
+  return { items, loading, loaded, error, load, push, remove, reset }
 })
