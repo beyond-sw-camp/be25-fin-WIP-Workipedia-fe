@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Search, FileText, CheckCircle2, Clock } from '@lucide/vue'
+import { Search, FileText, CheckCircle2, Clock, MessageCircle, ThumbsUp } from '@lucide/vue'
 import { getQuestions, searchQuestions, autocompleteQuestions } from '@/api/workiApi'
 import type { QuestionStatus } from '@/types/worki'
 
@@ -18,7 +18,9 @@ interface QuestionListItem {
   status: QuestionStatus
   viewCount: number
   likeCount?: number // 목록 응답에만 있음. 검색 응답엔 없어 undefined.
+  answerCount?: number
   createdAt: string
+  content?: string
 }
 
 const items = ref<QuestionListItem[]>([])
@@ -47,6 +49,10 @@ function formatDate(iso: string) {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
+}
+
+function previewText(content?: string) {
+  return content?.replace(/\s+/g, ' ').trim() ?? ''
 }
 
 // 한 페이지 조회. append=false면 교체(초기/새 검색), true면 이어붙임(무한스크롤).
@@ -239,13 +245,24 @@ const filtered = computed(() => {
             {{ isSolved(item.status) ? '해결됨' : '미해결' }}
           </span>
           <h3 class="wiki-title">{{ item.title }}</h3>
-          <div class="wiki-meta">
-            <span style="color: #aeb2bb; font-size: 13px; margin-left: auto;">{{ formatDate(item.createdAt) }}</span>
-          </div>
+          <p v-if="previewText(item.content)" class="wiki-preview">{{ previewText(item.content) }}</p>
         </div>
-        <div class="wiki-stats">
-          <div v-if="searchMode" class="stat"><span>조회</span><strong>{{ item.viewCount }}</strong></div>
-          <div v-else class="stat"><span>좋아요</span><strong>{{ item.likeCount ?? 0 }}</strong></div>
+        <div class="wiki-side">
+          <span class="wiki-date">{{ formatDate(item.createdAt) }}</span>
+          <div class="metric-row">
+            <div v-if="searchMode" class="metric">
+              <span>조회</span>
+              <strong>{{ item.viewCount }}</strong>
+            </div>
+            <div v-else class="metric">
+              <ThumbsUp :size="14" />
+              <strong>{{ item.likeCount ?? 0 }}</strong>
+            </div>
+            <div class="metric">
+              <MessageCircle :size="14" />
+              <strong>{{ item.answerCount ?? 0 }}</strong>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -260,23 +277,70 @@ const filtered = computed(() => {
 .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
 .wiki-list { display: flex; flex-direction: column; gap: 12px; }
 .wiki-item {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px;
+  align-items: stretch;
   gap: 20px;
-  padding: 20px 24px;
+  min-height: 118px;
+  padding: 18px 24px;
   cursor: pointer;
   transition: box-shadow 0.15s;
 }
 .wiki-item:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
-.wiki-left { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.wiki-left { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
 /* 세로 flex라 뱃지가 가로로 늘어나 색이 줄 전체에 칠해지는 것 방지 (상세 화면처럼 내용만큼만) */
 .wiki-left .badge { align-self: flex-start; }
-.wiki-title { font-size: 16.5px; font-weight: 700; color: #1f2430; margin: 0; }
-.wiki-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.wiki-stats { display: flex; gap: 24px; }
-.stat { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.stat span { font-size: 12px; color: #aeb2bb; }
-.stat strong { font-size: 18px; font-weight: 800; color: #1f2430; }
+.wiki-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1f2430;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wiki-preview {
+  display: -webkit-box;
+  margin: 0;
+  max-width: 760px;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.45;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.wiki-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: space-between;
+  min-height: 100%;
+  padding: 2px 0;
+}
+.wiki-date {
+  color: #aeb2bb;
+  font-size: 12.5px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.metric-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+.metric {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 34px;
+  color: #8b95a7;
+}
+.metric svg { color: #8b95a7; }
+.metric span { font-size: 11.5px; color: #aeb2bb; }
+.metric strong { font-size: 14px; font-weight: 800; color: #1f2430; line-height: 1; }
 .scroll-sentinel { height: 1px; }
 .load-more { text-align: center; padding: 16px; font-size: 13px; color: #aeb2bb; }
 
@@ -307,4 +371,20 @@ const filtered = computed(() => {
   cursor: pointer;
 }
 .autocomplete li:hover { background: #f3f0ff; color: #7c3aed; }
+
+@media (max-width: 640px) {
+  .wiki-item {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    min-height: auto;
+    padding: 16px 18px;
+  }
+  .wiki-side {
+    flex-direction: row;
+    align-items: center;
+    min-height: auto;
+    padding: 0;
+  }
+  .metric-row { justify-content: flex-end; }
+}
 </style>
