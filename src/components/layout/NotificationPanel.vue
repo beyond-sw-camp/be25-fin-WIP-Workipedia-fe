@@ -46,7 +46,7 @@ function kindOf(type: NotificationType): Kind | null {
 }
 
 const kindLabel: Record<Kind, string> = {
-  ticket: '티켓', worki: '게시판', manual: '매뉴얼',
+  ticket: '티켓', worki: '게시판', manual: '문서',
 }
 
 // 배지 표시용 — kindOf와 별개로 DIRECT_DATA_ACTIVATED에 '수기 지식' 배지를 달아준다.
@@ -164,7 +164,7 @@ onMounted(async () => {
         :class="{ active: activeTab === t }"
         @click="activeTab = t"
       >
-        {{ t === 'all' ? '전체' : t === 'ticket' ? '티켓' : t === 'worki' ? '게시판' : '매뉴얼' }}
+        {{ t === 'all' ? '전체' : t === 'ticket' ? '티켓' : t === 'worki' ? '게시판' : '문서' }}
       </button>
     </div>
 
