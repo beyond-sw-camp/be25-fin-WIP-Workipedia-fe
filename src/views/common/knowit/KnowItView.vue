@@ -5,7 +5,7 @@ import { Bot, User, MessageCircle, Ticket, Plus, HelpCircle, Send, X, ChevronDow
 import SourceCard from '@/components/common/SourceCard.vue'
 import type { Source } from '@/components/common/SourceCard.vue'
 import BaseToast from '@/components/common/BaseToast.vue'
-import { createSession, sendMessage, streamMessage, parseReferences } from '@/api/chatbotApi'
+import { createSession, sendMessage, streamMessage, parseReferences, formatSourceLabel } from '@/api/chatbotApi'
 import type { SourceItem } from '@/api/chatbotApi'
 import { createQuestion } from '@/api/workiApi'
 import { createTicket } from '@/api/ticketApi'
@@ -98,18 +98,19 @@ const SOURCE_TYPE_CONFIG: Record<string, { label: string; cls: Source['cls']; ro
 }
 
 // AI 서버가 내려준 SourceItem[](snake_case) 을 SourceCard 표시용 Source[] 로 변환한다.
-// 같은 문서의 여러 chunk가 올 수 있으므로 source_type+source_id 기준으로 중복 제거한다.
+// 매뉴얼은 파일/페이지 단위로 근거가 다를 수 있으므로 파일명·페이지까지 포함해 중복 제거한다.
+// (페이지 정보가 없는 출처는 source_type+source_id 기준으로 기존처럼 문서 단위 중복 제거된다.)
 // link가 null이면 source_type 기반 내부 상세 경로로 대체한다.
 function mapReferences(refs: SourceItem[]): Source[] {
   const seen = new Set<string>()
   const result: Source[] = []
   for (const r of refs) {
-    const key = `${r.source_type}:${r.source_id}`
+    const key = `${r.source_type}:${r.source_id}:${r.file_name ?? ''}:${r.page_start ?? ''}:${r.page_end ?? ''}`
     if (seen.has(key)) continue
     seen.add(key)
     const cfg = SOURCE_TYPE_CONFIG[r.source_type] ?? { label: r.source_type, cls: 'gray' as const }
     const url = r.link ?? (cfg.route ? `${cfg.route}/${r.source_id}` : undefined)
-    result.push({ type: cfg.label, cls: cfg.cls, meta: r.title, link: '문서에서 보기', url })
+    result.push({ type: cfg.label, cls: cfg.cls, meta: formatSourceLabel(r), link: '문서에서 보기', url })
   }
   return result
 }
