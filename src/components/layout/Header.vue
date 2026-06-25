@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 import {
   MessageCircle, FileText, MessagesSquare, Trophy,
   Search, BookOpen, Library, BookMarked, HelpCircle,
-  LayoutDashboard, Building2, ShieldCheck, Settings, Bot,
+  LayoutDashboard, Building2, ShieldCheck, Settings, Bot, AlertCircle,
   User,
 } from '@lucide/vue'
 
@@ -36,6 +36,7 @@ const PAGE_META: Record<string, { label: string; icon: object; color: string }> 
   'dashboard-team':      { label: '부서 대시보드',         icon: LayoutDashboard, color: '#3b82f6' },
   'dashboard-department':{ label: '부서 대시보드',         icon: Building2,       color: '#8b5cf6' },
   'dashboard-admin':     { label: '시스템 대시보드',       icon: ShieldCheck,     color: '#ef4444' },
+  'admin-common-queue':   { label: '공통 접수 티켓',       icon: AlertCircle,     color: '#f97316' },
   'admin-settings':      { label: '설정',           icon: Settings,        color: '#64748b' },
   'admin-ai':            { label: 'AI 관리 및 개발자 도구', icon: Bot,             color: '#6366f1' },
 }
