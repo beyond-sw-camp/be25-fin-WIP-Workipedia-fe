@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, nextTick } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, nextTick, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { Bot, User, MessageCircle, Ticket, Plus, HelpCircle, Send, X, ChevronDown, ChevronUp } from '@lucide/vue'
 import SourceCard from '@/components/common/SourceCard.vue'
 import type { Source } from '@/components/common/SourceCard.vue'
@@ -30,6 +30,7 @@ interface Msg {
 }
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 const scrollEl = ref<HTMLElement | null>(null)
 const mode = ref<Mode>('none')
@@ -89,7 +90,7 @@ function scroll() {
 // source_type → 표시 라벨/색상 + 내부 상세 경로 prefix
 const SOURCE_TYPE_CONFIG: Record<string, { label: string; cls: Source['cls']; route?: string }> = {
   MANUAL:            { label: '매뉴얼',    cls: 'green', route: '/manuals' },
-  MANUAL_KNOWLEDGE:  { label: '매뉴얼',    cls: 'green', route: '/manuals' },
+  MANUAL_KNOWLEDGE:  { label: '수기 지식', cls: 'green', route: '/direct-data' },
   WORKI:             { label: '워키 답변', cls: 'blue',  route: '/worki' },
   TICKET:            { label: '티켓 답변', cls: 'blue',  route: '/tickets' },
   KNOWLEDGE_DATA:    { label: '지식 문서', cls: 'green', route: '/knowledge' },
@@ -116,8 +117,14 @@ function mapReferences(refs: SourceItem[]): Source[] {
 // 질문/요청 모드를 선택하는 즉시 챗봇 세션을 생성한다.
 // 세션은 UI에 노출하지 않고 sessionId만 보관해 이후 메시지 전송에 재사용한다.
 // 생성 실패 시 모드 선택을 취소하고 안내한다.
+onMounted(() => {
+  const q = route.query.mode
+  if (q === 'question' || q === 'request') selectMode(q)
+})
+
 async function selectMode(m: 'question' | 'request') {
   if (loading.value) return
+  router.replace({ query: { mode: m } })
   mode.value = m
   msgs.value = [
     { kind: 'user', text: m === 'question' ? '질문' : '요청' },
@@ -149,6 +156,7 @@ function changeMode() {
   hasQueried.value = false
   sessionId.value = null
   lastMessageId.value = null
+  router.replace({ query: {} })
   nextTick(() => {
     if (scrollEl.value) scrollEl.value.scrollTop = 0
   })
