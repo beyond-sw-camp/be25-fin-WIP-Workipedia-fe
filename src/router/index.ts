@@ -210,6 +210,12 @@ const router = createRouter({
           meta: { requiresAuth: true, roles: [ROLES.SYSTEM_ADMIN] },
         },
         {
+          path: 'admin/common-queue',
+          name: 'admin-common-queue',
+          component: () => import('@/views/admin/AdminCommonQueueView.vue'),
+          meta: { requiresAuth: true, roles: [ROLES.SYSTEM_ADMIN] },
+        },
+        {
           path: 'admin/ai',
           name: 'admin-ai',
           component: () => import('@/views/admin/AiAdminView.vue'),

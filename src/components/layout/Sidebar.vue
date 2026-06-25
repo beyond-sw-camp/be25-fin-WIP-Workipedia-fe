@@ -7,7 +7,7 @@ import { ROLES } from '@/constants/roles'
 import {
   MessageCircle, FileText, MessagesSquare, Trophy,
   Search, BookOpen, Library, BookMarked, HelpCircle,
-  LayoutDashboard, Building2, ShieldCheck, Settings, Bot,
+  LayoutDashboard, Building2, ShieldCheck, Settings, Bot, AlertCircle,
   Bell, LogOut, Star,
 } from '@lucide/vue'
 import NotificationPanel from './NotificationPanel.vue'
@@ -135,6 +135,9 @@ const initials = computed(() =>
         <div class="nav-section-label">관리</div>
         <RouterLink to="/dashboard/admin" class="nav-item nav-item-secondary">
           <ShieldCheck :size="16" /> 시스템 대시보드
+        </RouterLink>
+        <RouterLink to="/admin/common-queue" class="nav-item nav-item-secondary">
+          <AlertCircle :size="16" /> 공통 접수 티켓
         </RouterLink>
         <RouterLink to="/admin/ai" class="nav-item nav-item-secondary">
           <Bot :size="16" /> AI 관리 및 개발자 도구

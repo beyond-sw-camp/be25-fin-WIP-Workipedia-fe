@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 인프라 ESG(CloudWatch 기반) 대시보드 패널.
-// 시스템 대시보드의 공통 접수 큐 아래에 배치되어, 추천(RECOMMENDED) 항목 전체의
+// 시스템 대시보드에서 추천(RECOMMENDED) 항목 전체의
 // 탄소 절감 추정치를 합산해 보여준다. 데이터는 GET /admin/esg/infra 단일 호출.
 import { ref, computed, onMounted } from 'vue'
 import { getInfraEsgSummary } from '@/api/infraEsgApi'
@@ -193,71 +193,71 @@ const equivalentText = computed(() => {
 </template>
 
 <style scoped>
-.infra-esg { margin-top: 20px; }
+.infra-esg { margin: 16px 0 8px; padding: 16px 34px; }
 
-.ie-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
-.ie-title { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; color: #1f2937; margin: 0; }
-.ie-sub { font-size: 13px; color: #94a3b8; margin: 6px 0 0; line-height: 1.6; word-break: keep-all; }
+.ie-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.ie-title { font-size: 17px; font-weight: 800; color: #1f2937; margin: 0; }
+.ie-sub { font-size: 12px; color: #94a3b8; margin: 5px 0 0; line-height: 1.45; word-break: keep-all; }
 .ie-kicker {
   flex-shrink: 0;
   display: inline-flex; align-items: center;
-  padding: 6px 14px; border-radius: 999px;
-  background: #e8f7ef; color: #15803d; font-size: 12px; font-weight: 800; white-space: nowrap;
+  padding: 5px 10px; border-radius: 999px;
+  background: #e8f7ef; color: #15803d; font-size: 11px; font-weight: 800; white-space: nowrap;
 }
 
 /* 요약 카드 */
-.ie-summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 22px; }
-.ie-summary-card { border: 1px solid var(--line, #e5e9f2); border-radius: 14px; padding: 18px 20px; background: #fff; }
-.ie-summary-label { font-size: 13px; font-weight: 700; color: #64748b; margin-bottom: 10px; }
-.ie-summary-value { font-size: 28px; font-weight: 800; line-height: 1.1; letter-spacing: -0.03em; }
-.ie-summary-value small { font-size: 15px; font-weight: 700; margin-left: 2px; }
+.ie-summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+.ie-summary-card { border: 1px solid var(--line, #e5e9f2); border-radius: 10px; padding: 14px 16px; background: #fff; }
+.ie-summary-label { font-size: 12px; font-weight: 700; color: #64748b; margin-bottom: 8px; }
+.ie-summary-value { font-size: 24px; font-weight: 800; line-height: 1.05; }
+.ie-summary-value small { font-size: 13px; font-weight: 700; margin-left: 2px; }
 .ie-summary-value.dark { color: #1f2937; }
 .ie-summary-value.orange { color: #d97706; }
 .ie-summary-value.green { color: #159653; }
-.ie-summary-sub { margin-top: 8px; color: #94a3b8; font-size: 12px; }
+.ie-summary-sub { margin-top: 6px; color: #94a3b8; font-size: 11px; }
 
 /* 테이블 */
-.ie-table-wrap { overflow-x: auto; border: 1px solid var(--line, #e5e9f2); border-radius: 14px; margin-bottom: 22px; }
-.ie-table { width: 100%; min-width: 980px; border-collapse: collapse; }
+.ie-table-wrap { overflow-x: auto; border: 1px solid var(--line, #e5e9f2); border-radius: 10px; margin-bottom: 16px; }
+.ie-table { width: 100%; min-width: 900px; border-collapse: collapse; }
 .ie-table thead th {
   background: #f8fafc; border-bottom: 1px solid var(--line, #e5e9f2);
-  padding: 12px 14px; color: #64748b; font-size: 12px; font-weight: 800; text-align: left; white-space: nowrap;
+  padding: 9px 12px; color: #64748b; font-size: 11px; font-weight: 800; text-align: left; white-space: nowrap;
 }
 .ie-table tbody td {
-  border-bottom: 1px solid #edf1f7; padding: 14px; color: #293243; font-size: 13px; white-space: nowrap;
+  border-bottom: 1px solid #edf1f7; padding: 11px 12px; color: #293243; font-size: 12px; white-space: nowrap;
 }
 .ie-table tbody tr:last-child td { border-bottom: none; }
 .ie-status {
   display: inline-flex; align-items: center; justify-content: center;
-  padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 800;
+  padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 800;
 }
 .ie-status.recommended { background: #dff8e7; color: #15803d; }
 .ie-status.keep { background: #e8edf5; color: #5f6f86; }
 .ie-status.watch { background: #fef3c7; color: #b45309; }
 
 /* 임팩트 카드 */
-.ie-impact-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 18px; }
-.ie-impact { border: 1px solid #d7dee9; border-radius: 14px; padding: 20px; text-align: center; }
+.ie-impact-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
+.ie-impact { border: 1px solid #d7dee9; border-radius: 10px; padding: 16px; text-align: center; }
 .ie-impact.blue { background: #eef8ff; }
 .ie-impact.yellow { background: #fff8e8; }
 .ie-impact.green { background: #eefaf3; }
-.ie-impact-top { font-size: 12px; letter-spacing: 0.1em; font-weight: 800; color: #8a99b0; margin-bottom: 10px; }
-.ie-impact-value { font-size: 24px; font-weight: 800; letter-spacing: -0.02em; }
+.ie-impact-top { font-size: 11px; letter-spacing: 0.1em; font-weight: 800; color: #8a99b0; margin-bottom: 8px; }
+.ie-impact-value { font-size: 20px; font-weight: 800; }
 .ie-impact.blue .ie-impact-value { color: #1582d6; }
 .ie-impact.yellow .ie-impact-value { color: #d97706; }
 .ie-impact.green .ie-impact-value { color: #159653; }
-.ie-impact-label { margin-top: 10px; color: #6b7c97; font-size: 13px; font-weight: 600; }
+.ie-impact-label { margin-top: 8px; color: #6b7c97; font-size: 12px; font-weight: 600; }
 
 /* 환산 */
-.ie-equivalent { border: 2px solid #8ce3a8; background: #f0faf3; border-radius: 14px; padding: 18px 20px; margin-bottom: 18px; }
-.ie-equivalent-main { color: #15803d; font-size: 14px; line-height: 1.7; font-weight: 700; word-break: keep-all; }
-.ie-equivalent-sub { margin-top: 8px; color: #6b7c97; font-size: 12px; }
+.ie-equivalent { border: 1px solid #8ce3a8; background: #f0faf3; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+.ie-equivalent-main { color: #15803d; font-size: 12.5px; line-height: 1.55; font-weight: 700; word-break: keep-all; }
+.ie-equivalent-sub { margin-top: 6px; color: #6b7c97; font-size: 11px; }
 
 /* 계산 기준 */
-.ie-calc summary { cursor: pointer; color: #94a3b8; font-size: 13px; font-weight: 700; user-select: none; }
-.ie-calc-body { margin-top: 14px; background: #fafcff; border: 1px solid #dfe6f1; border-radius: 14px; padding: 18px 20px; }
-.ie-calc-body p { margin: 0 0 8px; font-size: 13px; color: #53657f; line-height: 1.7; }
-.ie-note { color: #6b7c97; font-size: 12px; word-break: keep-all; }
+.ie-calc summary { cursor: pointer; color: #94a3b8; font-size: 12px; font-weight: 700; user-select: none; }
+.ie-calc-body { margin-top: 10px; background: #fafcff; border: 1px solid #dfe6f1; border-radius: 10px; padding: 14px 16px; }
+.ie-calc-body p { margin: 0 0 6px; font-size: 12px; color: #53657f; line-height: 1.6; }
+.ie-note { color: #6b7c97; font-size: 11px; word-break: keep-all; }
 
 @media (max-width: 1100px) {
   .ie-summary-grid, .ie-impact-cards { grid-template-columns: repeat(2, 1fr); }
