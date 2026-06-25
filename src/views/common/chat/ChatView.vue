@@ -101,10 +101,13 @@ async function connectStomp() {
         }
 
         const original = raw.replyToId ? msgs.value.find(m => m.id === raw.replyToId) : null
-        const ttlSec = parseInt(localStorage.getItem('chat_message_ttl_seconds') ?? '600')
+        // raw.expiresAt은 서버가 정책 TTL 기준으로 계산한 값이므로 그대로 사용한다.
+        // localStorage TTL로 재계산하면 관리자만 정확한 TTL을 가지는 문제가 생긴다.
+        const expiresAt = raw.expiresAt
+          ?? new Date(new Date(raw.createdAt).getTime() + parseInt(localStorage.getItem('chat_message_ttl_seconds') ?? '600') * 1000).toISOString()
         const msg: ChatMsg = {
           ...raw,
-          expiresAt: new Date(new Date(raw.createdAt).getTime() + ttlSec * 1000).toISOString(),
+          expiresAt,
           name: raw.nickname,
           me: raw.userId === auth.userId,
           initial: (raw.nickname as string).slice(0, 1),
@@ -128,18 +131,16 @@ async function connectStomp() {
 }
 
 // 마운트 시 미만료 메시지를 REST로 선로드한 뒤 STOMP를 연결한다.
-// expiresAt은 BE 없이 createdAt + TTL(localStorage)로 클라이언트에서 계산한다.
 onMounted(async () => {
   ticker = setInterval(() => { now.value = Date.now() }, 30_000)
 
   try {
     const res = await getActiveMessages()
-    const ttlSec = parseInt(localStorage.getItem('chat_message_ttl_seconds') ?? '600')
     msgs.value = res.data.messages.map((raw: FlashChatMessageResponse) => {
       const original = raw.replyToId ? res.data.messages.find(m => m.id === raw.replyToId) : null
       return {
         ...raw,
-        expiresAt: new Date(new Date(raw.createdAt).getTime() + ttlSec * 1000).toISOString(),
+        // 서버가 내려주는 expiresAt을 그대로 사용 — 모든 클라이언트가 동일한 만료 시각을 공유
         name: raw.nickname,
         initial: raw.nickname.slice(0, 1),
         me: raw.userId === auth.userId,
