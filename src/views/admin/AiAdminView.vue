@@ -226,20 +226,14 @@ async function retrySyncDept(dept: AdminDepartment) {
   }
 }
 
-// AI 수정 지침을 BE에 전송하면, BE가 모든 부서의 routingPrompt를 일괄 수정하고 Vector Store 재반영을 예약한다.
-// 목록을 갱신한 뒤, routingPrompt가 있는 부서를 낙관적으로 PENDING 상태로 전환해 UI에 즉시 반영한다.
+// AI 수정 지침을 BE에 전송하면, BE가 변경된 부서의 routingPrompt를 수정하고 Vector Store 재반영을 예약한다.
+// BE 응답의 syncStatus가 실제 상태 기준이므로 FE에서 전체 부서를 임의로 PENDING 처리하지 않는다.
 async function applyAiInstruction() {
   if (!aiInstruction.value.trim() || aiLoading.value) return
   aiLoading.value = true
   try {
-    await editRoutingPromptInstruction(aiInstruction.value.trim())
-    await loadDepts()
-    adminDepts.value.forEach(d => {
-      if (d.routingPrompt) {
-        d.syncStatus = 'PENDING'
-        d.syncInfo = 'AI 수정 반영 후 동기화 대기 중'
-      }
-    })
+    const res = await editRoutingPromptInstruction(aiInstruction.value.trim())
+    adminDepts.value = res.data
     aiInstruction.value = ''
     showSaved('AI가 R&R을 수정했습니다.')
   } catch {
