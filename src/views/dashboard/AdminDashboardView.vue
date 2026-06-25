@@ -19,6 +19,7 @@ import { ShieldCheck, AlertCircle, Users, Ticket, FileText, Clock, Paperclip } f
 import LineChart from '@/components/common/LineChart.vue'
 import BarChart from '@/components/common/BarChart.vue'
 import BaseToast from '@/components/common/BaseToast.vue'
+import InfraEsgPanel from '@/components/admin/InfraEsgPanel.vue'
 import {
   getDashboardSummary,
   getMonthlyTicketTrend,
@@ -444,6 +445,9 @@ function ticketFiles(t: TicketResponse) {
           </div>
         </div>
       </div>
+
+      <!-- ── 인프라 ESG (CloudWatch 기반) ── -->
+      <InfraEsgPanel />
     </template>
   </div>
 
