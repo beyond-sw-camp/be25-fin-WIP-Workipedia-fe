@@ -44,8 +44,10 @@ export interface SearchPage<T> {
 export interface WorkiSearchResponse {
   questionId: number
   title: string
+  content: string
   status: QuestionStatus
   viewCount: number
+  answerCount: number
   createdAt: string
 }
 
@@ -74,9 +76,11 @@ export interface QuestionSummaryResponse {
   questionId: number
   authorId: number
   title: string
+  content: string
   status: QuestionStatus
   viewCount: number
   likeCount: number
+  answerCount: number
   createdAt: string // ISO LocalDateTime
 }
 
