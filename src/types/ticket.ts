@@ -47,6 +47,18 @@ export interface TicketResponse {
   assigneeId: number | null
   createdAt: string
   updatedAt: string
+  fileUrl?: string | null
+  files?: TicketFileInfo[]
+}
+
+// BE: ticket.dto.TicketFileResponse — 티켓 요청 첨부파일 항목
+export interface TicketFileInfo {
+  fileId?: number | null
+  fileKey: string
+  fileUrl: string | null
+  fileName: string | null
+  fileContentType: string | null
+  fileSize: number | null
 }
 
 // BE: ticket.dto.AnswerFileInfo — 복수 첨부파일 항목

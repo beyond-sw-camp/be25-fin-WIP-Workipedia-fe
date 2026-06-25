@@ -155,7 +155,13 @@ function formatUpdateReason(reason: string | null | undefined) {
 
 function versionChangeText(v: AdminManualVersion | null | undefined) {
   if (!v) return ''
-  return formatContentDiff(v.contentDiff) || formatUpdateReason(v.updateReason)
+  // AI 한 줄 요약 우선, 없으면 BE 라벨 → 기존 diff 가공 → 사유 코드 순으로 표시
+  return (
+    v.changeSummary ||
+    v.updateReasonLabel ||
+    formatContentDiff(v.contentDiff) ||
+    formatUpdateReason(v.updateReason)
+  )
 }
 
 function latestChange(m: ManualSummaryResponse) {

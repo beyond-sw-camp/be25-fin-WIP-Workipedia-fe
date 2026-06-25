@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
 import { login } from '@/api/authApi'
@@ -28,11 +28,20 @@ function validate(): boolean {
     errors.value.password = '비밀번호를 입력해주세요.'
     valid = false
   } else if (!/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(password.value)) {
-    errors.value.password = '영문+숫자 조합 8자 이상이어야 합니다.'
+    errors.value.password = '비밀번호가 올바르지 않습니다.'
     valid = false
   }
   return valid
 }
+
+watch(employeeId, (val) => {
+  if (val.trim()) errors.value.employeeId = ''
+})
+watch(password, (val) => {
+  if (!val) return
+  if (errors.value.password === '비밀번호를 입력해주세요.') errors.value.password = ''
+  else if (errors.value.password === '비밀번호가 올바르지 않습니다.' && /^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(val)) errors.value.password = ''
+})
 
 const QUICK_ACCOUNTS = [
   { label: '일반 사용자', role: 'USER',         employeeId: 'U1001', password: 'Test1234', icon: User },
@@ -66,7 +75,12 @@ async function handleLogin() {
     router.push(redirect || '/knowit')
   } catch (e) {
     const err = e as AxiosError<{ message: string }>
-    serverError.value = err.response?.data?.message ?? '사번 또는 비밀번호가 올바르지 않습니다.'
+    const msg = err.response?.data?.message ?? ''
+    if (msg.includes('비활성')) {
+      serverError.value = '비활성화된 계정입니다. 관리자에게 문의해주세요.'
+    } else {
+      serverError.value = msg || '사번 또는 비밀번호가 올바르지 않습니다.'
+    }
   } finally {
     isLoading.value = false
   }
@@ -124,7 +138,7 @@ async function handleLogin() {
             autocomplete="current-password"
           />
           <p v-if="errors.password" class="field-error">{{ errors.password }}</p>
-          <p v-else-if="serverError" class="field-error">{{ serverError }}</p>
+          <p v-else-if="serverError" class="field-error" style="white-space: pre-line">{{ serverError }}</p>
         </div>
 
         <button type="submit" class="login-btn" :disabled="isLoading">

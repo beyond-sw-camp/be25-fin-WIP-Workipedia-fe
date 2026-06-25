@@ -33,8 +33,14 @@ export async function uploadFileToStorage(uploadUrl: string, file: File): Promis
 
 // 단일 파일을 presigned URL로 업로드하고 objectKey를 반환하는 편의 함수.
 // 호출 측은 반환된 objectKey를 answerTicket(fileKey)에 그대로 넘기면 된다.
+function resolveContentType(file: File): string {
+  const base = file.type || 'application/octet-stream'
+  return base === 'text/plain' ? 'text/plain; charset=utf-8' : base
+}
+
 export async function uploadFileAndGetKey(file: File): Promise<string> {
-  const res = await getPresignedUpload(file.name, file.type || 'application/octet-stream')
-  await uploadFileToStorage(res.data.uploadUrl, file)
+  const contentType = resolveContentType(file)
+  const res = await getPresignedUpload(file.name, contentType)
+  await axios.put(res.data.uploadUrl, file, { headers: { 'Content-Type': contentType } })
   return res.data.objectKey
 }

@@ -7,8 +7,8 @@
 //   1. 티켓 버킷: ASSIGNED 중 assigneeId null → deptTickets(부서 미배정),
 //                 assigneeId === 내 id → myActiveTickets, COMPLETED → doneTickets / myDoneTickets
 //   2. 이관 제한: AUTO_ASSIGNED 티켓만 이관 가능. 관리자가 직접 배정(ADMIN_REVIEW)한 티켓은 이관 불가.
-//   3. 답변 후 내 답장 패치: BE가 assigneeId를 갱신하지 않을 수 있어 submitAnswer에서
-//      방금 답변한 티켓을 doneTickets에서 찾아 myDoneTickets에 수동 push한다.
+//   3. 내 답변 티켓 영속화: BE가 assigneeId를 갱신하지 않는 경우를 대비해 답변한 ticketId를
+//      userId별 localStorage 키에 저장하고 loadTickets()에서 해당 ID도 myDoneTickets에 포함한다.
 //   4. 지식화 큐 페이지 클램핑: 승인·반려로 목록이 줄어들 때 현재 페이지가 범위를 벗어나지 않도록
 //      watch로 kPage를 maxtotalPages-1로 클램핑한다.
 //   5. 만료 배지: ASSIGNED 48h 미처리 시 공통 접수 큐 이동 — updatedAt 기준 남은 시간을 배지로 표시.
@@ -133,6 +133,30 @@ const knowledgeChartLabels = ref<string[]>([])
 const chatbotChartData = ref<number[]>([0, 0, 0, 0, 0, 0])
 const chatbotChartLabels = ref<string[]>([])
 
+// ── 내 답변 티켓 ID 로컬 영속화 ────────────────────────────
+// BE가 assigneeId를 갱신하지 않는 경우(부서 공통 티켓을 TEAM_ADMIN이 직접 답변)
+// 새로고침 후에도 myDoneTickets에 유지되도록 userId별로 localStorage에 저장한다.
+function myAnsweredStorageKey() {
+  return auth.userId ? `myAnsweredTickets_${auth.userId}` : null
+}
+function getMyAnsweredTicketIds(): Set<number> {
+  const key = myAnsweredStorageKey()
+  if (!key) return new Set()
+  try {
+    const raw = localStorage.getItem(key)
+    return new Set(raw ? (JSON.parse(raw) as number[]) : [])
+  } catch {
+    return new Set()
+  }
+}
+function saveMyAnsweredTicketId(ticketId: number) {
+  const key = myAnsweredStorageKey()
+  if (!key) return
+  const ids = getMyAnsweredTicketIds()
+  ids.add(ticketId)
+  localStorage.setItem(key, JSON.stringify([...ids]))
+}
+
 // ── 데이터 로드 ──────────────────────────────────────────────
 async function loadTickets() {
   loading.value = true
@@ -152,7 +176,10 @@ async function loadTickets() {
     deptTickets.value = assigned.filter(t => t.assigneeId === null)
     myActiveTickets.value = assigned.filter(t => t.assigneeId === auth.userId)
     doneTickets.value = done
-    myDoneTickets.value = done.filter(t => t.assigneeId === auth.userId)
+    const myAnsweredIds = getMyAnsweredTicketIds()
+    myDoneTickets.value = done.filter(t =>
+      t.assigneeId === auth.userId || myAnsweredIds.has(t.ticketId)
+    )
   } catch {
     loadError.value = '티켓을 불러올 수 없습니다.'
   } finally {
@@ -326,15 +353,8 @@ async function submitAnswer() {
       ? await uploadFileAndGetKey(uploadedFile.value)
       : undefined
     await answerTicket(ticketId, answerText.value.trim(), fileKey)
+    saveMyAnsweredTicketId(ticketId)
     await loadTickets()
-    // loadTickets()는 myDoneTickets를 assigneeId === auth.userId 로 필터링한다.
-    // assigneeId가 null인 미배정 티켓에 DEPT_ADMIN·SYSTEM_ADMIN이 답변할 경우 BE가
-    // assigneeId를 갱신하지 않아 myDoneTickets에서 누락된다.
-    // 방금 답변한 티켓을 doneTickets에서 찾아 수동으로 추가해 누락을 보완한다.
-    const justAnswered = doneTickets.value.find(t => t.ticketId === ticketId)
-    if (justAnswered && !myDoneTickets.value.some(t => t.ticketId === ticketId)) {
-      myDoneTickets.value = [justAnswered, ...myDoneTickets.value]
-    }
     if (auth.role === ROLES.TEAM_ADMIN) await loadKnowledge()
     closeAnswer()
     showToast('답변이 등록되었습니다', '티켓이 처리 완료로 이동되었습니다', 'success')
@@ -440,6 +460,15 @@ function ticketBody(content: string) { return content.replace(SENDER_RE, '').tri
 function ticketSender(content: string) {
   return content.match(SENDER_RE)?.[1]?.replaceAll('|', ' · ') ?? ''
 }
+function ticketFiles(t: TicketResponse | null) {
+  if (!t) return []
+  if (t.files?.length) return t.files.filter(f => !!f.fileUrl)
+  return t.fileUrl ? [{ fileKey: '', fileUrl: t.fileUrl, fileName: '첨부 이미지', fileContentType: null, fileSize: null }] : []
+}
+function knowledgeTicketFiles(item: KnowledgeTicketCandidateResponse) {
+  if (item.files?.length) return item.files.filter(f => !!f.fileUrl)
+  return item.fileUrl ? [{ fileKey: '', fileUrl: item.fileUrl, fileName: '첨부 이미지', fileContentType: null, fileSize: null }] : []
+}
 </script>
 
 <template>
@@ -491,6 +520,20 @@ function ticketSender(content: string) {
             </div>
             <p class="k-text">{{ item.question }}</p>
             <p v-if="kTicketBodies[item.ticketId]" class="k-original-body">{{ kTicketBodies[item.ticketId] }}</p>
+            <div v-if="knowledgeTicketFiles(item).length" class="file-list">
+              <a
+                v-for="f in knowledgeTicketFiles(item)"
+                :key="f.fileKey || f.fileUrl || f.fileName || 'ticket-file'"
+                :href="f.fileUrl ?? '#'"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="file-item file-item--link"
+              >
+                <Paperclip :size="13" style="color:#aeb2bb;" />
+                <span class="file-name">{{ f.fileName ?? '첨부 이미지' }}</span>
+                <span v-if="f.fileSize" class="file-size">({{ (f.fileSize / 1024).toFixed(1) }}KB)</span>
+              </a>
+            </div>
           </div>
           <div class="k-block">
             <div class="k-block-head">
@@ -692,6 +735,20 @@ function ticketSender(content: string) {
             <div class="ticket-preview">
               <div class="detail-content">{{ ticketBody(selectedTicket.content) }}</div>
               <div v-if="ticketSender(selectedTicket.content)" class="sender-info">발신자: {{ ticketSender(selectedTicket.content) }}</div>
+              <div v-if="ticketFiles(selectedTicket).length" class="file-list" style="margin-top:8px;">
+                <a
+                  v-for="f in ticketFiles(selectedTicket)"
+                  :key="f.fileKey || f.fileUrl || f.fileName || 'ticket-file'"
+                  :href="f.fileUrl ?? '#'"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="file-item file-item--link"
+                >
+                  <Paperclip :size="13" style="color:#aeb2bb;" />
+                  <span class="file-name">{{ f.fileName ?? '첨부 이미지' }}</span>
+                  <span v-if="f.fileSize" class="file-size">({{ (f.fileSize / 1024).toFixed(1) }}KB)</span>
+                </a>
+              </div>
             </div>
           </div>
 
@@ -763,6 +820,20 @@ function ticketSender(content: string) {
               <span v-if="ticketSender(selectedTicket.content)" class="ticket-sender">{{ ticketSender(selectedTicket.content) }}</span>
             </div>
             <div class="detail-content" style="margin-top:6px;">{{ ticketBody(selectedTicket.content) }}</div>
+            <div v-if="ticketFiles(selectedTicket).length" class="file-list" style="margin-top:8px;">
+              <a
+                v-for="f in ticketFiles(selectedTicket)"
+                :key="f.fileKey || f.fileUrl || f.fileName || 'ticket-file'"
+                :href="f.fileUrl ?? '#'"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="file-item file-item--link"
+              >
+                <Paperclip :size="13" style="color:#aeb2bb;" />
+                <span class="file-name">{{ f.fileName ?? '첨부 이미지' }}</span>
+                <span v-if="f.fileSize" class="file-size">({{ (f.fileSize / 1024).toFixed(1) }}KB)</span>
+              </a>
+            </div>
           </div>
           <div class="field">
             <label class="field-label">답변 내용</label>

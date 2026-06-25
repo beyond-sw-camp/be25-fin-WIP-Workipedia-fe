@@ -9,7 +9,7 @@
 //   3. 90일 경과 배너: 오래된 문서임을 독자에게 경고해 신뢰도를 명시적으로 안내한다.
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ChevronLeft, Clock, AlertTriangle, Paperclip, Trash2 } from '@lucide/vue'
+import { ChevronLeft, AlertTriangle, Paperclip, Trash2 } from '@lucide/vue'
 import BaseToast from '@/components/common/BaseToast.vue'
 import { useKnowledgeStore } from '@/stores/useKnowledgeStore'
 import { getKnowledgeDetail, deleteKnowledgeData, deleteKnowledgeDataAsAdmin } from '@/api/knowledgeApi'
@@ -28,10 +28,19 @@ const knowledgeStore = useKnowledgeStore()
 const fetchedItem = ref<KnowledgeDataResponse | null>(null)
 const fallbackLoading = ref(false)
 
-// store 목록에서 먼저 찾고, 없으면 onMounted에서 단건 API로 보완한다.
-const item = computed(() =>
-  knowledgeStore.items.find(m => m.knowledgeDataId === id) ?? fetchedItem.value
-)
+// store 목록에서 먼저 찾되, ticketId가 없으면 단건 API로 교체한다.
+const item = computed(() => {
+  const storeItem = knowledgeStore.items.find(m => m.knowledgeDataId === id)
+  if (!storeItem) return fetchedItem.value
+  if (!storeItem.ticketId && fetchedItem.value?.ticketId) return fetchedItem.value
+  return storeItem
+})
+const requestFiles = computed(() => {
+  const current = item.value
+  if (!current) return []
+  if (current.files?.length) return current.files.filter(f => !!f.fileUrl)
+  return current.fileUrl ? [{ fileKey: '', fileUrl: current.fileUrl, fileName: '첨부 이미지', fileContentType: null, fileSize: null }] : []
+})
 
 function daysSince(iso: string) {
   return Math.floor((Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24))
@@ -121,8 +130,9 @@ async function handleDelete() {
 
 onMounted(async () => {
   await knowledgeStore.load()
-  // 목록 로드 후에도 없으면 단건 API로 재조회한다. (직접 URL 진입 또는 size 한도 초과 항목)
-  if (!item.value) {
+  // 목록 캐시에 없거나 ticketId가 빠진 경우 단건 API로 보완한다.
+  // 공개 목록 엔드포인트는 ticketId를 반환하지 않으므로 상세 진입 시 항상 단건 조회가 필요하다.
+  if (!item.value || !item.value.ticketId) {
     fallbackLoading.value = true
     try {
       const res = await getKnowledgeDetail(id)
@@ -151,42 +161,68 @@ onMounted(async () => {
     <div v-else-if="!item" class="empty-ph" style="height: 240px;">문서를 불러올 수 없습니다</div>
 
     <template v-else>
-      <div class="detail-badges">
-        <span class="badge gray">{{ item.departmentName ?? '알 수 없는 부서' }}</span>
-        <span class="badge" :style="elapsedStyle(elapsed)">
-          <Clock :size="11" /> {{ elapsed }}일 경과
-        </span>
-      </div>
-
       <div v-if="isStale" class="stale-banner">
         <AlertTriangle :size="16" />
         이 문서는 작성된 지 {{ elapsed }}일이 지났습니다. 내용이 현재와 다를 수 있습니다.
       </div>
 
-      <div class="card section-card">
-        <div class="section-label">질문</div>
-        <p class="section-text">{{ item.question }}</p>
-        <template v-if="originalTicketBody && originalTicketBody !== item.question">
-          <div class="original-body-label">내용</div>
-          <p class="section-text original-body-text">{{ originalTicketBody }}</p>
-        </template>
+      <!-- 질문 카드 -->
+      <div class="card article-card">
+        <div class="article-section">
+          <span class="article-label q-label">Q</span>
+          <div class="article-body">
+            <p class="section-text question-title">{{ item.question }}</p>
+            <template v-if="originalTicketBody && originalTicketBody !== item.question">
+              <p class="section-text original-body-text">{{ originalTicketBody }}</p>
+            </template>
+            <div v-if="requestFiles.length" class="inline-files">
+              <a
+                v-for="f in requestFiles"
+                :key="f.fileKey || f.fileUrl || f.fileName || 'request-file'"
+                :href="f.fileUrl ?? '#'"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="file-link"
+              >
+                <Paperclip :size="13" />
+                <span>{{ f.fileName ?? '첨부 이미지' }}</span>
+                <span v-if="f.fileSize" class="file-size">({{ (f.fileSize / 1024).toFixed(1) }}KB)</span>
+              </a>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div class="card section-card">
-        <div class="section-label">답변</div>
-        <p class="section-text">{{ item.answer }}</p>
+      <!-- 답변 카드 -->
+      <div class="card article-card">
+        <div class="article-section">
+          <span class="article-label a-label">A</span>
+          <div class="article-body">
+            <p class="section-text">{{ item.answer }}</p>
+            <div v-if="answerFiles.length" class="inline-files">
+              <a
+                v-for="(f, i) in answerFiles"
+                :key="i"
+                :href="f.fileUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="file-link"
+              >
+                <Paperclip :size="13" />
+                <span>{{ f.fileName ?? '첨부 파일' }}</span>
+                <span v-if="f.fileSize" class="file-size">({{ (f.fileSize / 1024).toFixed(1) }}KB)</span>
+              </a>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div v-if="answerFiles.length" class="card section-card">
-        <div class="section-label">첨부 파일</div>
-        <a v-for="(f, i) in answerFiles" :key="i" :href="f.fileUrl" target="_blank" rel="noopener noreferrer" class="file-link">
-          <Paperclip :size="14" />
-          <span>{{ f.fileName ?? '첨부 파일' }}</span>
-          <span v-if="f.fileSize" class="file-size">({{ (f.fileSize / 1024).toFixed(1) }}KB)</span>
-        </a>
-      </div>
-
+      <!-- 메타 카드 -->
       <div class="card meta-card">
+        <div class="meta-row">
+          <span class="meta-key">부서</span>
+          <span class="meta-val">{{ item.departmentName ?? '알 수 없는 부서' }}</span>
+        </div>
         <div class="meta-row">
           <span class="meta-key">발행일</span>
           <span class="meta-val">{{ formatDate(item.approvedAt) }}</span>
@@ -218,7 +254,7 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.top-actions { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+.top-actions { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .btn-danger-outline {
   display: inline-flex; align-items: center; gap: 6px;
   border-color: #e03131; color: #e03131; background: transparent;
@@ -242,8 +278,6 @@ onMounted(async () => {
   display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 
-.detail-badges { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
-
 .stale-banner {
   display: flex;
   align-items: center;
@@ -257,32 +291,64 @@ onMounted(async () => {
   margin-bottom: 14px;
 }
 
-.section-card { padding: 24px 28px; margin-bottom: 14px; }
+.article-card { padding: 0; overflow: hidden; margin-bottom: 14px; }
+.article-card:last-of-type { margin-bottom: 0; }
+
+.article-section {
+  display: flex;
+  gap: 20px;
+  padding: 28px 28px;
+}
+
+.article-label {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  margin-top: 2px;
+}
+.q-label { background: #f1f5f9; color: #64748b; }
+.a-label { background: #eff6ff; color: #2b7fff; }
+
+.article-body { flex: 1; min-width: 0; }
+
+
+.section-text { font-size: 15px; color: #1f2430; line-height: 1.75; margin: 0; white-space: pre-wrap; }
+.question-title { font-weight: 600; }
+.original-body-text {
+  font-size: 13.5px;
+  color: #6b7280;
+  border-left: 2px solid #e5e7eb;
+  padding-left: 12px;
+  margin-top: 12px;
+}
+
+/* 파일 첨부 인라인 */
+.inline-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
 .file-link {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
+  gap: 6px;
+  padding: 7px 12px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
-  font-size: 14px;
+  font-size: 13.5px;
   color: #2b7fff;
   text-decoration: none;
   transition: background 0.12s;
 }
 .file-link:hover { background: #f0f9ff; }
 .file-link .file-size { color: #94a3b8; font-size: 12px; }
-.section-label {
-  font-size: 12px;
-  font-weight: 700;
-  color: #aeb2bb;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-bottom: 12px;
-}
-.section-text { font-size: 15px; color: #1f2430; line-height: 1.75; margin: 0; white-space: pre-wrap; }
-.original-body-label { font-size: 11.5px; font-weight: 600; color: #aeb2bb; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 14px; margin-bottom: 6px; }
-.original-body-text { font-size: 13.5px; color: #6b7280; border-left: 2px solid #e5e7eb; padding-left: 10px; }
 
 .meta-card { padding: 20px 28px; display: flex; flex-direction: column; gap: 12px; }
 .meta-row { display: flex; align-items: center; gap: 16px; }

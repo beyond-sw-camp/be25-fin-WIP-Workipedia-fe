@@ -1,11 +1,8 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
 import { CheckCircle } from '@lucide/vue'
 import { sendPasswordResetCode, verifyPasswordResetCode, resetPassword } from '@/api/authApi'
 import type { AxiosError } from 'axios'
-
-const router = useRouter()
 
 type Step = 'employee-id' | 'verify-email' | 'new-password' | 'done'
 const step = ref<Step>('employee-id')
@@ -55,11 +52,10 @@ async function handleVerifyCode() {
   errors.value = {}
   loading.value = true
   try {
-    await verifyPasswordResetCode({ email: email.value, code: code.value })
+    await verifyPasswordResetCode({ employeeId: employeeId.value, email: email.value, code: code.value })
     step.value = 'new-password'
-  } catch (e) {
-    const err = e as AxiosError<{ message: string }>
-    errors.value = { code: err.response?.data?.message ?? '인증번호가 올바르지 않습니다.' }
+  } catch {
+    errors.value = { code: '인증번호가 올바르지 않습니다. 다시 시도해 주세요.' }
   } finally {
     loading.value = false
   }
@@ -74,7 +70,7 @@ async function handleResetPassword() {
   errors.value = {}
   loading.value = true
   try {
-    await resetPassword({ email: email.value, code: code.value, newPassword: newPassword.value })
+    await resetPassword({ employeeId: employeeId.value, email: email.value, newPassword: newPassword.value })
     step.value = 'done'
   } catch (e) {
     const err = e as AxiosError<{ message: string }>
@@ -257,7 +253,7 @@ async function resendCode() {
           <p class="done-title">비밀번호가 재설정되었습니다.</p>
           <p class="done-desc">새 비밀번호로 로그인해주세요.</p>
         </div>
-        <button class="submit-btn" @click="router.push('/login')">로그인으로 이동</button>
+        <router-link to="/login" class="submit-btn">로그인으로 이동</router-link>
       </div>
 
       <!-- 하단 링크 -->

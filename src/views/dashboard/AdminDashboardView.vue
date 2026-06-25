@@ -15,7 +15,7 @@
 //   6. 진입 사유 태그: TRANSFER_REQUESTED(이관)·ASSIGNMENT_EXPIRED(48h 미처리)·ROUTING_FAILED(자동 배정 실패)
 //      3가지로 구분한다. ASSIGNMENT_EXPIRED는 UI에서 "24시간 초과"로 표시한다.
 import { ref, computed, onMounted } from 'vue'
-import { ShieldCheck, AlertCircle, Users, Ticket, FileText, Clock } from '@lucide/vue'
+import { ShieldCheck, AlertCircle, Users, Ticket, FileText, Clock, Paperclip } from '@lucide/vue'
 import LineChart from '@/components/common/LineChart.vue'
 import BarChart from '@/components/common/BarChart.vue'
 import BaseToast from '@/components/common/BaseToast.vue'
@@ -228,6 +228,10 @@ function ticketBody(content: string) { return content.replace(SENDER_RE, '').tri
 function ticketSender(content: string) {
   return content.match(SENDER_RE)?.[1]?.replaceAll('|', ' · ') ?? ''
 }
+function ticketFiles(t: TicketResponse) {
+  if (t.files?.length) return t.files.filter(f => !!f.fileUrl)
+  return t.fileUrl ? [{ fileKey: '', fileUrl: t.fileUrl, fileName: '첨부 이미지', fileContentType: null, fileSize: null }] : []
+}
 </script>
 
 <template>
@@ -392,6 +396,21 @@ function ticketSender(content: string) {
 
             <p class="ticket-content">{{ ticketBody(ticket.content) }}</p>
 
+            <div v-if="ticketFiles(ticket).length" class="file-list">
+              <a
+                v-for="f in ticketFiles(ticket)"
+                :key="f.fileKey || f.fileUrl || f.fileName || 'ticket-file'"
+                :href="f.fileUrl ?? '#'"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="file-item file-item--link"
+              >
+                <Paperclip :size="13" style="color:#aeb2bb;" />
+                <span class="file-name">{{ f.fileName ?? '첨부 이미지' }}</span>
+                <span v-if="f.fileSize" class="file-size">({{ (f.fileSize / 1024).toFixed(1) }}KB)</span>
+              </a>
+            </div>
+
             <div v-if="ticket.commonQueueReason === 'TRANSFER_REQUESTED' && ticket.transferReason" class="transfer-reason">
               <p class="transfer-label">이관 사유</p>
               <p class="transfer-text">{{ ticket.transferReason }}</p>
@@ -547,6 +566,16 @@ function ticketSender(content: string) {
 .transfer-reason { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 10px 14px; }
 .transfer-label { font-size: 11.5px; color: #aeb2bb; margin: 0 0 4px; }
 .transfer-text { font-size: 13.5px; color: #1f2430; margin: 0; }
+.file-list { display: flex; flex-direction: column; gap: 6px; margin-top: -2px; }
+.file-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 10px; border: 1px solid var(--line);
+  border-radius: 8px; background: #fff; font-size: 12.5px;
+  color: #475569; text-decoration: none;
+}
+.file-item--link:hover { border-color: #93c5fd; background: #eff6ff; }
+.file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-size { color: #94a3b8; }
 
 .queue-assign-row { display: flex; gap: 8px; align-items: center; }
 .dept-select {
