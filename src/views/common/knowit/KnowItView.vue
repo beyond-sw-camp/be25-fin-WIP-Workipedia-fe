@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { Bot, User, MessageCircle, Ticket, Plus, HelpCircle, Send, X } from '@lucide/vue'
+import { Bot, User, MessageCircle, Ticket, Plus, HelpCircle, Send, X, ChevronDown, ChevronUp } from '@lucide/vue'
 import SourceCard from '@/components/common/SourceCard.vue'
 import type { Source } from '@/components/common/SourceCard.vue'
 import BaseToast from '@/components/common/BaseToast.vue'
@@ -10,6 +10,10 @@ import type { SourceItem } from '@/api/chatbotApi'
 import { createQuestion } from '@/api/workiApi'
 import { createTicket } from '@/api/ticketApi'
 import { useAuthStore } from '@/stores/authStore'
+import {
+  RECOMMENDED_CHATBOT_QUESTIONS,
+  type RecommendedChatbotQuestion,
+} from '@/constants/recommendedChatbotQuestions'
 
 type Mode = 'none' | 'question' | 'request'
 
@@ -33,6 +37,21 @@ const msgs = ref<Msg[]>([])
 const inputVal = ref('')
 const loading = ref(false)
 const hasQueried = ref(false)
+const recommendedOpen = ref(true)
+const RECOMMENDED_QUESTION_LIMIT = 5
+
+function pickRecommendedQuestions(
+  questions: RecommendedChatbotQuestion[],
+  limit = RECOMMENDED_QUESTION_LIMIT,
+) {
+  return [...questions]
+    .sort(() => Math.random() - 0.5)
+    .slice(0, limit)
+}
+
+const visibleRecommendedQuestions = ref(
+  pickRecommendedQuestions(RECOMMENDED_CHATBOT_QUESTIONS.filter(q => q.mode === 'question')),
+)
 
 const sessionId = ref<number | null>(null)
 const lastMessageId = ref<number | null>(null)
@@ -225,6 +244,18 @@ async function send() {
   }
 }
 
+async function sendRecommendedQuestion(question: RecommendedChatbotQuestion) {
+  if (loading.value) return
+
+  if (mode.value !== question.mode) {
+    await selectMode(question.mode)
+    if (mode.value !== question.mode) return
+  }
+
+  inputVal.value = question.text
+  await send()
+}
+
 function openWorkyDialog(draft?: { title: string; content: string }) {
   workyTitle.value = draft?.title ?? ''
   workyContent.value = draft?.content ?? [...msgs.value].reverse().find(m => m.kind === 'user')?.text ?? ''
@@ -399,32 +430,74 @@ async function submitTicket() {
       <div class="help-wrap">
         <span class="help-tooltip">사용법이 궁금해요</span>
         <button class="help-btn" @click="router.push('/faq?tab=usage')">
-          <HelpCircle :size="36" />
+          <HelpCircle :size="30" />
         </button>
+      </div>
+    </div>
+
+    <div
+      v-if="mode === 'question' && visibleRecommendedQuestions.length"
+      class="recommended-area"
+      aria-label="질문 가이드"
+    >
+      <div class="recommended-shell">
+        <div class="recommended-header">
+          <div class="help-wrap">
+            <span class="help-tooltip">사용법이 궁금해요</span>
+            <button class="help-btn" @click="router.push('/faq?tab=usage')">
+              <HelpCircle :size="30" />
+            </button>
+          </div>
+          <button
+            type="button"
+            class="recommended-toggle"
+            :aria-expanded="recommendedOpen"
+            @click="recommendedOpen = !recommendedOpen"
+          >
+            <span>질문 가이드</span>
+            <ChevronUp v-if="recommendedOpen" :size="16" />
+            <ChevronDown v-else :size="16" />
+          </button>
+        </div>
+        <div v-if="recommendedOpen" class="recommended-questions">
+          <button
+            v-for="question in visibleRecommendedQuestions"
+            :key="`${question.mode}-${question.text}`"
+            type="button"
+            class="recommended-question"
+            :disabled="loading"
+            :title="question.text"
+            @click="sendRecommendedQuestion(question)"
+          >
+            <span class="recommended-question-text">{{ question.text }}</span>
+          </button>
+        </div>
       </div>
     </div>
 
     <!-- 입력 영역 -->
     <div class="composer-area">
       <div v-if="mode === 'none'" class="no-mode-hint">질문 또는 요청을 선택해주세요</div>
-      <form v-else class="composer-form" @submit.prevent="send">
-        <input
-          v-model="inputVal"
-          class="composer-input"
-          :placeholder="hasQueried
-            ? (mode === 'question' ? '궁금한 내용을 입력해주세요' : '요청 내용을 입력해주세요')
-            : (mode === 'question' ? '예: 5층 카페테리아 언제 열어요?' : '예: 노트북 반납 신청합니다')"
-          :disabled="loading"
-        />
-        <button
-          type="submit"
-          class="composer-send"
-          :class="{ active: inputVal.trim() && !loading }"
-          :disabled="loading || !inputVal.trim()"
-        >
-          <Send :size="20" />
-        </button>
-      </form>
+      <template v-else>
+        <form class="composer-form" @submit.prevent="send">
+          <input
+            v-model="inputVal"
+            class="composer-input"
+            :placeholder="hasQueried
+              ? (mode === 'question' ? '궁금한 내용을 입력해주세요' : '요청 내용을 입력해주세요')
+              : (mode === 'question' ? '예: 5층 카페테리아 언제 열어요?' : '예: 노트북 반납 신청합니다')"
+            :disabled="loading"
+          />
+          <button
+            type="submit"
+            class="composer-send"
+            :class="{ active: inputVal.trim() && !loading }"
+            :disabled="loading || !inputVal.trim()"
+          >
+            <Send :size="20" />
+          </button>
+        </form>
+      </template>
     </div>
   </div>
 
@@ -568,6 +641,91 @@ async function submitTicket() {
 .hint-q { color: #2b7fff; }
 .hint-r { color: #8b5cf6; }
 
+.recommended-area {
+  padding: 10px 2% 26px;
+  background: #f7f8fa;
+}
+.recommended-shell {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.recommended-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  margin-bottom: 8px;
+}
+.recommended-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #717182;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.recommended-toggle:hover {
+  background: #eef3ff;
+  color: #2b7fff;
+}
+.recommended-questions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  padding-left: 44px;
+}
+.recommended-question {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(100%, 720px);
+  min-height: 30px;
+  padding: 4px 9px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #182233;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: none;
+  transition: background 0.15s, box-shadow 0.15s, color 0.15s, transform 0.15s;
+}
+.recommended-question::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 2px;
+  background: #2b7fff;
+  transform: rotate(45deg);
+}
+.recommended-question:hover:not(:disabled) {
+  background: #fff;
+  box-shadow: 0 8px 22px rgba(31, 36, 48, 0.1);
+  color: #1f2430;
+  transform: translateX(3px) translateY(-1px);
+}
+.recommended-question:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.recommended-question-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ── 모드 카드 ── */
 .card { background: #fff; border: 1px solid #eceef2; border-radius: 14px; box-shadow: 0 2px 6px rgba(0,0,0,.05); }
 .mode-card { padding: 18px 22px; max-width: 680px; }
@@ -632,14 +790,26 @@ async function submitTicket() {
 .loading-text { font-size: 13px; color: #717182; }
 
 /* ── 도움말 버튼 ── */
-.help-row { display: flex; justify-content: flex-end; padding: 4px 2%; }
+.help-row { display: none; }
 .help-wrap { position: relative; display: inline-flex; }
-.help-btn { background: none; border: none; color: #717182; cursor: pointer; padding: 6px; transition: color 0.15s; }
+.help-btn {
+  width: 32px;
+  height: 32px;
+  background: none;
+  border: none;
+  color: #717182;
+  cursor: pointer;
+  padding: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s;
+}
 .help-btn:hover { color: #1f2430; }
 .help-tooltip {
   position: absolute;
   bottom: calc(100% + 6px);
-  right: 0;
+  left: 0;
   background: #1f2430;
   color: #fff;
   font-size: 12px;
@@ -743,5 +913,26 @@ async function submitTicket() {
 }
 .btn--purple-solid:hover:not(:disabled) { background: #7c3aed; }
 .btn--purple-solid:disabled { background: #d1d5db; cursor: not-allowed; }
+
+@media (max-width: 640px) {
+  .knowit-scroll { padding: 24px 16px; }
+  .welcome-hero { padding: 36px 0 24px; }
+  .hero-title { font-size: 24px; }
+  .hero-sub { font-size: 15px; margin-bottom: 24px; }
+  .hero-btns { width: 100%; }
+  .welcome-hints { width: 100%; }
+  .welcome-hints p { font-size: 13px; }
+  .recommended-area { padding: 6px 16px 18px; }
+  .recommended-shell { width: 100%; }
+  .recommended-header { gap: 6px; margin-bottom: 6px; }
+  .recommended-toggle { margin-bottom: 0; }
+  .recommended-questions { width: 100%; gap: 6px; padding-left: 38px; }
+  .recommended-question {
+    max-width: 100%;
+    min-height: 30px;
+    padding: 6px 4px;
+    font-size: 12px;
+  }
+}
 
 </style>
