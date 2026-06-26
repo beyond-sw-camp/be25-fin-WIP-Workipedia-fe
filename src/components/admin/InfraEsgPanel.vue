@@ -2,7 +2,7 @@
 // 인프라 ESG(CloudWatch 기반) 대시보드 패널.
 // 시스템 대시보드에서 추천(RECOMMENDED) 항목 전체의
 // 탄소 절감 추정치를 합산해 보여준다. 데이터는 GET /admin/esg/infra 단일 호출.
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { getInfraEsgSummary } from '@/api/infraEsgApi'
 import type {
   InfraEsgSummary,
@@ -210,11 +210,9 @@ function actionLabel(action: string): string {
       <!-- 환산 -->
       <div class="ie-equivalent">
         <div class="ie-equivalent-main" v-if="data.equivalent">
-          추천된 인프라 최적화 항목을 모두 적용하면 스마트폰 충전 기준으로
-          시간당 약 <strong>{{ data.equivalent.smartphoneChargePerHour }}회</strong>,
-          24시간 기준 약 <strong>{{ data.equivalent.smartphoneChargePerDay }}회</strong>,
-          30일 기준 약 <strong>{{ data.equivalent.smartphoneChargePerMonth }}회</strong> 충전 시
-          발생하는 배출량과 같은 탄소를 줄일 수 있어요.
+          추천된 인프라 최적화를 모두 적용했을 때, 인프라 가동 시작부터 지금까지 줄인 탄소는
+          스마트폰 약 <strong class="live">{{ liveCharge(data.equivalent.smartphoneChargeAccum, data.equivalent.smartphoneChargePerHour) }}회</strong>
+          충전 시 발생하는 배출량과 같아요.
         </div>
         <div class="ie-equivalent-sub">
           * 실시간 누적(각 리소스 실제 가동 시작 기준) · 시간당 약 {{ data.equivalent.smartphoneChargePerHour }}회 ·
