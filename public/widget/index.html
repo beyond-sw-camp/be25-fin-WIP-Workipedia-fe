@@ -48,9 +48,8 @@
       .nav-logo-icon {
         width: 34px; height: 34px;
         border-radius: 10px;
-        background: linear-gradient(135deg, var(--violet), var(--violet-dark));
-        color: #fff; font-weight: 800; font-size: 16px;
-        display: flex; align-items: center; justify-content: center;
+        object-fit: cover;
+        display: block;
       }
       .nav-logo-text { font-size: 17px; font-weight: 800; color: var(--ink); }
       .nav-tag {
@@ -152,13 +151,18 @@
         margin-top: 22px;
       }
       .note b { color: var(--violet-dark); }
+
+      /* 사용 단계 안내 */
+      .steps { display: flex; flex-direction: column; gap: 8px; text-align: left; }
+      .step { display: flex; gap: 8px; align-items: baseline; }
+      .step > b { flex: none; width: 18px; color: var(--violet-dark); }
     </style>
   </head>
   <body>
     <nav>
       <div class="nav-inner">
         <div class="nav-logo">
-          <div class="nav-logo-icon">W</div>
+          <img class="nav-logo-icon" src="/workiIcon.png" alt="Workipedia" />
           <span class="nav-logo-text">Workipedia</span>
         </div>
         <span class="nav-tag">위젯 확인 페이지</span>
@@ -170,7 +174,7 @@
       <h1>임베디드 위젯 <em>확인 페이지</em></h1>
       <p class="hero-desc">
         우측 하단(또는 선택한 위치) 런처 → 로그인 → 노잇에게 질문해 보세요.<br />
-        실제 <b>workipedia.wiki</b> 백엔드에 연결되며, <b>본인 사번·비밀번호</b>로 로그인하면 진짜 답변이 옵니다.
+        
       </p>
 
       <!-- 테마 / 위치 컨트롤 -->
@@ -198,10 +202,12 @@
         <span class="at">data-theme</span>=<span class="st" id="snip-theme">"light"</span> <span class="at">data-position</span>=<span class="st" id="snip-pos">"bottom-right"</span> <span class="at">async</span><span class="tg">&gt;&lt;/script&gt;</span></div>
       </div>
 
-      <p class="note">
-        ※ 이 페이지는 <b>로컬 빌드 번들</b>(<code>/workipedia-chat.iife.js</code>)을 로드합니다 — 방금 <code>npm run build:widget</code> 한 결과를 확인합니다.<br />
-        로컬 BE로 붙여 테스트하려면 URL 뒤에 <code>?api=local</code> 을 붙이세요 (→ <code>http://localhost:8080/api/v1</code>).
-      </p>
+      <div class="note steps">
+        <div class="step"><b>1.</b><span>위 <b>복사</b> 버튼으로 코드를 복사합니다.</span></div>
+        <div class="step"><b>2.</b><span>연동할 페이지의 <b>&lt;/body&gt;</b> 태그 바로 위에 붙여 넣습니다.</span></div>
+        <div class="step"><b>3.</b><span>위쪽 <b>테마·위치</b>를 바꾸면 코드도 자동으로 업데이트됩니다.</span></div>
+      </div>
+
     </main>
 
     <script>

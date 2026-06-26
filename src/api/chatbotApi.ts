@@ -23,6 +23,9 @@ export interface SourceItem {
   source_type: string // 'MANUAL' | 'WORKI' | 'TICKET' | 'KNOWLEDGE_DATA' | 'CHAT' ...
   source_id: string
   chunk_index: number | null
+  file_name?: string | null // MANUAL PDF 원본 파일명 (페이지 citation용). 없으면 null
+  page_start?: number | null // 원본 PDF 기준 시작 페이지
+  page_end?: number | null // 원본 PDF 기준 끝 페이지
   title: string
   score: number
   link: string | null
@@ -156,4 +159,18 @@ export function parseReferences(referencesJson: string | null): SourceItem[] {
   } catch {
     return []
   }
+}
+
+// SourceItem 의 citation 표시 문자열을 만든다.
+// - 파일명 있고 같은 페이지:   "file2.pdf / 1페이지"
+// - 파일명 있고 페이지 범위:   "file2.pdf / 1-2페이지"
+// - 파일명 있고 페이지 없음:   "file2.pdf"
+// - 파일명 없음:               title (기존 동작)
+export function formatSourceLabel(source: SourceItem): string {
+  if (!source.file_name) return source.title
+  const start = source.page_start
+  const end = source.page_end
+  if (start == null) return source.file_name
+  const pageLabel = end != null && end !== start ? `${start}-${end}페이지` : `${start}페이지`
+  return `${source.file_name} / ${pageLabel}`
 }
