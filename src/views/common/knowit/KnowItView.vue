@@ -651,19 +651,27 @@ async function submitTicket() {
 .hint-r { color: #8b5cf6; }
 
 .recommended-area {
-  padding: 10px 2% 26px;
+  padding: 8px 2% 14px;
   background: #f7f8fa;
 }
 .recommended-shell {
   max-width: 1100px;
   margin: 0 auto;
+  padding: 8px 14px;
+  border: 1px solid #d6e6dd;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.74);
+  box-shadow: 0 8px 24px rgba(31, 36, 48, 0.05);
 }
 .recommended-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 32px;
+  min-height: 30px;
   margin-bottom: 8px;
+}
+.recommended-header:last-child {
+  margin-bottom: 0;
 }
 .recommended-toggle {
   display: inline-flex;
@@ -681,8 +689,8 @@ async function submitTicket() {
   transition: background 0.15s, color 0.15s;
 }
 .recommended-toggle:hover {
-  background: #eef3ff;
-  color: #2b7fff;
+  background: #edf7f1;
+  color: #15803d;
 }
 .recommended-questions {
   display: flex;
@@ -697,10 +705,10 @@ async function submitTicket() {
   gap: 10px;
   max-width: min(100%, 720px);
   min-height: 30px;
-  padding: 4px 9px;
-  border: none;
+  padding: 6px 10px;
+  border: 1px solid transparent;
   border-radius: 6px;
-  background: transparent;
+  background: rgba(255, 255, 255, 0.52);
   color: #182233;
   font-size: 14px;
   font-weight: 500;
@@ -715,12 +723,13 @@ async function submitTicket() {
   height: 7px;
   flex: 0 0 auto;
   border-radius: 2px;
-  background: #2b7fff;
+  background: #22a06b;
   transform: rotate(45deg);
 }
 .recommended-question:hover:not(:disabled) {
+  border-color: #a7d8bd;
   background: #fff;
-  box-shadow: 0 8px 22px rgba(31, 36, 48, 0.1);
+  box-shadow: 0 8px 22px rgba(21, 128, 61, 0.12);
   color: #1f2430;
   transform: translateX(3px) translateY(-1px);
 }
@@ -931,15 +940,15 @@ async function submitTicket() {
   .hero-btns { width: 100%; }
   .welcome-hints { width: 100%; }
   .welcome-hints p { font-size: 13px; }
-  .recommended-area { padding: 6px 16px 18px; }
-  .recommended-shell { width: 100%; }
+  .recommended-area { padding: 6px 16px 12px; }
+  .recommended-shell { width: 100%; padding: 8px 10px; }
   .recommended-header { gap: 6px; margin-bottom: 6px; }
   .recommended-toggle { margin-bottom: 0; }
-  .recommended-questions { width: 100%; gap: 6px; padding-left: 38px; }
+  .recommended-questions { width: 100%; gap: 6px; padding-left: 0; }
   .recommended-question {
     max-width: 100%;
     min-height: 30px;
-    padding: 6px 4px;
+    padding: 6px 8px;
     font-size: 12px;
   }
 }
