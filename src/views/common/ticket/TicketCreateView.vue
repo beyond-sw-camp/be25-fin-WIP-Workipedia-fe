@@ -3,11 +3,13 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ChevronLeft, Paperclip, Ticket, X } from '@lucide/vue'
 import { useDeptStore } from '@/stores/deptStore'
+import { useAuthStore } from '@/stores/authStore'
 import { createTicket, createTicketWithFiles } from '@/api/ticketApi'
 
 const router = useRouter()
 // deptStore는 App 진입 시 미리 로드되므로 여기서 추가 fetch 없이 바로 departments를 사용할 수 있다.
 const deptStore = useDeptStore()
+const authStore = useAuthStore()
 
 const title = ref('')
 const category = ref('')
@@ -52,9 +54,11 @@ async function submit() {
   }
   submitting.value = true
   try {
+    const senderParts = [authStore.team, authStore.nickname].filter(Boolean)
+    const senderTag = senderParts.length ? `\n##SENDER:${senderParts.join('|')}##` : ''
     const payload = {
       title: title.value,
-      content: body.value,
+      content: body.value + senderTag,
     }
     if (imageFiles.value.length > 0) {
       await createTicketWithFiles(payload, imageFiles.value)
