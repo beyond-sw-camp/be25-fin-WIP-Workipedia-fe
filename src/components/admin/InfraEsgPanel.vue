@@ -2,7 +2,7 @@
 // 인프라 ESG(CloudWatch 기반) 대시보드 패널.
 // 시스템 대시보드에서 추천(RECOMMENDED) 항목 전체의
 // 탄소 절감 추정치를 합산해 보여준다. 데이터는 GET /admin/esg/infra 단일 호출.
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { getInfraEsgSummary } from '@/api/infraEsgApi'
 import type {
   InfraEsgSummary,
@@ -27,13 +27,36 @@ async function load() {
   }
 }
 
-onMounted(load)
+// 실시간 누적 카운터용 시계. 100ms마다 갱신해 누적값이 째깍째깍 올라가게 한다.
+const now = ref(Date.now())
+let tickTimer: ReturnType<typeof setInterval> | null = null
+
+onMounted(() => {
+  load()
+  tickTimer = setInterval(() => {
+    now.value = Date.now()
+  }, 100)
+})
+onUnmounted(() => {
+  if (tickTimer) clearInterval(tickTimer)
+})
+
+const HOURS_PER_YEAR = 24 * 365
+
+// BE가 준 누적 스냅샷(computedAtEpochMs) 이후 흐른 시간(h). 누적값 자체는 각 리소스의
+// 실제 가동 시작 시각(EC2 launchTime / ASG createdTime / RDS createTime)부터 BE가 합산했고,
+// FE는 그 스냅샷에 시간당 비율을 곱해 이어서 라이브로 틱한다(캐시 60분과 무관하게 정확).
+const hoursSinceComputed = computed(() => {
+  if (!data.value) return 0
+  return Math.max(0, (now.value - data.value.computedAtEpochMs) / 3_600_000)
+})
 
 // ── 표시 매핑 ─────────────────────────────────────────────────
 const OPTIMIZATION_LABEL: Record<OptimizationType, string> = {
   INSTANCE_DOWNSIZE: '인스턴스 다운사이징',
   ASG_SCALE_IN: 'ASG 용량 조정',
   ASG_MEMBER: 'ASG 구성원',
+  RDS_DOWNSIZE: 'DB 다운사이징',
   KEEP: '인스턴스 유지',
 }
 const STATUS_META: Record<RecommendationStatus, { label: string; cls: string }> = {
@@ -44,6 +67,22 @@ const STATUS_META: Record<RecommendationStatus, { label: string; cls: string }> 
 
 function g(value: number): string {
   return `${value.toFixed(2)}gCO₂e/h`
+}
+// 시간당 배출/절감(g/h)의 1년 예상 누적 kg (= 시간당 × 8760h). 참고치로 표시.
+function kgYear(gPerHour: number): string {
+  return ((gPerHour * HOURS_PER_YEAR) / 1000).toFixed(2)
+}
+// 시간당 스마트폰 충전 환산(회/h)의 1년 예상 누적 횟수.
+function chargeYear(chargePerHour: number): string {
+  return (chargePerHour * HOURS_PER_YEAR).toFixed(0)
+}
+// 누적 스냅샷(kg) + 시간당 배출/절감(g/h) × 스냅샷 이후 경과시간 = 실시간 누적 kg.
+function liveKg(accumKg: number, gPerHour: number): string {
+  return (accumKg + (gPerHour / 1000) * hoursSinceComputed.value).toFixed(6)
+}
+// 누적 충전 횟수 스냅샷 + 시간당 충전 환산(회/h) × 경과시간 = 실시간 누적 충전 횟수.
+function liveCharge(accumCharge: number, chargePerHour: number): string {
+  return (accumCharge + chargePerHour * hoursSinceComputed.value).toFixed(4)
 }
 function actionLabel(action: string): string {
   return action === 'OPTIMIZE' ? 'Optimize' : 'Keep'
@@ -135,39 +174,50 @@ function actionLabel(action: string): string {
       <div class="ie-impact-cards">
         <div class="ie-impact blue">
           <div class="ie-impact-top">CURRENT</div>
-          <div class="ie-impact-value">
-            {{ data.totalCarbonComparison.currentEstimatedCarbonGPerHour.toFixed(2) }} gCO₂e/h
+          <div class="ie-impact-value live">
+            {{ liveKg(data.totalCarbonComparison.currentEstimatedCarbonAccumKg, data.totalCarbonComparison.currentEstimatedCarbonGPerHour) }} <small>kgCO₂e</small>
           </div>
-          <div class="ie-impact-label">현재 구성 총 배출 추정치</div>
+          <div class="ie-impact-rate">
+            시간당 {{ data.totalCarbonComparison.currentEstimatedCarbonGPerHour.toFixed(2) }}gCO₂e ·
+            연 예상 {{ kgYear(data.totalCarbonComparison.currentEstimatedCarbonGPerHour) }}kg
+          </div>
+          <div class="ie-impact-label">현재 구성 배출 (가동 시작부터 누적)</div>
         </div>
         <div class="ie-impact yellow">
           <div class="ie-impact-top">RECOMMENDED</div>
-          <div class="ie-impact-value">
-            {{ data.totalCarbonComparison.recommendedEstimatedCarbonGPerHour.toFixed(2) }} gCO₂e/h
+          <div class="ie-impact-value live">
+            {{ liveKg(data.totalCarbonComparison.recommendedEstimatedCarbonAccumKg, data.totalCarbonComparison.recommendedEstimatedCarbonGPerHour) }} <small>kgCO₂e</small>
           </div>
-          <div class="ie-impact-label">권장 구성 총 배출 추정치</div>
+          <div class="ie-impact-rate">
+            시간당 {{ data.totalCarbonComparison.recommendedEstimatedCarbonGPerHour.toFixed(2) }}gCO₂e ·
+            연 예상 {{ kgYear(data.totalCarbonComparison.recommendedEstimatedCarbonGPerHour) }}kg
+          </div>
+          <div class="ie-impact-label">권장 구성 배출 (가동 시작부터 누적)</div>
         </div>
         <div class="ie-impact green">
           <div class="ie-impact-top">SAVING</div>
-          <div class="ie-impact-value">
-            {{ data.totalCarbonComparison.estimatedCarbonSavingGPerHour.toFixed(2) }} gCO₂e/h
+          <div class="ie-impact-value live">
+            {{ liveKg(data.totalCarbonComparison.estimatedCarbonSavingAccumKg, data.totalCarbonComparison.estimatedCarbonSavingGPerHour) }} <small>kgCO₂e</small>
           </div>
-          <div class="ie-impact-label">총 시간당 CO₂ 절감 추정치</div>
+          <div class="ie-impact-rate">
+            시간당 {{ data.totalCarbonComparison.estimatedCarbonSavingGPerHour.toFixed(2) }}gCO₂e ·
+            연 예상 {{ kgYear(data.totalCarbonComparison.estimatedCarbonSavingGPerHour) }}kg
+          </div>
+          <div class="ie-impact-label">총 CO₂ 절감 (가동 시작부터 누적)</div>
         </div>
       </div>
 
       <!-- 환산 -->
       <div class="ie-equivalent">
         <div class="ie-equivalent-main" v-if="data.equivalent">
-          추천된 인프라 최적화 항목을 모두 적용하면 스마트폰 충전 기준으로
-          시간당 약 <strong>{{ data.equivalent.smartphoneChargePerHour }}회</strong>,
-          24시간 기준 약 <strong>{{ data.equivalent.smartphoneChargePerDay }}회</strong>,
-          30일 기준 약 <strong>{{ data.equivalent.smartphoneChargePerMonth }}회</strong> 충전 시
-          발생하는 배출량과 같은 탄소를 줄일 수 있어요.
+          추천된 인프라 최적화를 모두 적용했을 때, 인프라 가동 시작부터 지금까지 줄인 탄소는
+          스마트폰 약 <strong class="live">{{ liveCharge(data.equivalent.smartphoneChargeAccum, data.equivalent.smartphoneChargePerHour) }}회</strong>
+          충전 시 발생하는 배출량과 같아요.
         </div>
         <div class="ie-equivalent-sub">
-          * 24시간 누적 {{ data.totalCarbonComparison.estimatedCarbonSavingGPerDay.toFixed(1) }}gCO₂e/day,
-          30일 누적 {{ data.totalCarbonComparison.estimatedCarbonSavingKgPerMonth.toFixed(2) }}kgCO₂e/month
+          * 실시간 누적(각 리소스 실제 가동 시작 기준) · 시간당 약 {{ data.equivalent.smartphoneChargePerHour }}회 ·
+          연 예상 약 {{ chargeYear(data.equivalent.smartphoneChargePerHour) }}회
+          ({{ kgYear(data.totalCarbonComparison.estimatedCarbonSavingGPerHour) }}kgCO₂e/year)
         </div>
       </div>
 
@@ -249,11 +299,15 @@ function actionLabel(action: string): string {
 .ie-impact.yellow { background: #fff8e8; }
 .ie-impact.green { background: #eefaf3; }
 .ie-impact-top { font-size: 11px; letter-spacing: 0.1em; font-weight: 800; color: #8a99b0; margin-bottom: 8px; }
-.ie-impact-value { font-size: 20px; font-weight: 800; }
+.ie-impact-value { font-size: 22px; font-weight: 800; }
+.ie-impact-value small { font-size: 12px; font-weight: 700; margin-left: 2px; }
+.ie-impact-value.live { font-variant-numeric: tabular-nums; }
+.ie-equivalent-main strong.live { font-variant-numeric: tabular-nums; }
 .ie-impact.blue .ie-impact-value { color: #1582d6; }
 .ie-impact.yellow .ie-impact-value { color: #d97706; }
 .ie-impact.green .ie-impact-value { color: #159653; }
-.ie-impact-label { margin-top: 8px; color: #6b7c97; font-size: 12px; font-weight: 600; }
+.ie-impact-rate { margin-top: 5px; color: #94a3b8; font-size: 11px; font-weight: 600; }
+.ie-impact-label { margin-top: 6px; color: #6b7c97; font-size: 12px; font-weight: 600; }
 
 /* 환산 */
 .ie-equivalent { border: 1px solid #8ce3a8; background: #f0faf3; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
