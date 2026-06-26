@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted } from 'vue'
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { isAxiosError } from 'axios'
 import { Bot } from '@lucide/vue'
 import BaseToast from '@/components/common/BaseToast.vue'
@@ -170,7 +170,42 @@ async function loadDepts() {
   try {
     const res = await getAdminDepartments()
     adminDepts.value = res.data
+    scheduleDeptPolling()
   } catch { }
+}
+
+// 동기화 대기(PENDING) 부서가 있는 동안만 목록을 주기적으로 다시 받아
+// 사용자가 새로고침하지 않아도 '동기화 대기' → '활성'으로 자동 전환되게 한다.
+// PENDING이 모두 사라지면 폴링을 멈추고, 동기화 주기를 넘겨도 안 끝나면 상한에서 종료한다.
+const DEPT_POLL_INTERVAL_MS = 20000
+const DEPT_POLL_MAX = 18
+let deptPollTimer: ReturnType<typeof setTimeout> | null = null
+let deptPollCount = 0
+
+function hasPendingDept(): boolean {
+  return adminDepts.value.some(d => d.syncStatus === 'PENDING')
+}
+
+function stopDeptPolling() {
+  if (deptPollTimer) clearTimeout(deptPollTimer)
+  deptPollTimer = null
+  deptPollCount = 0
+}
+
+function scheduleDeptPolling() {
+  if (deptPollTimer || !hasPendingDept()) return
+  deptPollCount = 0
+  const tick = async () => {
+    deptPollTimer = null
+    try {
+      adminDepts.value = (await getAdminDepartments()).data
+    } catch { /* 일시 오류는 무시하고 다음 주기에 재시도 */ }
+    deptPollCount += 1
+    if (hasPendingDept() && deptPollCount < DEPT_POLL_MAX) {
+      deptPollTimer = setTimeout(tick, DEPT_POLL_INTERVAL_MS)
+    }
+  }
+  deptPollTimer = setTimeout(tick, DEPT_POLL_INTERVAL_MS)
 }
 
 function startDepartmentEdit(dept: AdminDepartment) {
@@ -199,6 +234,7 @@ async function saveDepartmentEdit(dept: AdminDepartment) {
       adminDepts.value[idx]!.syncStatus = 'PENDING'
       adminDepts.value[idx]!.syncInfo = '동기화 대기 중'
     }
+    scheduleDeptPolling()
     cancelDepartmentEdit()
     showSaved('R&R 프롬프트를 저장했습니다.')
   } catch {
@@ -218,6 +254,7 @@ async function retrySyncDept(dept: AdminDepartment) {
     await updateDepartmentRoutingPrompt(dept.departmentId, {
       routingPrompt: dept.routingPrompt,
     })
+    scheduleDeptPolling()
     showSaved(`${dept.departmentName} 동기화를 다시 요청했습니다.`)
   } catch {
     dept.syncStatus = 'FAILED'
@@ -234,6 +271,7 @@ async function applyAiInstruction() {
   try {
     const res = await editRoutingPromptInstruction(aiInstruction.value.trim())
     adminDepts.value = res.data
+    scheduleDeptPolling()
     aiInstruction.value = ''
     showSaved('AI가 R&R을 수정했습니다.')
   } catch {
@@ -815,6 +853,8 @@ onMounted(() => {
   if (activeSection.value === 'sync') loadAiSyncCleanup()
   loadTools()
 })
+
+onUnmounted(stopDeptPolling)
 </script>
 
 <template>
