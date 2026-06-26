@@ -2,7 +2,7 @@
 // 인프라 ESG(CloudWatch 기반) 대시보드 패널.
 // 시스템 대시보드에서 추천(RECOMMENDED) 항목 전체의
 // 탄소 절감 추정치를 합산해 보여준다. 데이터는 GET /admin/esg/infra 단일 호출.
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { getInfraEsgSummary } from '@/api/infraEsgApi'
 import type {
   InfraEsgSummary,
@@ -48,14 +48,6 @@ function g(value: number): string {
 function actionLabel(action: string): string {
   return action === 'OPTIMIZE' ? 'Optimize' : 'Keep'
 }
-
-const equivalentText = computed(() => {
-  const e = data.value?.equivalent
-  if (!e) return ''
-  return `추천된 인프라 최적화 항목을 모두 적용하면 스마트폰 충전 기준으로 시간당 약 ${e.smartphoneChargePerHour}회, `
-    + `24시간 기준 약 ${e.smartphoneChargePerDay}회, 30일 기준 약 ${e.smartphoneChargePerMonth}회 충전 시 `
-    + `발생하는 배출량과 같은 탄소를 줄일 수 있어요.`
-})
 </script>
 
 <template>
@@ -78,7 +70,7 @@ const equivalentText = computed(() => {
       <!-- 요약 카드 -->
       <div class="ie-summary-grid">
         <div class="ie-summary-card">
-          <div class="ie-summary-label">분석 대상 리소스</div>
+          <div class="ie-summary-label">분석 대상 그룹</div>
           <div class="ie-summary-value dark">{{ data.summary.targetResourceCount }}개</div>
         </div>
         <div class="ie-summary-card">
@@ -103,15 +95,19 @@ const equivalentText = computed(() => {
         <table class="ie-table">
           <thead>
             <tr>
-              <th>리소스</th>
-              <th>역할</th>
-              <th>최적화 방식</th>
-              <th>현재 구성</th>
-              <th>권장 구성</th>
+              <th rowspan="2">리소스</th>
+              <th rowspan="2">역할</th>
+              <th rowspan="2">최적화 방식</th>
+              <th rowspan="2">현재 구성</th>
+              <th rowspan="2">권장 구성</th>
+              <th colspan="2" class="ie-th-cpu">CPU <span class="ie-th-sub">최근 24시간</span></th>
+              <th rowspan="2">권장 사항</th>
+              <th rowspan="2">예상 절감</th>
+              <th rowspan="2">상태</th>
+            </tr>
+            <tr>
               <th>평균 CPU</th>
-              <th>권장 사항</th>
-              <th>예상 절감</th>
-              <th>상태</th>
+              <th>최대 CPU</th>
             </tr>
           </thead>
           <tbody>
@@ -122,6 +118,7 @@ const equivalentText = computed(() => {
               <td>{{ r.currentConfiguration }}</td>
               <td>{{ r.recommendedConfiguration }}</td>
               <td>{{ r.averageCpu }}%</td>
+              <td>{{ r.maxCpu }}%</td>
               <td>{{ r.recommendation }}</td>
               <td>{{ r.status === 'RECOMMENDED' ? g(r.estimatedCarbonSavingGPerHour) : '-' }}</td>
               <td>
@@ -161,7 +158,13 @@ const equivalentText = computed(() => {
 
       <!-- 환산 -->
       <div class="ie-equivalent">
-        <div class="ie-equivalent-main">{{ equivalentText }}</div>
+        <div class="ie-equivalent-main" v-if="data.equivalent">
+          추천된 인프라 최적화 항목을 모두 적용하면 스마트폰 충전 기준으로
+          시간당 약 <strong>{{ data.equivalent.smartphoneChargePerHour }}회</strong>,
+          24시간 기준 약 <strong>{{ data.equivalent.smartphoneChargePerDay }}회</strong>,
+          30일 기준 약 <strong>{{ data.equivalent.smartphoneChargePerMonth }}회</strong> 충전 시
+          발생하는 배출량과 같은 탄소를 줄일 수 있어요.
+        </div>
         <div class="ie-equivalent-sub">
           * 24시간 누적 {{ data.totalCarbonComparison.estimatedCarbonSavingGPerDay.toFixed(1) }}gCO₂e/day,
           30일 누적 {{ data.totalCarbonComparison.estimatedCarbonSavingKgPerMonth.toFixed(2) }}kgCO₂e/month
@@ -218,10 +221,14 @@ const equivalentText = computed(() => {
 
 /* 테이블 */
 .ie-table-wrap { overflow-x: auto; border: 1px solid var(--line, #e5e9f2); border-radius: 10px; margin-bottom: 16px; }
-.ie-table { width: 100%; min-width: 900px; border-collapse: collapse; }
+.ie-table { width: 100%; min-width: 980px; border-collapse: collapse; }
 .ie-table thead th {
   background: #f8fafc; border-bottom: 1px solid var(--line, #e5e9f2);
   padding: 9px 12px; color: #64748b; font-size: 11px; font-weight: 800; text-align: left; white-space: nowrap;
+}
+.ie-table thead th.ie-th-cpu { text-align: center; }
+.ie-table thead th.ie-th-cpu .ie-th-sub {
+  margin-left: 4px; color: #94a3b8; font-size: 10px; font-weight: 600;
 }
 .ie-table tbody td {
   border-bottom: 1px solid #edf1f7; padding: 11px 12px; color: #293243; font-size: 12px; white-space: nowrap;
@@ -250,7 +257,8 @@ const equivalentText = computed(() => {
 
 /* 환산 */
 .ie-equivalent { border: 1px solid #8ce3a8; background: #f0faf3; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
-.ie-equivalent-main { color: #15803d; font-size: 12.5px; line-height: 1.55; font-weight: 700; word-break: keep-all; }
+.ie-equivalent-main { color: #15803d; font-size: 12.5px; line-height: 1.55; font-weight: 500; word-break: keep-all; }
+.ie-equivalent-main strong { font-weight: 800; }
 .ie-equivalent-sub { margin-top: 6px; color: #6b7c97; font-size: 11px; }
 
 /* 계산 기준 */
