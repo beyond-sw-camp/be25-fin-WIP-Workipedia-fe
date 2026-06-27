@@ -177,6 +177,18 @@ const filtered = computed(() => {
   if (tab.value === 'solved') list = list.filter(q => isSolved(q.status))
   return list
 })
+
+// 필터는 이미 불러온 페이지에만 적용되므로, 거른 결과가 비어 있는데 다음 페이지가 남아 있으면
+// 해당 탭의 항목이 뒤쪽 페이지에 있을 수 있다. 이때 sentinel이 안 보여 무한스크롤이 멈추는 걸
+// 막기 위해, 비어 있는 동안 다음 페이지를 자동으로 계속 불러온다.
+watch(
+  [filtered, hasNext, loading, loadingMore],
+  () => {
+    if (filtered.value.length === 0 && hasNext.value && !loading.value && !loadingMore.value) {
+      loadMore()
+    }
+  },
+)
 </script>
 
 <template>
