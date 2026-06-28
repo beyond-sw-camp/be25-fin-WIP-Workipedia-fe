@@ -5,10 +5,10 @@ import { Bot, User, MessageCircle, Ticket, Plus, HelpCircle, Send, X, ChevronDow
 import SourceCard from '@/components/common/SourceCard.vue'
 import type { Source } from '@/components/common/SourceCard.vue'
 import BaseToast from '@/components/common/BaseToast.vue'
-import { createSession, sendMessage, streamMessage, parseReferences, formatSourceLabel } from '@/api/chatbotApi'
+import { createSession, streamMessage, parseReferences, formatSourceLabel } from '@/api/chatbotApi'
 import type { SourceItem } from '@/api/chatbotApi'
 import { createQuestion } from '@/api/workiApi'
-import { createTicket } from '@/api/ticketApi'
+import { createTicket, draftTicket } from '@/api/ticketApi'
 import { useAuthStore } from '@/stores/authStore'
 import {
   RECOMMENDED_CHATBOT_QUESTIONS,
@@ -66,6 +66,7 @@ const showTicketDialog = ref(false)
 const ticketTitle = ref('')
 const ticketContent = ref('')
 const ticketError = ref('')
+const ticketDrafting = ref(false)
 const ticketDept = ref('')
 // 티켓 발행 버튼을 연속 클릭하면 동일 메시지에 대해 티켓이 중복 생성되는 문제가 있었다.
 // API 응답 전까지 flag를 true로 유지해 중복 요청을 차단한다.
@@ -178,29 +179,35 @@ async function send() {
   let answered = false
 
   try {
-    // 세션은 모드 선택 시 생성되지만, 누락된 경우(생성 실패 등)를 대비해 지연 생성한다.
+    // 요청 모드: 챗봇(/chat)·세션을 건드리지 않고 폼만 즉시 연다.
+    // 요청엔 챗봇 Q&A가 없어 sourceChatbotMessageId가 의미 없으므로 null로 둔다.
+    // (이전엔 messageId를 얻으려 /chat을 호출해 RAG가 헛돌고 DB 커넥션을 점유하던 문제가 있었다)
+    if (mode.value === 'request') {
+      msgs.value = msgs.value.filter(m => m.kind !== 'loading')
+      lastMessageId.value = null
+      ticketTitle.value = ''
+      ticketContent.value = q       // 우선 원문을 노출하고, AI 초안이 오면 채운다
+      ticketError.value = ''
+      showTicketDialog.value = true
+      // AI가 제목/내용 초안을 정리해 채운다(편집 가능). 실패하면 원문 유지(graceful).
+      ticketDrafting.value = true
+      draftTicket(q)
+        .then(res => {
+          // 사용자가 그 사이 직접 손대지 않았을 때만 초안으로 덮어쓴다.
+          if (ticketTitle.value === '') ticketTitle.value = res.data.title
+          if (ticketContent.value === q) ticketContent.value = res.data.content
+        })
+        .catch(() => { /* 원문 유지 */ })
+        .finally(() => { ticketDrafting.value = false })
+      return
+    }
+
+    // 질문 모드: 세션이 없으면 지연 생성한 뒤 스트리밍 답변을 받는다.
     if (!sessionId.value) {
       const s = await createSession()
       sessionId.value = s.data.sessionId
     }
     const sid = sessionId.value as number
-
-    // 요청 모드: 폼 내용은 사용자 입력 q 그대로이고(BE는 별도 draftTicket을 안 내려줌),
-    // sendMessage 응답은 messageId(=sourceChatbotMessageId, optional)를 얻는 용도로만 쓰인다.
-    // 따라서 느리고 실패하기 쉬운 AI 호출에 폼 노출을 묶지 않고, 폼은 즉시 연다.
-    // messageId는 백그라운드로 받아 채우며, 실패해도(타임아웃 등) 폼/발행에는 영향이 없다.
-    if (mode.value === 'request') {
-      msgs.value = msgs.value.filter(m => m.kind !== 'loading')
-      lastMessageId.value = null
-      ticketTitle.value = ''
-      ticketContent.value = q
-      ticketError.value = ''
-      showTicketDialog.value = true
-      sendMessage(sid, q)
-        .then(res => { lastMessageId.value = res.data.messageId })
-        .catch(() => { /* messageId 없이도 티켓 발행 가능(sourceChatbotMessageId: null) */ })
-      return
-    }
 
     // 질문 모드: 토큰을 받아 타자치듯 답변을 출력하고(token), done으로 최종 확정한다.
     // 첫 token 도착 시 로딩 버블을 빈 답변 버블로 교체한 뒤, 인덱스로 reactive 배열을 갱신한다.
@@ -550,7 +557,8 @@ async function submitTicket() {
             <X :size="18" />
           </button>
           <h3>티켓 발행</h3>
-          <p>노잇이 자동으로 담당 부서를 추천해드립니다.</p>
+          <p v-if="ticketDrafting">노잇이 요청 내용을 정리하고 있어요…</p>
+          <p v-else>노잇이 자동으로 담당 부서를 추천해드립니다.</p>
         </div>
         <div class="dialog-body">
           <div class="field">
