@@ -29,6 +29,11 @@ interface Msg {
   draftTicket?: { title: string; content: string }
 }
 
+interface TextSegment {
+  text: string
+  bold: boolean
+}
+
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
@@ -86,6 +91,24 @@ function scroll() {
   nextTick(() => {
     if (scrollEl.value) scrollEl.value.scrollTop = scrollEl.value.scrollHeight
   })
+}
+
+function formatAnswerText(text = ''): TextSegment[] {
+  const segments: TextSegment[] = []
+  const pattern = /\*\*(.+?)\*\*/g
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ text: text.slice(lastIndex, match.index), bold: false })
+    }
+    segments.push({ text: match[1] ?? '', bold: true })
+    lastIndex = pattern.lastIndex
+  }
+  if (lastIndex < text.length) {
+    segments.push({ text: text.slice(lastIndex), bold: false })
+  }
+  return segments.length ? segments : [{ text, bold: false }]
 }
 
 // source_type → 표시 라벨/색상 + 내부 상세 경로 prefix
@@ -401,7 +424,12 @@ async function submitTicket() {
           <!-- 봇 답변 텍스트 -->
           <div v-else-if="m.kind === 'answer'" class="msg-bot">
             <span class="chat-av"><Bot :size="18" /></span>
-            <div class="card answer-card">{{ m.text }}</div>
+            <div class="card answer-card">
+              <template v-for="(segment, segmentIndex) in formatAnswerText(m.text)" :key="segmentIndex">
+                <strong v-if="segment.bold">{{ segment.text }}</strong>
+                <template v-else>{{ segment.text }}</template>
+              </template>
+            </div>
           </div>
 
           <!-- 봇 소스 카드 -->
@@ -755,7 +783,7 @@ async function submitTicket() {
 /* ── 모드 카드 ── */
 .card { background: #fff; border: 1px solid #eceef2; border-radius: 14px; box-shadow: 0 2px 6px rgba(0,0,0,.05); }
 .mode-card { padding: 18px 22px; max-width: 680px; }
-.answer-card { padding: 18px 22px; max-width: 680px; font-size: 15px; color: #44403c; line-height: 1.7; }
+.answer-card { padding: 18px 22px; max-width: 680px; font-size: 15px; color: #44403c; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
 .mode-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .badge { padding: 3px 10px; border-radius: 99px; font-size: 12px; font-weight: 600; }
 .badge--blue { background: #2b7fff; color: #fff; }

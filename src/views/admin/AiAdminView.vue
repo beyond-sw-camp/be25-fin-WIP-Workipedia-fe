@@ -6,11 +6,11 @@ import BaseToast from '@/components/common/BaseToast.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import {
   getAiPromptSettings, updateAiPromptSettings,
-  getAiTools, createAiTool, updateAiTool,
+  getAiTools, createAiTool, updateAiTool, draftAiTool,
   editRoutingPromptInstruction,
   getAiSyncSetting, updateAiSyncSetting,
   cleanupWorkiAiSyncJobs, getAiSyncCleanupLogs,
-  type AiTool, type ToolType, type HttpMethod, type AuthType,
+  type AiTool, type ToolType, type HttpMethod, type AuthType, type AccessScope,
   type AiSyncCleanupLog, type AiSyncCleanupResult,
 } from '@/api/aiAdminApi'
 import {
@@ -510,6 +510,7 @@ const tools = ref<AiTool[]>([])
 const toolFilter = ref('전체')
 const toolModalOpen = ref(false)
 const toolSaving = ref(false)
+const toolDrafting = ref(false)
 const toolModalMode = ref<'create' | 'edit'>('create')
 const editingToolId = ref<number | null>(null)
 const toolForm = ref({
@@ -522,6 +523,8 @@ const toolForm = ref({
   queryTemplate: '',
   authType: 'NONE' as AuthType,
   credentialRef: '',
+  accessScope: 'UNRESTRICTED' as AccessScope,
+  selfIdentityParam: '',
   timeoutMs: 5000,
   maxResultCount: 100,
 })
@@ -536,7 +539,6 @@ interface ToolParamRow {
   name: string
   type: ParamType
   description: string
-  required: boolean
 }
 const toolParamRows = ref<ToolParamRow[]>([])
 let toolParamRowSeq = 0
@@ -550,15 +552,27 @@ const AUTH_TYPE_LABEL: Record<AuthType, string> = {
 }
 
 const generatedParamsSchema = computed(() => buildParamsSchemaText())
+const validParamNames = computed(() => {
+  if (toolNoParams.value) return []
+  return toolParamRows.value
+    .map(row => row.name.trim())
+    .filter((name, index, names) => name && names.indexOf(name) === index)
+})
 const isToolSubmitDisabled = computed(() => {
   if (toolSaving.value) return true
   if (!toolForm.value.name.trim() || !toolForm.value.description.trim()) return true
   if (toolForm.value.toolType === 'HTTP_API' && !toolForm.value.endpointUrl.trim()) return true
   if (toolForm.value.toolType === 'DB_QUERY' && (!toolForm.value.datasourceKey.trim() || !toolForm.value.queryTemplate.trim())) return true
   if (!toolNoParams.value && toolParamRows.value.length === 0) return true
+  if (toolForm.value.accessScope === 'SELF_ONLY' && !validParamNames.value.includes(toolForm.value.selfIdentityParam)) return true
   if (toolForm.value.authType !== 'NONE' && !toolForm.value.credentialRef.trim()) return true
   return false
 })
+
+watch(
+  validParamNames,
+  () => syncAccessPolicyWithParamRows(),
+)
 
 const filteredTools = computed(() => {
   if (toolFilter.value === '전체') return tools.value
@@ -582,6 +596,41 @@ async function toggleTool(tool: AiTool) {
   }
 }
 
+async function generateToolDraft() {
+  if (toolDrafting.value) return
+  const endpointUrl = toolForm.value.endpointUrl.trim()
+  if (toolForm.value.toolType !== 'HTTP_API') {
+    showSaved('HTTP API Tool에서만 초안을 생성할 수 있습니다.')
+    return
+  }
+  if (!isHttpEndpoint(endpointUrl)) {
+    showSaved('Endpoint URL은 http:// 또는 https:// 로 시작하는 전체 URL이어야 합니다.')
+    return
+  }
+
+  toolDrafting.value = true
+  try {
+    const res = await draftAiTool({ endpointUrl, httpMethod: 'GET' })
+    toolForm.value.name = res.data.name
+    toolForm.value.description = res.data.description
+    toolForm.value.endpointUrl = res.data.endpointUrl
+    toolParamRows.value = []
+    toolNoParams.value = res.data.parameters.length === 0
+    res.data.parameters.forEach(param => {
+      addParamRow({
+        name: param.name,
+        type: param.type,
+        description: param.description,
+      })
+    })
+    showSaved('AI 초안을 생성했습니다. 내용을 확인한 뒤 저장하세요.')
+  } catch (error) {
+    showSaved(readApiErrorMessage(error) ?? 'AI 초안 생성에 실패했습니다.')
+  } finally {
+    toolDrafting.value = false
+  }
+}
+
 function resetToolForm() {
   toolModalMode.value = 'create'
   editingToolId.value = null
@@ -595,6 +644,8 @@ function resetToolForm() {
     queryTemplate: '',
     authType: 'NONE',
     credentialRef: '',
+    accessScope: 'UNRESTRICTED',
+    selfIdentityParam: '',
     timeoutMs: 5000,
     maxResultCount: 100,
   }
@@ -620,6 +671,8 @@ function openEditToolModal(tool: AiTool) {
     queryTemplate: tool.queryTemplate ?? '',
     authType: (tool.authType ?? 'NONE') as AuthType,
     credentialRef: tool.credentialRef ?? '',
+    accessScope: (tool.accessScope ?? 'UNRESTRICTED') as AccessScope,
+    selfIdentityParam: tool.selfIdentityParam ?? '',
     timeoutMs: tool.timeoutMs ?? 5000,
     maxResultCount: tool.maxResultCount ?? 100,
   }
@@ -665,12 +718,36 @@ function addParamRow(row?: Partial<Omit<ToolParamRow, 'id'>>) {
     name: row?.name ?? '',
     type: row?.type ?? 'string',
     description: row?.description ?? '',
-    required: row?.required ?? true,
   })
 }
 
 function removeParamRow(id: number) {
+  const removing = toolParamRows.value.find(row => row.id === id)
   toolParamRows.value = toolParamRows.value.filter(row => row.id !== id)
+  if (removing?.name.trim() === toolForm.value.selfIdentityParam) {
+    clearSelfOnlyAccess()
+  }
+}
+
+function applySelfOnlyAccess(row: ToolParamRow) {
+  const name = row.name.trim()
+  if (!name) {
+    showSaved('본인 제한을 적용할 파라미터 이름을 먼저 입력하세요.')
+    return
+  }
+  toolForm.value.accessScope = 'SELF_ONLY'
+  toolForm.value.selfIdentityParam = name
+}
+
+function clearSelfOnlyAccess() {
+  toolForm.value.accessScope = 'UNRESTRICTED'
+  toolForm.value.selfIdentityParam = ''
+}
+
+function syncAccessPolicyWithParamRows() {
+  if (toolForm.value.accessScope !== 'SELF_ONLY') return
+  if (validParamNames.value.includes(toolForm.value.selfIdentityParam)) return
+  clearSelfOnlyAccess()
 }
 
 function extractQueryParams() {
@@ -700,7 +777,6 @@ function extractQueryParams() {
       name,
       type: inferParamType(value),
       description: name,
-      required: true,
     })
   })
   url.search = ''
@@ -718,7 +794,7 @@ function buildParamsSchemaText() {
     properties[name] = {
       type: row.type,
       description: row.description.trim() || name,
-      required: row.required,
+      required: true,
     }
   }
   return JSON.stringify({ type: 'object', properties }, null, 2)
@@ -727,7 +803,7 @@ function buildParamsSchemaText() {
 function setParamRowsFromSchema(schemaText: string) {
   toolParamRows.value = []
   try {
-    const parsed = JSON.parse(schemaText) as { properties?: Record<string, { type?: ParamType; description?: string; required?: boolean }> }
+    const parsed = JSON.parse(schemaText) as { properties?: Record<string, { type?: ParamType; description?: string }> }
     const properties = parsed.properties ?? {}
     const entries = Object.entries(properties)
     toolNoParams.value = entries.length === 0
@@ -736,7 +812,6 @@ function setParamRowsFromSchema(schemaText: string) {
         name,
         type: ['string', 'number', 'integer', 'boolean'].includes(config.type ?? '') ? config.type : 'string',
         description: config.description ?? name,
-        required: config.required ?? false,
       })
     })
   } catch {
@@ -781,12 +856,17 @@ async function saveTool() {
     return
   }
   const parametersSchema = generatedParamsSchema.value
+  const accessPolicyPayload = {
+    accessScope: toolForm.value.accessScope,
+    selfIdentityParam: toolForm.value.accessScope === 'SELF_ONLY' ? toolForm.value.selfIdentityParam.trim() : undefined,
+  }
 
   toolSaving.value = true
   try {
     const commonPayload = {
       description: toolForm.value.description.trim(),
       parametersSchema,
+      ...accessPolicyPayload,
       timeoutMs: toolForm.value.timeoutMs,
       maxResultCount: toolForm.value.maxResultCount,
     }
@@ -1339,6 +1419,14 @@ onUnmounted(stopDeptPolling)
           <div class="endpoint-row">
             <input v-model="toolForm.endpointUrl" placeholder="https://weather.workipedia.wiki/api/weather/current?lat=37.5665&lon=126.9780" />
             <button class="button button--secondary" type="button" @click="extractQueryParams">Query 추출</button>
+            <button
+              class="button button--secondary"
+              type="button"
+              :disabled="toolDrafting || toolModalMode === 'edit'"
+              @click="generateToolDraft"
+            >
+              {{ toolDrafting ? '생성 중...' : 'AI 초안 생성' }}
+            </button>
           </div>
           <small class="field-hint">URL의 query string은 파라미터 표로 분리되고, 저장 시 Endpoint URL에는 경로만 저장됩니다.</small>
         </label>
@@ -1367,7 +1455,7 @@ onUnmounted(stopDeptPolling)
               <span>이름</span>
               <span>타입</span>
               <span>설명</span>
-              <span>필수</span>
+              <span>접근</span>
               <span></span>
             </div>
             <div v-for="row in toolParamRows" :key="row.id" class="param-row">
@@ -1379,15 +1467,42 @@ onUnmounted(stopDeptPolling)
                 <option value="boolean">boolean</option>
               </select>
               <input v-model="row.description" placeholder="LLM이 값을 채울 때 참고할 설명" />
-              <label class="param-required">
-                <input v-model="row.required" type="checkbox" />
-              </label>
+              <div class="param-access-cell">
+                <template v-if="toolForm.accessScope === 'SELF_ONLY' && row.name.trim() === toolForm.selfIdentityParam">
+                  <span class="param-access-badge">본인 식별값</span>
+                  <button class="param-access-clear" type="button" @click="clearSelfOnlyAccess">해제</button>
+                </template>
+                <button v-else class="param-access-apply" type="button" @click="applySelfOnlyAccess(row)">본인 제한 적용</button>
+              </div>
               <button class="param-delete" type="button" aria-label="파라미터 삭제" @click="removeParamRow(row.id)">×</button>
             </div>
             <button class="button button--secondary param-add" type="button" @click="addParamRow()">+ 파라미터 추가</button>
           </div>
 
           <div v-else class="empty-param-box">저장 시 빈 parameters schema가 생성됩니다.</div>
+        </section>
+
+        <section class="tool-section access-policy-section" :class="{ 'access-policy-section--self': toolForm.accessScope === 'SELF_ONLY' }">
+          <div class="tool-section-head">
+            <div>
+              <h3>
+                접근 범위
+                <span class="access-policy-badge">{{ toolForm.accessScope === 'SELF_ONLY' ? '보호됨' : '주의' }}</span>
+              </h3>
+              <p>{{ toolForm.accessScope === 'SELF_ONLY' ? '민감한 Tool은 로그인 사용자의 사번으로만 호출되도록 제한합니다.' : '제한 없음 Tool은 AI가 입력한 조건으로 전체 범위 조회가 가능할 수 있습니다.' }}</p>
+            </div>
+          </div>
+          <div class="access-policy-status">
+            <span>{{ toolForm.accessScope === 'SELF_ONLY' ? toolForm.selfIdentityParam : '제한 없음' }}</span>
+            <strong>{{ toolForm.accessScope === 'SELF_ONLY' ? 'Query Parameters에서 선택한 값이 호출자 사번으로 교체됩니다.' : 'Query Parameters 행에서 본인 제한 적용을 눌러 보호 정책을 켤 수 있습니다.' }}</strong>
+          </div>
+          <div class="access-policy-note">
+            {{
+              toolForm.accessScope === 'SELF_ONLY'
+                ? 'AI가 다른 값을 만들더라도 실행 직전에 로그인 사용자의 사번으로 덮어씁니다.'
+                : '조직 전체 조회가 가능한 API라면 이 설정을 사용하기 전에 응답 범위와 노출 정보를 확인하세요.'
+            }}
+          </div>
         </section>
 
         <details class="advanced-box">
@@ -1572,7 +1687,7 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
 .toast { position: fixed; z-index: 30; top: 22px; right: 24px; padding: 10px 14px; border-radius: 5px; background: #253341; color: #fff; font-size: 12px; box-shadow: 0 6px 18px rgba(0,0,0,.14); }
 .modal-backdrop { position: fixed; z-index: 40; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(20,28,36,.45); }
 .modal { width: min(480px, 100%); padding: 22px; border-radius: 7px; background: #fff; box-shadow: 0 16px 44px rgba(0,0,0,.22); display: flex; flex-direction: column; gap: 15px; }
-.modal--tool { width: min(760px, 100%); max-height: calc(100vh - 40px); overflow-y: auto; }
+.modal--tool { width: min(820px, 100%); max-height: calc(100vh - 40px); overflow-y: auto; }
 .modal-header { display: flex; align-items: center; justify-content: space-between; }
 .modal-header h2 { font-size: 17px; }
 .modal-header p { margin-top: 4px; color: #76818c; font-size: 11px; }
@@ -1597,14 +1712,31 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
 .tool-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 10px; }
 .tool-section h3, .advanced-section h3 { margin: 0; color: #26323d; font-size: 13px; }
 .tool-section p { margin-top: 4px; color: #76818c; font-size: 11px; line-height: 1.5; }
+.access-policy-section { padding: 14px; border: 1px solid #e2b86f; border-left: 4px solid #c78313; border-radius: 7px; background: #fffbeb; }
+.access-policy-section--self { border-color: #9fc8b6; border-left-color: #15936b; background: #f3fbf7; }
+.access-policy-badge { display: inline-flex; align-items: center; height: 20px; margin-left: 8px; padding: 0 8px; border-radius: 99px; background: #fdecc8; color: #9a5b00; font-size: 10px; font-weight: 800; vertical-align: middle; }
+.access-policy-section--self .access-policy-badge { background: #d9f2e6; color: #08704b; }
+.access-policy-status { display: flex; align-items: center; gap: 10px; padding: 10px 11px; border: 1px solid rgba(199,131,19,.28); border-radius: 6px; background: #fff; }
+.access-policy-status span { flex-shrink: 0; padding: 4px 8px; border-radius: 5px; background: #fff4d6; color: #8a5309; font-size: 11px; font-weight: 800; }
+.access-policy-status strong { color: #5f4a27; font-size: 11px; line-height: 1.45; }
+.access-policy-section--self .access-policy-status { border-color: rgba(21,147,107,.28); }
+.access-policy-section--self .access-policy-status span { background: #dff5ea; color: #08704b; }
+.access-policy-section--self .access-policy-status strong { color: #2f6554; }
+.access-policy-note { margin-top: 12px; padding: 9px 11px; border-left: 3px solid #c78313; border-radius: 5px; background: #fff; color: #7a4b13; font-size: 11px; line-height: 1.5; }
+.access-policy-section--self .access-policy-note { border-left-color: #15936b; color: #2f6554; }
 .checkbox-row--compact { flex-shrink: 0; margin-top: 2px; white-space: nowrap; }
 .param-table { overflow: hidden; border: 1px solid #dfe4e8; border-radius: 7px; background: #fff; }
-.param-row { display: grid; grid-template-columns: minmax(90px, 1fr) 118px minmax(160px, 1.6fr) 54px 42px; gap: 8px; align-items: center; padding: 9px 10px; border-top: 1px solid #e7eaed; }
+.param-row { display: grid; grid-template-columns: minmax(90px, 1fr) 118px minmax(160px, 1.55fr) 142px 42px; gap: 8px; align-items: center; padding: 9px 10px; border-top: 1px solid #e7eaed; }
 .param-row:first-child { border-top: 0; }
 .param-row--head { background: #f7f8fa; color: #6b7680; font-size: 11px; font-weight: 700; }
 .param-row input, .param-row select { min-height: 34px; padding: 7px 8px; font-size: 11px; }
-.param-required { display: flex !important; align-items: center; justify-content: center; }
-.param-required input { width: 16px; min-height: 16px; accent-color: #1769c2; }
+.param-access-cell { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; }
+.param-access-apply, .param-access-clear { min-height: 30px; border-radius: 5px; border: 1px solid #d3dbe3; background: #fff; color: #344250; font-size: 11px; font-weight: 700; cursor: pointer; }
+.param-access-apply { width: 100%; }
+.param-access-apply:hover { border-color: #15936b; color: #08704b; background: #f3fbf7; }
+.param-access-badge { flex: 1; min-width: 0; padding: 6px 7px; border-radius: 5px; background: #dff5ea; color: #08704b; font-size: 11px; font-weight: 800; text-align: center; white-space: nowrap; }
+.param-access-clear { flex-shrink: 0; padding: 0 7px; color: #6b7680; }
+.param-access-clear:hover { border-color: #9ca8b4; background: #f3f5f7; }
 .param-delete { width: 30px; height: 30px; border: 0; border-radius: 5px; background: transparent; color: #7d8790; font-size: 18px; cursor: pointer; }
 .param-delete:hover { background: #fee2e2; color: #b91c1c; }
 .param-add { margin: 10px; }
@@ -1625,7 +1757,7 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
   .modal--tool { max-height: calc(100vh - 24px); }
   .param-row { grid-template-columns: 1fr; }
   .param-row--head { display: none; }
-  .param-required { justify-content: flex-start; flex-direction: row !important; }
+  .param-access-cell { justify-content: flex-start; }
 }
 
 @media (max-width: 520px) {
