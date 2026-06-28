@@ -26,6 +26,7 @@ export type ToolType = 'HTTP_API' | 'DB_QUERY'
 export type ApprovalStatus = 'DRAFT' | 'APPROVED' | 'REJECTED'
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export type AuthType = 'NONE' | 'API_KEY' | 'BEARER_TOKEN'
+export type AccessScope = 'UNRESTRICTED' | 'SELF_ONLY'
 
 // 목록(summary) 응답 — endpointUrl 등 상세는 GET /admin/ai-tools/{id} 로 조회한다.
 export interface AiTool {
@@ -39,6 +40,8 @@ export interface AiTool {
   queryTemplate?: string
   parametersSchema?: string
   responseSchema?: string
+  accessScope?: AccessScope
+  selfIdentityParam?: string
   authType?: AuthType
   credentialRef?: string
   timeoutMs?: number
@@ -54,6 +57,8 @@ interface BaseCreateAiToolRequest {
   description: string
   parametersSchema: string
   responseSchema?: string
+  accessScope: AccessScope
+  selfIdentityParam?: string
   authType: AuthType
   credentialRef?: string
   timeoutMs: number
@@ -76,6 +81,25 @@ export interface CreateDbQueryToolRequest extends BaseCreateAiToolRequest {
 // 등록 요청. parametersSchema 는 유효한 JSON 문자열이어야 한다.
 export type CreateAiToolRequest = CreateHttpApiToolRequest | CreateDbQueryToolRequest
 
+export interface DraftAiToolRequest {
+  endpointUrl: string
+  httpMethod: HttpMethod
+}
+
+export interface DraftAiToolParameter {
+  name: string
+  type: 'string' | 'number' | 'integer' | 'boolean'
+  description: string
+  required: boolean
+}
+
+export interface DraftAiToolResponse {
+  name: string
+  description: string
+  endpointUrl: string
+  parameters: DraftAiToolParameter[]
+}
+
 // PATCH — null/미포함 항목은 변경하지 않는다.
 export interface UpdateAiToolRequest {
   active?: boolean
@@ -86,6 +110,8 @@ export interface UpdateAiToolRequest {
   queryTemplate?: string
   parametersSchema?: string
   responseSchema?: string
+  accessScope?: AccessScope
+  selfIdentityParam?: string
   authType?: AuthType
   credentialRef?: string
   timeoutMs?: number
@@ -103,6 +129,10 @@ export function createAiTool(body: CreateAiToolRequest) {
 
 export function updateAiTool(aiToolId: number, body: UpdateAiToolRequest) {
   return http.patch<AiTool>(`/admin/ai-tools/${aiToolId}`, body)
+}
+
+export function draftAiTool(body: DraftAiToolRequest) {
+  return http.post<DraftAiToolResponse>('/admin/ai-tools/draft', body)
 }
 
 // ── 부서 라우팅 프롬프트 ────────────────────────────────────────
