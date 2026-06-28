@@ -12,6 +12,15 @@ import type {
 // 티켓 컨트롤러는 DTO를 직접 반환한다 (ApiResponse 래퍼 없음).
 // 목록은 BasePageRequest 기반이라 page 는 1-based (기본 1). 작성자(@AuthenticationPrincipal)는 토큰에서 식별.
 
+// 티켓 초안: 사용자 요청 원문을 AI가 제목/내용으로 정리해 돌려준다. (티켓을 만들진 않음)
+export interface TicketDraft {
+  title: string
+  content: string
+}
+export function draftTicket(rawText: string) {
+  return http.post<TicketDraft>('/tickets/draft', { rawText })
+}
+
 // 티켓 생성
 export function createTicket(data: CreateTicketRequest) {
   return http.post<TicketResponse>('/tickets', data)
