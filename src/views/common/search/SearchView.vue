@@ -394,6 +394,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.empty-ph {
+  background: var(--bg);
+}
+
 .result-section { margin-bottom: 28px; }
 .section-head {
   display: flex;
