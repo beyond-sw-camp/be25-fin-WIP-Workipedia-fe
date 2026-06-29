@@ -100,6 +100,16 @@ async function connectStomp() {
           return
         }
 
+        // 정책 TTL 변경 → 현재 모든 활성 메시지를 새 만료시각으로 통일하고 타이머를 재예약한다.
+        if (raw.type === 'REEXPIRE') {
+          const newExpiresAt = raw.expiresAt as string
+          msgs.value = msgs.value.map(m => ({ ...m, expiresAt: newExpiresAt }))
+          timeouts.forEach(h => clearTimeout(h))
+          timeouts.clear()
+          msgs.value.forEach(m => scheduleDelete(m))
+          return
+        }
+
         const original = raw.replyToId ? msgs.value.find(m => m.id === raw.replyToId) : null
         // raw.expiresAt은 서버가 정책 TTL 기준으로 계산한 값이므로 그대로 사용한다.
         // localStorage TTL로 재계산하면 관리자만 정확한 TTL을 가지는 문제가 생긴다.
