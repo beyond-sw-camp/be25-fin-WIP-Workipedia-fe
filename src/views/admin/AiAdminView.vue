@@ -10,7 +10,7 @@ import {
   editRoutingPromptInstruction,
   getAiSyncSetting, updateAiSyncSetting,
   cleanupWorkiAiSyncJobs, getAiSyncCleanupLogs,
-  type AiTool, type ToolType, type HttpMethod, type AuthType, type AccessScope,
+  type AiTool, type ToolType, type HttpMethod, type AuthType, type AccessScope, type SideEffectType,
   type AiSyncCleanupLog, type AiSyncCleanupResult,
 } from '@/api/aiAdminApi'
 import {
@@ -519,6 +519,7 @@ const toolForm = ref({
   toolType: 'HTTP_API' as ToolType,
   endpointUrl: '',
   httpMethod: 'GET' as HttpMethod,
+  sideEffectType: 'READ_ONLY' as SideEffectType,
   datasourceKey: '',
   queryTemplate: '',
   authType: 'NONE' as AuthType,
@@ -563,6 +564,7 @@ const isToolSubmitDisabled = computed(() => {
   if (!toolForm.value.name.trim() || !toolForm.value.description.trim()) return true
   if (toolForm.value.toolType === 'HTTP_API' && !toolForm.value.endpointUrl.trim()) return true
   if (toolForm.value.toolType === 'DB_QUERY' && (!toolForm.value.datasourceKey.trim() || !toolForm.value.queryTemplate.trim())) return true
+  if (toolForm.value.toolType === 'DB_QUERY' && toolForm.value.sideEffectType !== 'READ_ONLY') return true
   if (!toolNoParams.value && toolParamRows.value.length === 0) return true
   if (toolForm.value.accessScope === 'SELF_ONLY' && !validParamNames.value.includes(toolForm.value.selfIdentityParam)) return true
   if (toolForm.value.authType !== 'NONE' && !toolForm.value.credentialRef.trim()) return true
@@ -572,6 +574,13 @@ const isToolSubmitDisabled = computed(() => {
 watch(
   validParamNames,
   () => syncAccessPolicyWithParamRows(),
+)
+
+watch(
+  () => toolForm.value.toolType,
+  (toolType) => {
+    if (toolType === 'DB_QUERY') toolForm.value.sideEffectType = 'READ_ONLY'
+  },
 )
 
 const filteredTools = computed(() => {
@@ -610,7 +619,7 @@ async function generateToolDraft() {
 
   toolDrafting.value = true
   try {
-    const res = await draftAiTool({ endpointUrl, httpMethod: 'GET' })
+    const res = await draftAiTool({ endpointUrl, httpMethod: toolForm.value.httpMethod })
     toolForm.value.name = res.data.name
     toolForm.value.description = res.data.description
     toolForm.value.endpointUrl = res.data.endpointUrl
@@ -640,6 +649,7 @@ function resetToolForm() {
     toolType: 'HTTP_API',
     endpointUrl: '',
     httpMethod: 'GET',
+    sideEffectType: 'READ_ONLY',
     datasourceKey: '',
     queryTemplate: '',
     authType: 'NONE',
@@ -666,7 +676,8 @@ function openEditToolModal(tool: AiTool) {
     description: tool.description ?? '',
     toolType: tool.toolType,
     endpointUrl: tool.endpointUrl ?? '',
-    httpMethod: 'GET',
+    httpMethod: tool.httpMethod ?? 'GET',
+    sideEffectType: tool.sideEffectType,
     datasourceKey: tool.datasourceKey ?? '',
     queryTemplate: tool.queryTemplate ?? '',
     authType: (tool.authType ?? 'NONE') as AuthType,
@@ -866,6 +877,7 @@ async function saveTool() {
     const commonPayload = {
       description: toolForm.value.description.trim(),
       parametersSchema,
+      sideEffectType: toolForm.value.sideEffectType,
       ...accessPolicyPayload,
       timeoutMs: toolForm.value.timeoutMs,
       maxResultCount: toolForm.value.maxResultCount,
@@ -880,7 +892,7 @@ async function saveTool() {
             ...commonPayload,
             ...authPayload,
             endpointUrl,
-            httpMethod: 'GET',
+            httpMethod: toolForm.value.httpMethod,
           }
         : {
             ...commonPayload,
@@ -904,12 +916,13 @@ async function saveTool() {
           name: toolForm.value.name.trim(),
           toolType: 'HTTP_API',
           endpointUrl,
-          httpMethod: 'GET',
+          httpMethod: toolForm.value.httpMethod,
         }
       : {
           ...commonPayload,
           name: toolForm.value.name.trim(),
           toolType: 'DB_QUERY',
+          sideEffectType: 'READ_ONLY',
           datasourceKey,
           queryTemplate,
           authType: 'NONE',
@@ -1406,9 +1419,22 @@ onUnmounted(stopDeptPolling)
               <option value="DB_QUERY">DB Query</option>
             </select>
           </label>
+          <label>작업 특성
+            <select v-model="toolForm.sideEffectType" :disabled="toolForm.toolType === 'DB_QUERY'">
+              <option value="READ_ONLY">조회 전용 (READ_ONLY)</option>
+              <option value="MUTATING">데이터 변경 (MUTATING)</option>
+            </select>
+            <small v-if="toolForm.toolType === 'DB_QUERY'" class="field-hint">DB Query Tool은 조회 전용만 지원합니다.</small>
+            <small v-else-if="toolForm.sideEffectType === 'MUTATING'" class="field-hint">데이터 변경 Tool은 AI 실행 대상에서 제외됩니다.</small>
+          </label>
           <label v-if="toolForm.toolType === 'HTTP_API'">HTTP Method
-            <input value="GET" disabled />
-            <small class="field-hint">현재 API Tool은 GET 요청만 지원합니다.</small>
+            <select v-model="toolForm.httpMethod">
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+              <option value="PUT">PUT</option>
+              <option value="PATCH">PATCH</option>
+              <option value="DELETE">DELETE</option>
+            </select>
           </label>
           <label v-else>Datasource Key
             <input v-model="toolForm.datasourceKey" placeholder="예: workipediaReadonly" />
@@ -1418,7 +1444,7 @@ onUnmounted(stopDeptPolling)
         <label v-if="toolForm.toolType === 'HTTP_API'">Endpoint URL
           <div class="endpoint-row">
             <input v-model="toolForm.endpointUrl" placeholder="https://weather.workipedia.wiki/api/weather/current?lat=37.5665&lon=126.9780" />
-            <button class="button button--secondary" type="button" @click="extractQueryParams">Query 추출</button>
+            <button v-if="toolForm.httpMethod === 'GET'" class="button button--secondary" type="button" @click="extractQueryParams">Query 추출</button>
             <button
               class="button button--secondary"
               type="button"
@@ -1428,7 +1454,8 @@ onUnmounted(stopDeptPolling)
               {{ toolDrafting ? '생성 중...' : 'AI 초안 생성' }}
             </button>
           </div>
-          <small class="field-hint">URL의 query string은 파라미터 표로 분리되고, 저장 시 Endpoint URL에는 경로만 저장됩니다.</small>
+          <small v-if="toolForm.httpMethod === 'GET'" class="field-hint">URL의 query string은 파라미터 표로 분리되고, 저장 시 Endpoint URL에는 경로만 저장됩니다.</small>
+          <small v-else class="field-hint">입력 파라미터는 요청 JSON body로 전달됩니다.</small>
         </label>
         <label v-else>Query Template
           <textarea
@@ -1441,8 +1468,10 @@ onUnmounted(stopDeptPolling)
         <section class="tool-section">
           <div class="tool-section-head">
             <div>
-              <h3>Query Parameters</h3>
-              <p>GET API는 대부분 query parameter만으로 호출합니다. 필요한 값만 표에 추가하세요.</p>
+              <h3>입력 Parameters</h3>
+              <p v-if="toolForm.toolType === 'HTTP_API' && toolForm.httpMethod === 'GET'">외부 API의 query parameter를 추가하세요.</p>
+              <p v-else-if="toolForm.toolType === 'HTTP_API'">외부 API의 JSON body에 전달할 필드를 추가하세요.</p>
+              <p v-else>Query Template에 바인딩할 파라미터를 추가하세요.</p>
             </div>
             <label class="checkbox-row checkbox-row--compact">
               <input v-model="toolNoParams" type="checkbox" />
@@ -1494,7 +1523,7 @@ onUnmounted(stopDeptPolling)
           </div>
           <div class="access-policy-status">
             <span>{{ toolForm.accessScope === 'SELF_ONLY' ? toolForm.selfIdentityParam : '제한 없음' }}</span>
-            <strong>{{ toolForm.accessScope === 'SELF_ONLY' ? 'Query Parameters에서 선택한 값이 호출자 사번으로 교체됩니다.' : 'Query Parameters 행에서 본인 제한 적용을 눌러 보호 정책을 켤 수 있습니다.' }}</strong>
+            <strong>{{ toolForm.accessScope === 'SELF_ONLY' ? '입력 Parameters에서 선택한 값이 호출자 사번으로 교체됩니다.' : '입력 Parameters 행에서 본인 제한 적용을 눌러 보호 정책을 켤 수 있습니다.' }}</strong>
           </div>
           <div class="access-policy-note">
             {{
