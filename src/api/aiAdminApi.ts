@@ -27,6 +27,7 @@ export type ApprovalStatus = 'DRAFT' | 'APPROVED' | 'REJECTED'
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export type AuthType = 'NONE' | 'API_KEY' | 'BEARER_TOKEN'
 export type AccessScope = 'UNRESTRICTED' | 'SELF_ONLY'
+export type SideEffectType = 'READ_ONLY' | 'MUTATING'
 
 // 목록(summary) 응답 — endpointUrl 등 상세는 GET /admin/ai-tools/{id} 로 조회한다.
 export interface AiTool {
@@ -34,6 +35,7 @@ export interface AiTool {
   name: string
   description: string
   toolType: ToolType
+  sideEffectType: SideEffectType
   endpointUrl?: string
   httpMethod?: HttpMethod
   datasourceKey?: string
@@ -57,6 +59,7 @@ interface BaseCreateAiToolRequest {
   description: string
   parametersSchema: string
   responseSchema?: string
+  sideEffectType: SideEffectType
   accessScope: AccessScope
   selfIdentityParam?: string
   authType: AuthType
@@ -104,6 +107,7 @@ export interface DraftAiToolResponse {
 export interface UpdateAiToolRequest {
   active?: boolean
   description?: string
+  sideEffectType?: SideEffectType
   endpointUrl?: string
   httpMethod?: HttpMethod
   datasourceKey?: string
