@@ -305,11 +305,17 @@ export interface MergeResolution {
   toExternalId: string
   rrMode: 'MERGE' | 'REWRITE' | 'HOLD'
 }
+export interface ManualLink {
+  externalId: string
+  departmentId: number
+  applyRoutingPrompt: boolean
+}
 export interface SyncApplyResult {
   created: number
   updated: number
   deleted: number
   merged: number
+  linked: number
   membersReassigned: number
 }
 
@@ -331,6 +337,7 @@ export async function syncApply(body: {
   sourceSystem: string
   items: ErpDepartmentItem[]
   merges: MergeResolution[]
+  manualLinks: ManualLink[]
   reassignTargetDepartmentId: number | null
 }) {
   const res = await http.post<ApiResponse<SyncApplyResult>>('/admin/departments/sync/apply', body)

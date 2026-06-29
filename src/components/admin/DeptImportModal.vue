@@ -13,9 +13,11 @@ import {
   erpFetch,
   syncPreview,
   syncApply,
+  getAdminDepartments,
   type SyncPreviewResult,
   type SyncApplyResult,
   type MergeResolution,
+  type ManualLink,
 } from '@/api/adminApi'
 
 const props = defineProps<{ open: boolean }>()
@@ -38,6 +40,11 @@ const items = ref<ErpDepartmentItem[]>([])
 const diff = ref<SyncPreviewResult | null>(null)
 const merges = ref<MergeResolution[]>([]) // 통폐합 수동 매칭은 후속. 기본 빈 배열.
 const applyResult = ref<SyncApplyResult | null>(null)
+
+// 수동 연결: NEW 행을 기존 부서에 연결(이름이 달라 자동 매칭 안 되는 동일 부서)
+const existingDepts = ref<{ departmentId: number; departmentName: string }[]>([])
+const linkChoice = ref<Record<string, number | null>>({}) // externalId → 연결할 부서id(null=신설)
+const linkRr = ref<Record<string, boolean>>({}) // externalId → 연결 시 ERP 담당업무로 R&R 설정 여부
 
 const canProceedMapping = computed(() => isMappingComplete(mapping.value))
 
@@ -92,6 +99,16 @@ async function goDiff() {
   errorMsg.value = ''
   try {
     diff.value = await syncPreview(sourceSystem.value, items.value)
+    // 수동 연결 드롭다운용 기존 부서 목록 로드
+    try {
+      const res = await getAdminDepartments()
+      existingDepts.value = res.data.map((d) => ({
+        departmentId: d.departmentId,
+        departmentName: d.departmentName,
+      }))
+    } catch {
+      existingDepts.value = []
+    }
     step.value = 3
   } catch {
     errorMsg.value = '미리보기에 실패했습니다.'
@@ -100,16 +117,27 @@ async function goDiff() {
   }
 }
 
+// NEW 행만 수동 연결 대상
+const newRows = computed(() => (diff.value?.rows ?? []).filter((r) => r.state === 'NEW'))
+
 const deletedRows = computed(() => (diff.value?.rows ?? []).filter((r) => r.state === 'DELETED'))
 
 async function doApply() {
   loading.value = true
   errorMsg.value = ''
   try {
+    const manualLinks: ManualLink[] = newRows.value
+      .filter((r) => linkChoice.value[r.externalId])
+      .map((r) => ({
+        externalId: r.externalId,
+        departmentId: linkChoice.value[r.externalId]!,
+        applyRoutingPrompt: linkRr.value[r.externalId] ?? false,
+      }))
     applyResult.value = await syncApply({
       sourceSystem: sourceSystem.value,
       items: items.value,
       merges: merges.value,
+      manualLinks,
       reassignTargetDepartmentId: null,
     })
     step.value = 5
@@ -129,6 +157,9 @@ function reset() {
   applyResult.value = null
   apiUrl.value = DEFAULT_ERP_URL
   errorMsg.value = ''
+  existingDepts.value = []
+  linkChoice.value = {}
+  linkRr.value = {}
 }
 function close() {
   reset()
@@ -192,13 +223,28 @@ function close() {
       <section v-else-if="step === 3" class="step">
         <h4>변경 검토</h4>
         <div v-if="diff" class="difflist">
-          <div v-for="r in diff.rows" :key="r.externalId" class="diffrow" :data-state="r.state">
-            <span class="badge" :data-state="r.state">{{ STATE_LABEL[r.state] }}</span>
-            <span class="nm">
-              <template v-if="r.previousName">{{ r.previousName }} → </template>{{ r.departmentName }}
-            </span>
-            <span v-if="r.memberMoveCount > 0" class="move">👥 {{ r.memberMoveCount }}명</span>
-            <span class="eid">{{ r.externalId }}</span>
+          <div v-for="r in diff.rows" :key="r.externalId" class="diffcell">
+            <div class="diffrow" :data-state="r.state">
+              <span class="badge" :data-state="r.state">{{ STATE_LABEL[r.state] }}</span>
+              <span class="nm">
+                <template v-if="r.previousName">{{ r.previousName }} → </template>{{ r.departmentName }}
+              </span>
+              <span v-if="r.memberMoveCount > 0" class="move">👥 {{ r.memberMoveCount }}명</span>
+              <span class="eid">{{ r.externalId }}</span>
+            </div>
+            <!-- 신설 행: 기존 부서에 수동 연결 옵션 (이름 달라 자동매칭 안 된 동일 부서) -->
+            <div v-if="r.state === 'NEW'" class="linkrow">
+              <select v-model="linkChoice[r.externalId]">
+                <option :value="null">새 부서로 생성</option>
+                <option v-for="d in existingDepts" :key="d.departmentId" :value="d.departmentId">
+                  기존 연결 → {{ d.departmentName }}
+                </option>
+              </select>
+              <label v-if="linkChoice[r.externalId]" class="rrchk">
+                <input v-model="linkRr[r.externalId]" type="checkbox" />
+                ERP 담당업무로 R&amp;R 설정
+              </label>
+            </div>
           </div>
         </div>
         <div class="actions">
@@ -231,7 +277,8 @@ function close() {
         <h4>부서 동기화 완료</h4>
         <p v-if="applyResult">
           신설 {{ applyResult.created }} · 수정 {{ applyResult.updated }} · 폐지 {{ applyResult.deleted }} ·
-          통폐합 {{ applyResult.merged }} · 사원 {{ applyResult.membersReassigned }}명 이동
+          통폐합 {{ applyResult.merged }} · 연결 {{ applyResult.linked }} ·
+          사원 {{ applyResult.membersReassigned }}명 이동
         </p>
         <div class="actions">
           <button class="btn pri" @click="close">닫기</button>
@@ -374,6 +421,31 @@ function close() {
   display: flex;
   flex-direction: column;
   gap: 7px;
+}
+.diffcell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.linkrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 4px 4px 28px;
+  flex-wrap: wrap;
+}
+.linkrow select {
+  padding: 6px 9px;
+  border: 1px solid #e5e1ea;
+  border-radius: 7px;
+  font-size: 12.5px;
+}
+.rrchk {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: #6b7280;
 }
 .diffrow {
   display: flex;
