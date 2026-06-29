@@ -947,6 +947,11 @@ function knowledgeTicketFiles(item: KnowledgeTicketCandidateResponse) {
 .section-title { font-size: 15px; font-weight: 700; color: #1f2430; margin-bottom: 4px; }
 .section-desc { font-size: 12.5px; color: #aeb2bb; }
 .count-badge { flex-shrink: 0; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 99px; color: #64748b; font-size: 13px; font-weight: 700; padding: 4px 12px; }
+.section-card > .empty-ph {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
 
 .k-list { display: flex; flex-direction: column; gap: 14px; }
 .k-card { border: 1px solid var(--line); border-left: 4px solid #f5c000; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
