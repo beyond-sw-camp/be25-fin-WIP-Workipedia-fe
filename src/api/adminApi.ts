@@ -2,6 +2,7 @@ import http from './index'
 import type { ApiResponse } from './index'
 import type { TicketResponse } from '@/types/ticket'
 import type { PageResponse, PageParams } from '@/types/common'
+import type { ErpDepartmentItem } from '@/utils/erpMapping'
 
 // ── 공통 부서 목록 (non-admin views에서 사용) ──────────────────
 export interface Department {
@@ -280,4 +281,65 @@ export function updateAdminDirectData(id: number, body: { title: string; content
 }
 export function deleteAdminDirectData(id: number) {
   return http.delete<void>(`/admin/direct-data/${id}`)
+}
+
+// ── 부서 ERP 동기화 ────────────────────────────────────────────
+// sync 엔드포인트는 BE에서 ApiResponse<T>로 감싸므로 res.data.data 로 언랩한다.
+export type SyncState = 'NEW' | 'MATCHED' | 'RENAMED' | 'MERGED' | 'DELETED' | 'APPLIED'
+export interface SyncDiffRow {
+  externalId: string
+  departmentName: string
+  previousName: string | null
+  state: SyncState
+  memberMoveCount: number
+  mappedDepartmentId: number | null
+}
+export interface SyncPreviewResult {
+  rows: SyncDiffRow[]
+  created: number
+  renamed: number
+  deleted: number
+}
+export interface MergeResolution {
+  fromExternalIds: string[]
+  toExternalId: string
+  rrMode: 'MERGE' | 'REWRITE' | 'HOLD'
+}
+export interface ManualLink {
+  externalId: string
+  departmentId: number
+  applyRoutingPrompt: boolean
+}
+export interface SyncApplyResult {
+  created: number
+  updated: number
+  deleted: number
+  merged: number
+  linked: number
+  membersReassigned: number
+}
+
+export async function erpFetch(url: string) {
+  const res = await http.post<ApiResponse<{ columns: string[]; rows: Record<string, string>[] }>>(
+    '/admin/departments/sync/fetch',
+    { url },
+  )
+  return res.data.data
+}
+export async function syncPreview(sourceSystem: string, items: ErpDepartmentItem[]) {
+  const res = await http.post<ApiResponse<SyncPreviewResult>>('/admin/departments/sync/preview', {
+    sourceSystem,
+    items,
+  })
+  return res.data.data
+}
+export async function syncApply(body: {
+  sourceSystem: string
+  items: ErpDepartmentItem[]
+  merges: MergeResolution[]
+  manualLinks: ManualLink[]
+  reassignTargetDepartmentId: number | null
+}) {
+  const res = await http.post<ApiResponse<SyncApplyResult>>('/admin/departments/sync/apply', body)
+  return res.data.data
 }
