@@ -7,6 +7,7 @@ import {
 } from '@lucide/vue'
 import BaseToast from '@/components/common/BaseToast.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
+import DeptImportModal from '@/components/admin/DeptImportModal.vue'
 import {
   getDashboardSummary, getAdminUsers, updateUserStatus, updateUserRole,
   getAdminManuals, createAdminManual, updateAdminManual, updateAdminManualMeta, deleteAdminManual,
@@ -455,6 +456,12 @@ async function confirmDeleteManual() {
 // ── 부서 관리 ──────────────────────────────────────────────────
 const adminDepts = ref<AdminDepartment[]>([])
 const deptsLoading = ref(false)
+// ERP 가져오기 모달
+const importOpen = ref(false)
+function onImported() {
+  importOpen.value = false
+  loadDepts()
+}
 type EditDept = { id?: number; name: string; routingPrompt: string }
 const editingDept = ref<EditDept | null>(null)
 async function loadDepts() {
@@ -1000,9 +1007,14 @@ onMounted(() => {
           <h3 class="sec-title"><Building2 :size="17" color="#a855f7" /> 부서 관리</h3>
           <p class="sec-desc">부서를 추가, 수정, 삭제하고 부서별 인원을 확인할 수 있습니다</p>
         </div>
-        <button class="btn primary" @click="openDeptForm">
-          <Plus :size="15" /> 부서 추가
-        </button>
+        <div class="dept-head-actions" style="display: flex; gap: 8px">
+          <button class="btn" @click="importOpen = true">
+            <Upload :size="15" /> ERP에서 가져오기
+          </button>
+          <button class="btn primary" @click="openDeptForm">
+            <Plus :size="15" /> 부서 추가
+          </button>
+        </div>
       </div>
 
       <!-- 요약 배너 -->
@@ -1333,6 +1345,8 @@ onMounted(() => {
     </Teleport>
 
     <BaseToast v-model="toastVisible" :title="toastTitle" :sub="toastSub" :type="toastType" />
+
+    <DeptImportModal :open="importOpen" @close="importOpen = false" @applied="onImported" />
 
   </div>
 </template>
