@@ -109,6 +109,7 @@ async function goDiff() {
     } catch {
       existingDepts.value = []
     }
+    allToNew() // 기본값: 모든 NEW 행을 '새 부서로 생성'으로
     step.value = 3
   } catch {
     errorMsg.value = '미리보기에 실패했습니다.'
@@ -119,6 +120,16 @@ async function goDiff() {
 
 // NEW 행만 수동 연결 대상
 const newRows = computed(() => (diff.value?.rows ?? []).filter((r) => r.state === 'NEW'))
+
+// 모든 NEW 행을 '새 부서로 생성'(연결 없음)으로 되돌린다
+function allToNew() {
+  const choice: Record<string, number | null> = {}
+  newRows.value.forEach((r) => {
+    choice[r.externalId] = null
+  })
+  linkChoice.value = choice
+  linkRr.value = {}
+}
 
 const deletedRows = computed(() => (diff.value?.rows ?? []).filter((r) => r.state === 'DELETED'))
 
