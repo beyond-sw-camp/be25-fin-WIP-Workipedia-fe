@@ -42,7 +42,7 @@ function showToast(title: string, sub = '', type: 'success' | 'error' = 'success
 //               + COMPLETED + (assigneeId === 나 OR answeredInSession에 있음)
 //                 → BE가 assigneeId를 COMPLETED 후에도 갱신하지 않는 케이스가 있어
 //                   answeredInSession(localStorage 영속)으로 직접 답변한 티켓을 추적한다.
-//   doneTickets : COMPLETED 전체 (최근 1개월, updatedAt 기준)
+//   doneTickets : COMPLETED 전체
 //
 // 요약 통계 카드 클릭 → 해당 섹션으로 smooth scroll (scrollIntoView)
 const deptSectionRef = ref<HTMLElement | null>(null)
@@ -100,6 +100,10 @@ function loadAnsweredSet(): Set<number> {
 }
 const answeredInSession = loadAnsweredSet()
 
+function ticketCompletedAt(t: TicketResponse) {
+  return t.completedAt ?? t.updatedAt
+}
+
 // ASSIGNED·COMPLETED를 병렬 조회해 FE에서 세 버킷으로 분류한다.
 // myTickets는 두 가지 소스를 합친다:
 //   1) ASSIGNED 중 assigneeId === 내 userId  (관리자가 나에게 직접 배정한 진행 중 티켓)
@@ -117,7 +121,7 @@ async function loadAll() {
       getTickets({ status: 'COMPLETED', size: 100 }),
     ])
     const assigned = assignedRes.data.content
-    const done = doneRes.data.content.filter(t => new Date(t.updatedAt) >= oneMonthAgo)
+    const done = doneRes.data.content
     deptTickets.value = assigned.filter(t => t.assigneeId === null)
     myTickets.value = [
       ...assigned
@@ -424,7 +428,7 @@ function ticketFiles(t: TicketResponse | null) {
                     </span>
                   </div>
                   <div class="ticket-meta-right">
-                    <span class="ticket-time">완료: {{ formatDate(t.updatedAt) }}</span>
+                    <span class="ticket-time">완료: {{ formatDate(ticketCompletedAt(t)) }}</span>
                     <span v-if="ticketSender(t.content)" class="ticket-sender">{{ ticketSender(t.content) }}</span>
                   </div>
                 </div>
