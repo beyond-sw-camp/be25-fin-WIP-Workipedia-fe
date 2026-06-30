@@ -9,7 +9,7 @@ interface EnvironmentImpactView {
   electricitySavedKwh: number
   co2SavedKg: number
   smartphoneChargeEquivalentCount: number
-  minutesPerCitedAnswer: number
+  minutesPerCitedAnswer: number | null
 }
 
 // GET /leaderboard → topRankers(상위 랭커 배열) + mySummary(로그인 사용자 순위)
@@ -23,7 +23,7 @@ const environmentImpact = ref<EnvironmentImpactView>({
   electricitySavedKwh: 0,
   co2SavedKg: 0,
   smartphoneChargeEquivalentCount: 0,
-  minutesPerCitedAnswer: 3,
+  minutesPerCitedAnswer: null,
 })
 
 // 1명 이상일 때만 포디엄 렌더. vue-tsc 배열 인덱스 타입 한계로 named property로 분리
@@ -42,8 +42,8 @@ const totalEsgScore = ref(0)
 const KWH_PER_HOUR = 0.08
 const EMISSION_FACTOR = 0.478
 
-const formatImpactNumber = (value: number, maximumFractionDigits = 3) =>
-  value.toLocaleString(undefined, { maximumFractionDigits })
+const formatImpactNumber = (value: number | null | undefined, maximumFractionDigits = 3) =>
+  value == null ? '-' : value.toLocaleString(undefined, { maximumFractionDigits })
 
 onMounted(async () => {
   loading.value = true
@@ -59,7 +59,7 @@ onMounted(async () => {
       electricitySavedKwh: impact?.electricitySavedKwh ?? 0,
       co2SavedKg: impact?.co2SavedKg ?? 0,
       smartphoneChargeEquivalentCount: impact?.smartphoneChargeEquivalentCount ?? 0,
-      minutesPerCitedAnswer: impact?.minutesPerCitedAnswer ?? 3,
+      minutesPerCitedAnswer: impact?.minutesPerCitedAnswer ?? null,
     }
   } catch {
     error.value = '리더보드를 불러오지 못했습니다.'
@@ -215,7 +215,8 @@ onMounted(async () => {
           <div v-if="showFormula" class="formula-box">
             <div class="formula-title">📐 계산 기준</div>
             <p>
-              Σ 날짜 d∈W Σ 사용자 u min(사용자 u의 d일 인용 포함 챗봇 답변 수 × {{ formatImpactNumber(environmentImpact.minutesPerCitedAnswer, 1) }}분, 37.8분) ÷ 60분 =
+              Σ 날짜 d∈W Σ 사용자 u min(사용자 u의 d일 인용 포함 챗봇 답변 수 ×
+              <code>{{ formatImpactNumber(environmentImpact.minutesPerCitedAnswer, 1) }}분</code>, 37.8분) ÷ 60분 =
               <code>{{ formatImpactNumber(environmentImpact.savedWorkHours, 2) }}시간</code>
             </p>
             <p>
@@ -229,7 +230,7 @@ onMounted(async () => {
               <code>{{ formatImpactNumber(environmentImpact.co2SavedKg) }}kgCO₂e</code>
             </p>
             <div class="formula-notes">
-              <p>※ 답변 1건당 평균 {{ formatImpactNumber(environmentImpact.minutesPerCitedAnswer, 1) }}분의 정보 탐색 시간 절감 효과를 적용합니다.</p>
+              <p>※ 답변 1건당 평균 절감 시간은 워키 질문 등록부터 첫 답변까지의 평균 시간에서 챗봇 응답 기준 10초를 제외해 산정합니다.</p>
               <p>※ 사용자별 일일 최대 절감 시간은 McKinsey 연구에서 제시한 정보 탐색 시간 절감 효과 37.8분을 기준으로 제한합니다.</p>
               <p>※ 전력 절감 효과는 노트북 및 모니터 사용 환경을 기준으로 평균 소비전력 80W를 가정하여 산정합니다.</p>
               <p>※ CO₂ 절감 효과는 대한민국 전력 배출계수를 적용하여 산정합니다.</p>
