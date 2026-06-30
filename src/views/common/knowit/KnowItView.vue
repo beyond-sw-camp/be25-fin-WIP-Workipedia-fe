@@ -113,11 +113,11 @@ function formatAnswerText(text = ''): TextSegment[] {
 
 // source_type → 표시 라벨/색상 + 내부 상세 경로 prefix
 const SOURCE_TYPE_CONFIG: Record<string, { label: string; cls: Source['cls']; route?: string }> = {
-  MANUAL:            { label: '규정집',    cls: 'green', route: '/manuals' },
-  MANUAL_KNOWLEDGE:  { label: '수기 지식', cls: 'green', route: '/direct-data' },
-  WORKI:             { label: '워키 답변', cls: 'blue',  route: '/worki' },
-  TICKET:            { label: '티켓 답변', cls: 'blue',  route: '/tickets' },
-  KNOWLEDGE_DATA:    { label: '지식 문서', cls: 'green', route: '/knowledge' },
+  MANUAL:            { label: '매뉴얼',    cls: 'green',  route: '/manuals' },
+  MANUAL_KNOWLEDGE:  { label: '수기 지식', cls: 'orange', route: '/direct-data' },
+  WORKI:             { label: '워키 답변', cls: 'blue',   route: '/worki' },
+  TICKET:            { label: '티켓 답변', cls: 'blue',   route: '/tickets' },
+  KNOWLEDGE_DATA:    { label: '지식 문서', cls: 'purple', route: '/knowledge' },
   CHAT:              { label: '채팅 답변', cls: 'gray' },
 }
 
