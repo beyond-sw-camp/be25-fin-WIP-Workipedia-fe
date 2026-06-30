@@ -1,4 +1,4 @@
-import http from './index'
+﻿import http from './index'
 import type { ApiResponse } from './index'
 import type { TicketResponse } from '@/types/ticket'
 import type { PageResponse, PageParams } from '@/types/common'
@@ -49,7 +49,7 @@ export function updateUserRole(userId: number, role: 'TEAM_ADMIN') {
   return http.patch<AdminUser>(`/admin/users/${userId}/role`, { role })
 }
 
-// ── 매뉴얼 관리 ────────────────────────────────────────────────
+// ── 규정집 관리 ────────────────────────────────────────────────
 export type ManualAiSyncStatus = 'SYNCED' | 'PENDING' | 'PROCESSING' | 'FAILED' | 'EMPTY'
 
 export interface AdminManual {
