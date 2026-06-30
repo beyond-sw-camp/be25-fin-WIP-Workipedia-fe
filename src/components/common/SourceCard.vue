@@ -5,7 +5,7 @@ import { ArrowRight } from '@lucide/vue'
 
 export interface Source {
   type: string
-  cls: 'blue' | 'green' | 'gray'
+  cls: 'blue' | 'green' | 'gray' | 'purple' | 'orange'
   meta: string
   date?: string
   body?: string   // API에 content snippet 필드 추가 시 채워짐
@@ -21,17 +21,19 @@ function navigateToSource() {
 }
 
 const borderColor = computed(() => ({
-  blue: '#cfe0ff', green: '#bfe9cf', gray: '#e5e7eb',
+  blue: '#cfe0ff', green: '#bfe9cf', gray: '#e5e7eb', purple: '#ddd6fe', orange: '#fed7aa',
 }[props.source.cls]))
 
 const bgColor = computed(() => ({
-  blue: '#f3f8ff', green: '#f2fcf6', gray: '#fafafa',
+  blue: '#f3f8ff', green: '#f2fcf6', gray: '#fafafa', purple: '#f5f3ff', orange: '#fff7ed',
 }[props.source.cls]))
 
 const badgeStyle = computed(() => ({
   blue: { background: '#2b7fff', color: '#fff' },
   green: { background: '#00a63e', color: '#fff' },
   gray: { background: '#eef0f3', color: '#4b5563' },
+  purple: { background: '#8b5cf6', color: '#fff' },
+  orange: { background: '#ea580c', color: '#fff' },
 }[props.source.cls]))
 </script>
 
