@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { isAxiosError } from 'axios'
 import { Bot } from '@lucide/vue'
@@ -23,7 +23,7 @@ type Section = 'prompt' | 'department' | 'manual' | 'sync' | 'tools'
 const sections: { id: Section; label: string; group: string }[] = [
   { id: 'prompt', label: '프롬프트 관리', group: 'AI 설정' },
   { id: 'department', label: '부서 티켓 배정 관리', group: 'AI 설정' },
-  { id: 'manual', label: '매뉴얼 문서 관리', group: 'AI 설정' },
+  { id: 'manual', label: '규정집 문서 관리', group: 'AI 설정' },
   { id: 'sync', label: 'AI 동기화 관리', group: 'AI 설정' },
   { id: 'tools', label: 'API Tool 관리', group: 'AI 설정' },
 ]
@@ -44,8 +44,8 @@ const sectionNotices: Record<Section, { label: string; tone: 'optional' | 'requi
   manual: {
     label: '선택 설정',
     tone: 'optional',
-    title: '매뉴얼 문서가 없어도 AI 서비스는 구동됩니다.',
-    description: '매뉴얼 RAG에서 답을 찾지 못하면 Tool, 해결 티켓 이력, 티켓 생성 제안으로 다음 경로를 진행합니다.',
+    title: '규정집 문서가 없어도 AI 서비스는 구동됩니다.',
+    description: '규정집 RAG에서 답을 찾지 못하면 Tool, 해결 티켓 이력, 티켓 생성 제안으로 다음 경로를 진행합니다.',
   },
   sync: {
     label: '운영 설정',
@@ -281,9 +281,9 @@ async function applyAiInstruction() {
   }
 }
 
-// ── 매뉴얼 문서 관리 ──────────────────────────────────────────
-// 매뉴얼의 AI Vector Store 적재 상태를 모니터링하고 FAILED 문서를 재시도한다.
-// 문서 등록·메타데이터 편집(제목·버전·부서)은 설정 관리 > 매뉴얼 탭에서 수행한다.
+// ── 규정집 문서 관리 ──────────────────────────────────────────
+// 규정집의 AI Vector Store 적재 상태를 모니터링하고 FAILED 문서를 재시도한다.
+// 문서 등록·메타데이터 편집(제목·버전·부서)은 설정 관리 > 규정집 탭에서 수행한다.
 const adminManuals = ref<AdminManual[]>([])
 const manualSearch = ref('')
 const manualAiFilter = ref<ManualAiSyncStatus | ''>('')
@@ -367,11 +367,11 @@ watch(filteredManuals, () => { manualCurrentPage.value = 1 })
 async function loadManuals() {
   try {
     // BasePageRequest @Max(100) 제약으로 size 최대값은 100이다.
-    // 매뉴얼이 100개를 초과하는 시점에 전 페이지 순회 방식으로 전환해야 한다.
+    // 규정집이 100개를 초과하는 시점에 전 페이지 순회 방식으로 전환해야 한다.
     const res = await getAdminManuals({ size: 100 })
     adminManuals.value = res.data.content ?? []
   } catch {
-    showSaved('매뉴얼 목록을 불러오지 못했습니다.', 'error')
+    showSaved('규정집 목록을 불러오지 못했습니다.', 'error')
   }
 }
 
@@ -1119,11 +1119,11 @@ onUnmounted(stopDeptPolling)
           </div>
         </template>
 
-        <!-- ── 매뉴얼 문서 관리 ── -->
+        <!-- ── 규정집 문서 관리 ── -->
         <template v-else-if="activeSection === 'manual'">
           <div class="workspace-title">
             <div>
-              <h2>매뉴얼 문서 관리</h2>
+              <h2>규정집 문서 관리</h2>
               <p>문서의 AI 적재(Vector Store 반영) 상태를 확인하고 실패한 문서를 재시도합니다.</p>
             </div>
           </div>
@@ -1212,7 +1212,7 @@ onUnmounted(stopDeptPolling)
           </div>
 
           <div class="inline-note routing-note">
-            제목·버전·부서 등 메타데이터 수정은 설정 관리 &gt; 매뉴얼 탭에서 수행합니다.
+            제목·버전·부서 등 메타데이터 수정은 설정 관리 &gt; 규정집 탭에서 수행합니다.
           </div>
         </template>
 
@@ -1676,7 +1676,7 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
 .department-btn-retry { border: 1px solid #ef4444; color: #ef4444; background: #fff; font-size: 12px; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
 .department-btn-retry:hover { background: #fee2e2; }
 
-/* 매뉴얼 문서 관리 */
+/* 규정집 문서 관리 */
 .manual-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
 .manual-filter-select { min-height: 36px; padding: 0 10px; border: 1px solid #ccd3da; border-radius: 5px; background: #fff; color: #34404c; font: inherit; font-size: 12px; }
 .manual-title-cell { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #26323e; }

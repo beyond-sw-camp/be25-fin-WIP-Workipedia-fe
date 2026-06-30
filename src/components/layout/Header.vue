@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import {
@@ -18,8 +18,8 @@ const PAGE_META: Record<string, { label: string; icon: object; color: string }> 
   chat:                  { label: '채팅',                  icon: MessagesSquare,  color: '#06b6d4' },
   leaderboard:           { label: '리더보드',              icon: Trophy,          color: '#f59e0b' },
   search:                { label: '통합 검색',             icon: Search,          color: '#64748b' },
-  manuals:               { label: '매뉴얼',                icon: BookOpen,        color: '#10b981' },
-  'manual-detail':       { label: '매뉴얼',           icon: BookOpen,        color: '#10b981' },
+  manuals:               { label: '규정집',                icon: BookOpen,        color: '#10b981' },
+  'manual-detail':       { label: '규정집',           icon: BookOpen,        color: '#10b981' },
   knowledge:             { label: '지식화 게시판',         icon: Library,         color: '#3b82f6' },
   'knowledge-dept':      { label: '지식화 게시판',         icon: Library,         color: '#3b82f6' },
   'knowledge-detail':    { label: '지식화 게시판',         icon: Library,         color: '#3b82f6' },

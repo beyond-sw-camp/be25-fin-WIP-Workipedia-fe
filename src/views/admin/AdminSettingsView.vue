@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import { useAuthStore } from '@/stores/authStore'
 import {
@@ -137,7 +137,7 @@ async function confirmPromote() {
   }
 }
 
-// ── 매뉴얼 관리 ────────────────────────────────────────────────
+// ── 규정집 관리 ────────────────────────────────────────────────
 const adminManuals = ref<AdminManual[]>([])
 const manualsLoading = ref(false)
 const existingFileMap = ref(new Map<string, { manualId: number; title: string }>())
@@ -163,11 +163,11 @@ const uploadedFiles = ref<File[]>([])
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const fileError = ref(false)
 const fileConflict = ref(false)
-// PDF 업로드+매뉴얼 생성 요청이 진행 중인지 추적. 더블클릭·네트워크 재시도로 인한 중복 요청을 차단한다.
+// PDF 업로드+규정집 생성 요청이 진행 중인지 추적. 더블클릭·네트워크 재시도로 인한 중복 요청을 차단한다.
 const manualSubmitting = ref(false)
 
 // ── 파일 중복 감지 (SHA-256 콘텐츠 해시 기반 localStorage) ──────
-// 동일 파일을 여러 매뉴얼에 등록하는 것을 막기 위해 SHA-256 콘텐츠 해시를 키로 localStorage에 저장한다.
+// 동일 파일을 여러 규정집에 등록하는 것을 막기 위해 SHA-256 콘텐츠 해시를 키로 localStorage에 저장한다.
 // 파일 이름이 달라도 내용이 같으면 감지되며, 브라우저 세션을 넘어 누적된다.
 const MANUAL_FILES_KEY = 'admin_manual_file_registry'
 type FilesRegistry = Record<string, { manualId: number; title: string; fileName?: string }>
@@ -192,8 +192,8 @@ function unregisterManualFiles(manualId: number) {
   }
   localStorage.setItem(MANUAL_FILES_KEY, JSON.stringify(reg))
 }
-// 업로드된 파일 전체가 기존 매뉴얼과 중복 → fileConflict=true로 저장 버튼 비활성화
-// 일부만 중복 → 안내 토스트만 표시(저장은 허용). skipId: 수정 중인 매뉴얼 자신의 파일은 제외.
+// 업로드된 파일 전체가 기존 규정집과 중복 → fileConflict=true로 저장 버튼 비활성화
+// 일부만 중복 → 안내 토스트만 표시(저장은 허용). skipId: 수정 중인 규정집 자신의 파일은 제외.
 // checkFileDuplicates는 해시 레지스트리(localStorage)와 existingFileMap(초기 로딩 시 구성) 둘 다 확인한다.
 async function checkFileDuplicates(files: File[]) {
   const reg = getFilesRegistry()
@@ -220,8 +220,8 @@ async function checkFileDuplicates(files: File[]) {
     fileConflict.value = true
     const manualNames = [...new Set(matched.map(r => `"${r.entry!.title}"`))]
     showToast(
-      '이미 존재하는 매뉴얼',
-      `${manualNames.join(', ')} 매뉴얼에 이미 업로드된 파일입니다. 기존 매뉴얼을 수정해주세요.`,
+      '이미 존재하는 규정집',
+      `${manualNames.join(', ')} 규정집에 이미 업로드된 파일입니다. 기존 규정집을 수정해주세요.`,
       'error'
     )
   } else {
@@ -270,7 +270,7 @@ function manualFileUrls(m: Pick<AdminManual, 'fileUrl' | 'fileUrls'> | null | un
   if (m.fileUrls?.length) return m.fileUrls.filter(Boolean)
   return m.fileUrl ? [m.fileUrl] : []
 }
-// 신규 매뉴얼 폼을 초기화한 뒤 폼 DOM으로 스크롤한다. nextTick은 v-if가 DOM을 렌더링한 후 ref가 유효해지는 시점을 보장한다.
+// 신규 규정집 폼을 초기화한 뒤 폼 DOM으로 스크롤한다. nextTick은 v-if가 DOM을 렌더링한 후 ref가 유효해지는 시점을 보장한다.
 function openManualForm() {
   editingManual.value = { title: '', description: '', category: '인사 관리', departmentId: null }
   uploadedFiles.value = []
@@ -322,7 +322,7 @@ async function handleManualFileUpload(e: Event) {
 function fmtDate(dt: string) {
   return dt.replace('T', ' ').slice(0, 19)
 }
-// 매뉴얼 목록을 로드하고 파일 중복 감지용 인메모리 맵을 재구성한다.
+// 규정집 목록을 로드하고 파일 중복 감지용 인메모리 맵을 재구성한다.
 // buildExistingFileMap은 finally에서 호출해 에러 시에도 맵이 초기화되도록 한다.
 async function loadManuals() {
   manualsLoading.value = true
@@ -338,7 +338,7 @@ async function loadManuals() {
 }
 
 // 어드민 목록 응답에 fileUrl이 포함된 항목만 인메모리 맵에 등록한다.
-// fileUrl이 없는 항목에 대해 /manuals/{id}를 추가 호출하던 로직은 삭제된 매뉴얼에서 404가 발생해 제거했다.
+// fileUrl이 없는 항목에 대해 /manuals/{id}를 추가 호출하던 로직은 삭제된 규정집에서 404가 발생해 제거했다.
 // 주요 중복 감지는 SHA-256 기반 localStorage 레지스트리로 충분히 커버된다.
 function buildExistingFileMap(manuals: AdminManual[]) {
   const map = new Map<string, { manualId: number; title: string }>()
@@ -352,7 +352,7 @@ async function saveManual() {
   if (!editingManual.value) return
   if (manualSubmitting.value) return
   if (!editingManual.value.title.trim()) {
-    showToast('매뉴얼 제목을 입력해주세요.', '', 'error')
+    showToast('규정집 제목을 입력해주세요.', '', 'error')
     return
   }
   if (!editingManual.value.id && uploadedFiles.value.length === 0) {
@@ -361,7 +361,7 @@ async function saveManual() {
   }
   // fileConflict는 checkFileDuplicates에서 설정. 템플릿의 :disabled와 이중으로 막아 저장을 방지한다.
   if (fileConflict.value) {
-    showToast('이미 존재하는 매뉴얼', '동일한 파일이 이미 업로드된 매뉴얼이 있습니다. 기존 매뉴얼을 수정해주세요.', 'error')
+    showToast('이미 존재하는 규정집', '동일한 파일이 이미 업로드된 규정집이 있습니다. 기존 규정집을 수정해주세요.', 'error')
     return
   }
   manualSubmitting.value = true
@@ -396,12 +396,12 @@ async function saveManual() {
         savedVersion = updateRes.data.version
       }
       const toastVersion = fmtVersion(savedVersion)
-      showToast(toastVersion ? `매뉴얼이 수정되었습니다. (${toastVersion})` : '매뉴얼이 수정되었습니다.')
+      showToast(toastVersion ? `규정집이 수정되었습니다. (${toastVersion})` : '규정집이 수정되었습니다.')
       editingManual.value = null
       uploadedFiles.value = []
       await loadManuals()
     } else {
-      // 여러 PDF 파일은 같은 제목의 매뉴얼 하나에 첨부 파일 목록으로 저장한다.
+      // 여러 PDF 파일은 같은 제목의 규정집 하나에 첨부 파일 목록으로 저장한다.
       const formData = new FormData()
       formData.append('title', editingManual.value.title)
       formData.append('description', editingManual.value.description)
@@ -424,8 +424,8 @@ async function saveManual() {
         await loadManuals()
       }
       showToast(fileCount > 1
-        ? `새 매뉴얼에 ${fileCount}개 파일이 추가되었습니다.`
-        : '새 매뉴얼이 추가되었습니다.'
+        ? `새 규정집에 ${fileCount}개 파일이 추가되었습니다.`
+        : '새 규정집이 추가되었습니다.'
       )
     }
     await nextTick()
@@ -434,21 +434,21 @@ async function saveManual() {
   } catch (err: unknown) {
     const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
     console.error('[saveManual]', err)
-    showToast('매뉴얼 저장에 실패했습니다.', msg ?? '', 'error')
+    showToast('규정집 저장에 실패했습니다.', msg ?? '', 'error')
   } finally {
     manualSubmitting.value = false
   }
 }
 const deleteManualId = ref<number | null>(null)
-// 삭제 시 레지스트리에서도 해당 매뉴얼의 해시를 제거해, 같은 파일을 재업로드할 때 오탐을 방지한다.
+// 삭제 시 레지스트리에서도 해당 규정집의 해시를 제거해, 같은 파일을 재업로드할 때 오탐을 방지한다.
 async function confirmDeleteManual() {
   if (!deleteManualId.value) return
   try {
     await deleteAdminManual(deleteManualId.value)
     adminManuals.value = adminManuals.value.filter(m => m.manualId !== deleteManualId.value)
-    showToast('매뉴얼이 삭제되었습니다.')
+    showToast('규정집이 삭제되었습니다.')
   } catch {
-    showToast('매뉴얼 삭제에 실패했습니다.', '', 'error')
+    showToast('규정집 삭제에 실패했습니다.', '', 'error')
   }
   deleteManualId.value = null
 }
@@ -778,7 +778,7 @@ async function confirmDeleteKnowledge() {
 }
 
 // ── Init ───────────────────────────────────────────────────────
-// 사용자·포인트 탭은 처음 진입할 때만 API를 호출한다. 매뉴얼·부서는 onMounted에서 미리 로드한다.
+// 사용자·포인트 탭은 처음 진입할 때만 API를 호출한다. 규정집·부서는 onMounted에서 미리 로드한다.
 const loadedTabs = new Set<Tab>()
 function loadTabData(tab: Tab) {
   if (loadedTabs.has(tab)) return
@@ -833,11 +833,11 @@ onMounted(() => {
       </div>
       <div class="card stat-card stat-purple">
         <div class="stat-row">
-          <span class="stat-label">총 매뉴얼</span>
+          <span class="stat-label">총 규정집</span>
           <div class="stat-icon si-purple"><FileText :size="16" color="#a855f7" /></div>
         </div>
         <div class="stat-val">{{ adminManuals.length }}</div>
-        <div class="stat-sub">등록된 매뉴얼 수</div>
+        <div class="stat-sub">등록된 규정집 수</div>
       </div>
     </div>
 
@@ -845,38 +845,38 @@ onMounted(() => {
     <div class="tab-bar">
       <button v-for="t in (['manual','knowledge','departments','users','points','chat'] as Tab[])"
         :key="t" :class="['tab', { 'tab--active': activeTab === t }]" @click="activeTab = t">
-        {{ { manual:'매뉴얼 관리', knowledge:'수기 지식 관리', departments:'부서 관리', users:'사용자 관리', points:'포인트 사용', chat:'채팅 옵션' }[t] }}
+        {{ { manual:'규정집 관리', knowledge:'수기 지식 관리', departments:'부서 관리', users:'사용자 관리', points:'포인트 사용', chat:'채팅 옵션' }[t] }}
       </button>
     </div>
 
-    <!-- ────────────── 매뉴얼 관리 ────────────── -->
+    <!-- ────────────── 규정집 관리 ────────────── -->
     <div v-show="activeTab === 'manual'" class="card section-card">
       <div class="sec-head">
         <div>
-          <h3 class="sec-title"><FileText :size="17" color="#3b82f6" /> 매뉴얼 관리</h3>
-          <p class="sec-desc">모든 매뉴얼을 확인하고 추가, 수정, 삭제할 수 있습니다</p>
+          <h3 class="sec-title"><FileText :size="17" color="#3b82f6" /> 규정집 관리</h3>
+          <p class="sec-desc">모든 규정집을 확인하고 추가, 수정, 삭제할 수 있습니다</p>
         </div>
         <button class="btn primary" @click="openManualForm">
-          <Plus :size="15" /> 새 매뉴얼 추가
+          <Plus :size="15" /> 새 규정집 추가
         </button>
       </div>
 
       <!-- 검색 -->
       <div class="search-bar" style="margin-bottom: 16px;">
         <Search :size="16" />
-        <input v-model="manualSearchQuery" placeholder="매뉴얼 제목 또는 내용 검색..." />
+        <input v-model="manualSearchQuery" placeholder="규정집 제목 또는 내용 검색..." />
       </div>
 
       <!-- 편집 폼 -->
       <div v-if="editingManual" ref="manualFormRef" class="edit-box">
-        <h4 class="edit-title">{{ editingManual.id ? '매뉴얼 수정' : '새 매뉴얼 작성' }}</h4>
+        <h4 class="edit-title">{{ editingManual.id ? '규정집 수정' : '새 규정집 작성' }}</h4>
         <div class="field">
           <label>제목</label>
-          <input v-model="editingManual.title" class="text-input" placeholder="매뉴얼 제목을 입력하세요" />
+          <input v-model="editingManual.title" class="text-input" placeholder="규정집 제목을 입력하세요" />
         </div>
         <div class="field">
           <label>설명</label>
-          <textarea v-model="editingManual.description" class="textarea-input" rows="2" placeholder="매뉴얼 설명을 입력하세요" />
+          <textarea v-model="editingManual.description" class="textarea-input" rows="2" placeholder="규정집 설명을 입력하세요" />
         </div>
         <div class="field">
           <label>부서</label>
@@ -1259,11 +1259,11 @@ onMounted(() => {
 
     <!-- ── 삭제 확인 모달 ── -->
     <Teleport to="body">
-      <!-- 매뉴얼 삭제 -->
+      <!-- 규정집 삭제 -->
       <div v-if="deleteManualId" class="modal-overlay" @click.self="deleteManualId = null">
         <div class="modal-box">
-          <h4 class="modal-title">매뉴얼을 삭제하시겠습니까?</h4>
-          <p class="modal-desc">삭제된 매뉴얼은 복구할 수 없습니다.</p>
+          <h4 class="modal-title">규정집을 삭제하시겠습니까?</h4>
+          <p class="modal-desc">삭제된 규정집은 복구할 수 없습니다.</p>
           <div class="btn-row" style="justify-content:flex-end;">
             <button class="btn" @click="deleteManualId = null">취소</button>
             <button class="btn danger" @click="confirmDeleteManual">삭제</button>

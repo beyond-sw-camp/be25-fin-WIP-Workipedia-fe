@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
@@ -174,8 +174,8 @@ onMounted(async () => {
           </div>
           <div class="notif-row">
             <div>
-              <div class="notif-name">매뉴얼 알림</div>
-              <div class="notif-desc">새 매뉴얼 등록 및 업데이트 시 알림</div>
+              <div class="notif-name">규정집 알림</div>
+              <div class="notif-desc">새 규정집 등록 및 업데이트 시 알림</div>
             </div>
             <label class="toggle">
               <input type="checkbox" :checked="notifications.manual"

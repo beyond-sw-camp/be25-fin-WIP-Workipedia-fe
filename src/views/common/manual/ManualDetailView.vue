@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ChevronLeft, BookOpen, ExternalLink, Calendar, FileDown, FileText, Maximize2 } from '@lucide/vue'
@@ -49,7 +49,7 @@ function formatDate(iso: string) {
 }
 
 // ?from 쿼리로 진입 경로를 판단해 올바른 페이지로 복귀한다.
-// from=faq → FAQ 매뉴얼 탭, from=search → 통합 검색, 그 외 → 매뉴얼 목록
+// from=faq → FAQ 규정집 탭, from=search → 통합 검색, 그 외 → 규정집 목록
 function goBack() {
   if (route.query.from === 'faq') {
     router.push('/faq?tab=manual')
@@ -71,7 +71,7 @@ onMounted(async () => {
     const res = await getManualDetail(id)
     manual.value = res.data
   } catch {
-    error.value = '매뉴얼을 불러오지 못했습니다.'
+    error.value = '규정집을 불러오지 못했습니다.'
   } finally {
     loading.value = false
   }
@@ -140,7 +140,7 @@ onMounted(async () => {
       </div>
 
       <div v-if="!previewPdfUrl" class="card content-card">
-        <div class="content-label">매뉴얼 내용</div>
+        <div class="content-label">규정집 내용</div>
         <div class="manual-body">{{ manual.content }}</div>
       </div>
 
@@ -162,7 +162,7 @@ onMounted(async () => {
         <iframe
           class="pdf-frame"
           :src="previewPdfUrl"
-          title="매뉴얼 PDF 미리보기"
+          title="규정집 PDF 미리보기"
         ></iframe>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+﻿import { createRouter, createWebHistory } from 'vue-router'
 import { setupGuards } from './guards'
 import { ROLES } from '@/constants/roles'
 import type { Role } from '@/constants/roles'
@@ -93,7 +93,7 @@ const router = createRouter({
           component: () => import('@/views/common/ticket/TicketDetailView.vue'),
         },
 
-        // 매뉴얼
+        // 규정집
         {
           path: 'manuals',
           name: 'manuals',

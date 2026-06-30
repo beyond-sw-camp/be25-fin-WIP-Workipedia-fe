@@ -1,5 +1,5 @@
-<script setup lang="ts">
-// 자주 찾는 항목 페이지 — 인기 워키 / 인기 매뉴얼 / 시스템 사용법 3탭 구조.
+﻿<script setup lang="ts">
+// 자주 찾는 항목 페이지 — 인기 워키 / 인기 규정집 / 시스템 사용법 3탭 구조.
 // 챗봇 화면의 물음표 아이콘이 /faq?tab=usage로 이동해 시스템 사용법 탭을 직접 열 수 있도록
 // URL 쿼리 파라미터(?tab=)로 진입 탭을 결정하며, 탭 전환은 컴포넌트 상태로 관리한다.
 // 시스템 사용법 탭은 정적 콘텐츠이므로 API를 호출하지 않는다.
@@ -38,7 +38,7 @@ function formatDate(iso: string) {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
 }
 
-// 인기 워키·매뉴얼 데이터를 병렬 요청한다.
+// 인기 워키·규정집 데이터를 병렬 요청한다.
 // 사용법 탭은 정적 콘텐츠이므로 API 불필요.
 // showSpinner=false 로 호출하면(포커스 복귀 시 백그라운드 갱신) 화면 깜빡임 없이 좋아요 수만 최신화한다.
 async function loadPopular(showSpinner = true) {
@@ -83,13 +83,13 @@ const systemFAQs = [
     id: 1,
     category: '기본 사용법',
     question: 'Worki-t는 어떻게 사용하나요?',
-    answer: 'Worki-t는 사내 지식 공유 플랫폼입니다. AI 챗봇 \'노잇\'을 통해 질문하거나, 워키 게시판에서 지식을 공유하고, 매뉴얼을 검색할 수 있습니다. 메인 화면의 노잇 챗봇에 궁금한 점을 물어보세요!',
+    answer: 'Worki-t는 사내 지식 공유 플랫폼입니다. AI 챗봇 \'노잇\'을 통해 질문하거나, 워키 게시판에서 지식을 공유하고, 규정집을 검색할 수 있습니다. 메인 화면의 노잇 챗봇에 궁금한 점을 물어보세요!',
   },
   {
     id: 2,
     category: '기본 사용법',
     question: '통합 검색은 어떻게 사용하나요?',
-    answer: '상단의 검색 아이콘을 클릭하면 통합 검색 페이지로 이동합니다. 매뉴얼, 워키, 티켓 등 모든 콘텐츠를 한 번에 검색할 수 있으며, 필터를 통해 원하는 카테고리만 선택할 수도 있습니다.',
+    answer: '상단의 검색 아이콘을 클릭하면 통합 검색 페이지로 이동합니다. 규정집, 워키, 티켓 등 모든 콘텐츠를 한 번에 검색할 수 있으며, 필터를 통해 원하는 카테고리만 선택할 수도 있습니다.',
   },
   {
     id: 3,
@@ -152,7 +152,7 @@ const systemFAQs = [
         <Heart :size="14" /> 인기 워키
       </button>
       <button :class="{ on: activeTab === 'manual' }" @click="activeTab = 'manual'">
-        <TrendingUp :size="14" /> 인기 매뉴얼
+        <TrendingUp :size="14" /> 인기 규정집
       </button>
       <button :class="{ on: activeTab === 'usage' }" @click="activeTab = 'usage'">
         <HelpCircle :size="14" /> 시스템 사용법
@@ -189,12 +189,12 @@ const systemFAQs = [
       </div>
     </template>
 
-    <!-- 인기 매뉴얼 탭 -->
+    <!-- 인기 규정집 탭 -->
     <template v-else-if="activeTab === 'manual'">
       <div v-if="loading" class="empty-ph" style="height: 240px;">불러오는 중...</div>
       <div v-else-if="error" class="empty-ph" style="height: 240px;">{{ error }}</div>
       <div v-else class="card faq-section">
-        <p class="tab-desc">AI 챗봇 답변에서 가장 많이 인용된 매뉴얼입니다</p>
+        <p class="tab-desc">AI 챗봇 답변에서 가장 많이 인용된 규정집입니다</p>
         <div v-if="popularManuals.length === 0" class="section-empty">데이터가 없습니다</div>
         <div v-else class="rank-list">
           <div
