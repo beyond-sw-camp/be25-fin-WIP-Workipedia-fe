@@ -1,4 +1,4 @@
-import type { PageResponse } from '@/types/common'
+﻿import type { PageResponse } from '@/types/common'
 import type { WorkiSearchResponse } from '@/types/worki'
 import type { ManualStatus } from '@/types/manual'
 
@@ -14,8 +14,8 @@ export interface ManualSearchResponse {
 }
 
 // BE: search.dto.IntegratedSearchResponse
-// 워키(ES) + 매뉴얼(DB)을 도메인별로 분리해 담는다.
-// 각 도메인 pageInfo.totalElements 로 "워키 N건 / 매뉴얼 N건"을 표시할 수 있다.
+// 워키(ES) + 규정집(DB)을 도메인별로 분리해 담는다.
+// 각 도메인 pageInfo.totalElements 로 "워키 N건 / 규정집 N건"을 표시할 수 있다.
 export interface IntegratedSearchResponse {
   worki: PageResponse<WorkiSearchResponse>
   manuals: PageResponse<ManualSearchResponse>

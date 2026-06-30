@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { RouterLink, useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
@@ -106,7 +106,7 @@ const initials = computed(() =>
         <Search :size="16" /> 통합 검색
       </RouterLink>
       <RouterLink to="/manuals" class="nav-item nav-item-secondary" :class="{ 'router-link-active': isNavActive('/manuals') }">
-        <BookOpen :size="16" /> 매뉴얼
+        <BookOpen :size="16" /> 규정집
       </RouterLink>
       <RouterLink to="/knowledge" class="nav-item nav-item-secondary" :class="{ 'router-link-active': isNavActive('/knowledge') }">
         <Library :size="16" /> 지식화 게시판

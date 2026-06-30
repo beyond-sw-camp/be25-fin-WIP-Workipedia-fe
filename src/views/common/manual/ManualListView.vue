@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
@@ -141,14 +141,14 @@ function formatUpdateReason(reason: string | null | undefined) {
   if (!reason?.trim()) return ''
   const normalized = reason.trim().toUpperCase()
   const labels: Record<string, string> = {
-    INITIAL_PDF_UPLOAD: 'PDF 매뉴얼이 처음 등록되었습니다.',
+    INITIAL_PDF_UPLOAD: 'PDF 규정집이 처음 등록되었습니다.',
     PDF_UPLOAD: 'PDF 파일이 새 버전으로 업로드되었습니다.',
     FILE_ADDED: '첨부 파일이 추가되었습니다.',
     FILE_REMOVED: '첨부 파일이 삭제되었습니다.',
     FILE_REPLACED: '첨부 파일이 교체되었습니다.',
-    ADMIN_UPDATE: '관리자가 매뉴얼 정보를 수정했습니다.',
-    CONTENT_UPDATE: '매뉴얼 본문이 수정되었습니다.',
-    METADATA_UPDATE: '매뉴얼 기본 정보가 수정되었습니다.',
+    ADMIN_UPDATE: '관리자가 규정집 정보를 수정했습니다.',
+    CONTENT_UPDATE: '규정집 본문이 수정되었습니다.',
+    METADATA_UPDATE: '규정집 기본 정보가 수정되었습니다.',
   }
   return labels[normalized] ?? reason
 }
@@ -198,7 +198,7 @@ async function fetchPage(pageNum: number) {
     page.value = pageNum
     await Promise.all(res.data.content.slice(0, 12).map((m) => loadVersions(m.manualId)))
   } catch {
-    error.value = '매뉴얼을 불러오지 못했습니다.'
+    error.value = '규정집을 불러오지 못했습니다.'
   } finally {
     loading.value = false
   }
@@ -230,16 +230,16 @@ onMounted(() => {
       <div>
         <h1 class="page-title">
           <BookOpen :size="28" color="#10b981" />
-          매뉴얼
+          규정집
         </h1>
-        <p class="page-sub">사내 매뉴얼과 최근 변경사항, 첨부 파일, 버전 이력을 확인하세요.</p>
+        <p class="page-sub">사내 규정집과 최근 변경사항, 첨부 파일, 버전 이력을 확인하세요.</p>
       </div>
     </div>
 
     <div class="manual-controls">
       <div class="search-bar manual-search">
         <Search :size="16" />
-        <input v-model="query" placeholder="매뉴얼 제목 또는 설명 검색" />
+        <input v-model="query" placeholder="규정집 제목 또는 설명 검색" />
       </div>
       <div class="seg compact">
         <button :class="{ on: activeTab === 'recent' }" @click="switchTab('recent')">
@@ -254,7 +254,7 @@ onMounted(() => {
     <div v-if="loading && manuals.length === 0" class="empty-ph" style="height: 240px;">불러오는 중...</div>
     <div v-else-if="error && manuals.length === 0" class="empty-ph" style="height: 240px;">{{ error }}</div>
     <div v-else-if="visibleManuals.length === 0" class="empty-ph" style="height: 240px;">
-      {{ query.trim() ? '검색 결과가 없습니다' : '등록된 매뉴얼이 없습니다' }}
+      {{ query.trim() ? '검색 결과가 없습니다' : '등록된 규정집이 없습니다' }}
     </div>
 
     <template v-else>
