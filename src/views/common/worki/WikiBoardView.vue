@@ -212,7 +212,7 @@ watch(
         </button>
       </div>
 
-      <div class="search-bar" style="flex: 1; max-width: 380px; position: relative;">
+      <div class="search-bar" style="flex: 1; position: relative;">
         <Search :size="16" />
         <input
           v-model="query"
