@@ -44,9 +44,9 @@ watch(password, (val) => {
 })
 
 const QUICK_ACCOUNTS = [
-  { label: '일반 사용자', role: 'USER',         employeeId: 'U1001', password: 'Test1234', icon: User },
-  { label: '팀 관리자',   role: 'TEAM_ADMIN',   employeeId: 'TA001', password: 'Test1234', icon: Users },
-  { label: '시스템 관리자', role: 'SYSTEM_ADMIN', employeeId: 'SA001', password: 'Test1234', icon: ShieldCheck },
+  { label: '일반 사용자', role: 'USER',         employeeId: 'TA003', password: 'Test1234', icon: User },
+  { label: '팀 관리자',   role: 'TEAM_ADMIN',   employeeId: 'TA002', password: 'Test1234', icon: Users },
+  { label: '시스템 관리자', role: 'SYSTEM_ADMIN', employeeId: 'TA001', password: 'Test1234', icon: ShieldCheck },
 ] as const
 
 // 폼 값을 채우고 바로 로그인 처리한다. validate()의 영문+숫자 8자 이상 조건을 Test1234가 통과한다.
