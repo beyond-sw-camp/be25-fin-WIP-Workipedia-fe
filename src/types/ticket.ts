@@ -45,6 +45,7 @@ export interface TicketResponse {
   content: string
   transferReason: string | null
   assigneeId: number | null
+  completedAt: string | null
   createdAt: string
   updatedAt: string
   fileUrl?: string | null
