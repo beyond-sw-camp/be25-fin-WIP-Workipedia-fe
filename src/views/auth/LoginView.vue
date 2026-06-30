@@ -44,8 +44,8 @@ watch(password, (val) => {
 })
 
 const QUICK_ACCOUNTS = [
-  { label: '일반 사용자', role: 'USER',         employeeId: 'U1001', password: 'Test1234', icon: User },
-  { label: '팀 관리자',   role: 'TEAM_ADMIN',   employeeId: 'TA001', password: 'Test1234', icon: Users },
+  { label: '일반 사용자', role: 'USER',         employeeId: 'SA003', password: 'Test1234', icon: User },
+  { label: '팀 관리자',   role: 'TEAM_ADMIN',   employeeId: 'SA002', password: 'Test1234', icon: Users },
   { label: '시스템 관리자', role: 'SYSTEM_ADMIN', employeeId: 'SA001', password: 'Test1234', icon: ShieldCheck },
 ] as const
 
