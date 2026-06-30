@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { X } from '@lucide/vue'
 import {
@@ -22,9 +22,9 @@ const error = ref('')
 type Tab = 'all' | 'ticket' | 'worki' | 'manual'
 const activeTab = ref<Tab>('all')
 
-// 카테고리는 티켓/게시판/매뉴얼 3가지다. 매핑되지 않는 타입은 null → 전체 탭에서만 노출.
-// DIRECT_DATA_ACTIVATED는 'manual'을 반환해 매뉴얼 탭에도 함께 표시된다.
-// badgeOf()는 kindOf()와 별개로 '수기 지식' 배지(초록)를 달아 매뉴얼과 시각적으로 구분한다.
+// 카테고리는 티켓/게시판/규정집 3가지다. 매핑되지 않는 타입은 null → 전체 탭에서만 노출.
+// DIRECT_DATA_ACTIVATED는 'manual'을 반환해 규정집 탭에도 함께 표시된다.
+// badgeOf()는 kindOf()와 별개로 '수기 지식' 배지(초록)를 달아 규정집과 시각적으로 구분한다.
 type Kind = 'ticket' | 'worki' | 'manual'
 function kindOf(type: NotificationType): Kind | null {
   switch (type) {
@@ -120,7 +120,7 @@ const NOTIFICATION_TITLES: Partial<Record<NotificationType, string>> = {
   WORKI_QUESTION_CREATED: '워키 질문이 등록되었습니다',
   WORKI_QUESTION_ANSWERED: '워키 답변이 등록되었습니다',
   WORKI_ANSWER_ACCEPTED: '워키 답변이 채택되었습니다',
-  MANUAL_UPDATED: '매뉴얼이 업데이트되었습니다',
+  MANUAL_UPDATED: '규정집이 업데이트되었습니다',
   DIRECT_DATA_ACTIVATED: '수기 지식이 등록되었습니다',
 }
 
@@ -128,8 +128,7 @@ function titleOf(n: NotificationResponse): string {
   return NOTIFICATION_TITLES[n.type] ?? n.title
 }
 
-// 패널은 미리보기 용도이므로 최신 20개만 로드한다. 페이지네이션 없음.
-onMounted(async () => {
+async function fetchNotifications() {
   loading.value = true
   try {
     const res = await getNotifications({ page: 0, size: 20 })
@@ -139,6 +138,24 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+}
+
+// 패널은 미리보기 용도이므로 최신 20개만 로드한다. 페이지네이션 없음.
+// 패널이 열려 있는 동안 15초마다 자동 새로고침해 실시간에 가깝게 유지한다.
+let refreshTimer: ReturnType<typeof setInterval> | null = null
+
+onMounted(() => {
+  fetchNotifications()
+  refreshTimer = setInterval(fetchNotifications, 15000)
+})
+
+onUnmounted(() => {
+  if (refreshTimer) clearInterval(refreshTimer)
+})
+
+// 폴링이 배지 카운트를 올리면 인터벌을 기다리지 않고 즉시 새로 불러온다.
+watch(() => notiStore.unreadCount, (newVal, oldVal) => {
+  if (newVal > oldVal) fetchNotifications()
 })
 </script>
 

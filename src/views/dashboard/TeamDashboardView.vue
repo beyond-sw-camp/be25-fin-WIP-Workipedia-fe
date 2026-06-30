@@ -653,6 +653,12 @@ function ticketFiles(t: TicketResponse | null) {
 .count-badge { flex-shrink: 0; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 99px; color: #64748b; font-size: 13px; font-weight: 700; padding: 4px 12px; }
 
 /* ── 티켓 목록 ── */
+.section-card > .empty-ph {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
 .ticket-list { display: flex; flex-direction: column; gap: 10px; }
 .ticket-row { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; cursor: pointer; transition: background 0.15s; }
 .ticket-row:hover { background: #f8fafc; }

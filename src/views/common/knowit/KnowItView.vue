@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, nextTick, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Bot, User, MessageCircle, Ticket, Plus, HelpCircle, Send, X, ChevronDown, ChevronUp } from '@lucide/vue'
@@ -113,16 +113,16 @@ function formatAnswerText(text = ''): TextSegment[] {
 
 // source_type → 표시 라벨/색상 + 내부 상세 경로 prefix
 const SOURCE_TYPE_CONFIG: Record<string, { label: string; cls: Source['cls']; route?: string }> = {
-  MANUAL:            { label: '매뉴얼',    cls: 'green', route: '/manuals' },
-  MANUAL_KNOWLEDGE:  { label: '수기 지식', cls: 'green', route: '/direct-data' },
-  WORKI:             { label: '워키 답변', cls: 'blue',  route: '/worki' },
-  TICKET:            { label: '티켓 답변', cls: 'blue',  route: '/tickets' },
-  KNOWLEDGE_DATA:    { label: '지식 문서', cls: 'green', route: '/knowledge' },
+  MANUAL:            { label: '매뉴얼',    cls: 'green',  route: '/manuals' },
+  MANUAL_KNOWLEDGE:  { label: '수기 지식', cls: 'orange', route: '/direct-data' },
+  WORKI:             { label: '워키 답변', cls: 'blue',   route: '/worki' },
+  TICKET:            { label: '티켓 답변', cls: 'blue',   route: '/tickets' },
+  KNOWLEDGE_DATA:    { label: '지식 문서', cls: 'purple', route: '/knowledge' },
   CHAT:              { label: '채팅 답변', cls: 'gray' },
 }
 
 // AI 서버가 내려준 SourceItem[](snake_case) 을 SourceCard 표시용 Source[] 로 변환한다.
-// 매뉴얼은 파일/페이지 단위로 근거가 다를 수 있으므로 파일명·페이지까지 포함해 중복 제거한다.
+// 규정집은 파일/페이지 단위로 근거가 다를 수 있으므로 파일명·페이지까지 포함해 중복 제거한다.
 // (페이지 정보가 없는 출처는 source_type+source_id 기준으로 기존처럼 문서 단위 중복 제거된다.)
 // link가 null이면 source_type 기반 내부 상세 경로로 대체한다.
 function mapReferences(refs: SourceItem[]): Source[] {
@@ -389,7 +389,7 @@ async function submitTicket() {
             </button>
           </div>
           <div class="welcome-hints">
-            <p><strong class="hint-q">질문:</strong> 사내 매뉴얼, 워키, FAQ를 검색하여 답변을 제공해요</p>
+            <p><strong class="hint-q">질문:</strong> 사내 규정집, 워키, FAQ를 검색하여 답변을 제공해요</p>
             <p><strong class="hint-r">요청:</strong> 담당 부서에 티켓을 발행하여 업무 처리를 요청해요</p>
           </div>
         </div>

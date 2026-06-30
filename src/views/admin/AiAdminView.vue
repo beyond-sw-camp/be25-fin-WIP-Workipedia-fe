@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { isAxiosError } from 'axios'
 import { Bot } from '@lucide/vue'
@@ -10,7 +10,7 @@ import {
   editRoutingPromptInstruction,
   getAiSyncSetting, updateAiSyncSetting,
   cleanupWorkiAiSyncJobs, getAiSyncCleanupLogs,
-  type AiTool, type ToolType, type HttpMethod, type AuthType, type AccessScope,
+  type AiTool, type ToolType, type HttpMethod, type AuthType, type AccessScope, type SideEffectType,
   type AiSyncCleanupLog, type AiSyncCleanupResult,
 } from '@/api/aiAdminApi'
 import {
@@ -23,7 +23,7 @@ type Section = 'prompt' | 'department' | 'manual' | 'sync' | 'tools'
 const sections: { id: Section; label: string; group: string }[] = [
   { id: 'prompt', label: '프롬프트 관리', group: 'AI 설정' },
   { id: 'department', label: '부서 티켓 배정 관리', group: 'AI 설정' },
-  { id: 'manual', label: '매뉴얼 문서 관리', group: 'AI 설정' },
+  { id: 'manual', label: '규정집 문서 관리', group: 'AI 설정' },
   { id: 'sync', label: 'AI 동기화 관리', group: 'AI 설정' },
   { id: 'tools', label: 'API Tool 관리', group: 'AI 설정' },
 ]
@@ -44,8 +44,8 @@ const sectionNotices: Record<Section, { label: string; tone: 'optional' | 'requi
   manual: {
     label: '선택 설정',
     tone: 'optional',
-    title: '매뉴얼 문서가 없어도 AI 서비스는 구동됩니다.',
-    description: '매뉴얼 RAG에서 답을 찾지 못하면 Tool, 해결 티켓 이력, 티켓 생성 제안으로 다음 경로를 진행합니다.',
+    title: '규정집 문서가 없어도 AI 서비스는 구동됩니다.',
+    description: '규정집 RAG에서 답을 찾지 못하면 Tool, 해결 티켓 이력, 티켓 생성 제안으로 다음 경로를 진행합니다.',
   },
   sync: {
     label: '운영 설정',
@@ -281,9 +281,9 @@ async function applyAiInstruction() {
   }
 }
 
-// ── 매뉴얼 문서 관리 ──────────────────────────────────────────
-// 매뉴얼의 AI Vector Store 적재 상태를 모니터링하고 FAILED 문서를 재시도한다.
-// 문서 등록·메타데이터 편집(제목·버전·부서)은 설정 관리 > 매뉴얼 탭에서 수행한다.
+// ── 규정집 문서 관리 ──────────────────────────────────────────
+// 규정집의 AI Vector Store 적재 상태를 모니터링하고 FAILED 문서를 재시도한다.
+// 문서 등록·메타데이터 편집(제목·버전·부서)은 설정 관리 > 규정집 탭에서 수행한다.
 const adminManuals = ref<AdminManual[]>([])
 const manualSearch = ref('')
 const manualAiFilter = ref<ManualAiSyncStatus | ''>('')
@@ -367,11 +367,11 @@ watch(filteredManuals, () => { manualCurrentPage.value = 1 })
 async function loadManuals() {
   try {
     // BasePageRequest @Max(100) 제약으로 size 최대값은 100이다.
-    // 매뉴얼이 100개를 초과하는 시점에 전 페이지 순회 방식으로 전환해야 한다.
+    // 규정집이 100개를 초과하는 시점에 전 페이지 순회 방식으로 전환해야 한다.
     const res = await getAdminManuals({ size: 100 })
     adminManuals.value = res.data.content ?? []
   } catch {
-    showSaved('매뉴얼 목록을 불러오지 못했습니다.', 'error')
+    showSaved('규정집 목록을 불러오지 못했습니다.', 'error')
   }
 }
 
@@ -519,6 +519,7 @@ const toolForm = ref({
   toolType: 'HTTP_API' as ToolType,
   endpointUrl: '',
   httpMethod: 'GET' as HttpMethod,
+  sideEffectType: 'READ_ONLY' as SideEffectType,
   datasourceKey: '',
   queryTemplate: '',
   authType: 'NONE' as AuthType,
@@ -563,6 +564,7 @@ const isToolSubmitDisabled = computed(() => {
   if (!toolForm.value.name.trim() || !toolForm.value.description.trim()) return true
   if (toolForm.value.toolType === 'HTTP_API' && !toolForm.value.endpointUrl.trim()) return true
   if (toolForm.value.toolType === 'DB_QUERY' && (!toolForm.value.datasourceKey.trim() || !toolForm.value.queryTemplate.trim())) return true
+  if (toolForm.value.toolType === 'DB_QUERY' && toolForm.value.sideEffectType !== 'READ_ONLY') return true
   if (!toolNoParams.value && toolParamRows.value.length === 0) return true
   if (toolForm.value.accessScope === 'SELF_ONLY' && !validParamNames.value.includes(toolForm.value.selfIdentityParam)) return true
   if (toolForm.value.authType !== 'NONE' && !toolForm.value.credentialRef.trim()) return true
@@ -572,6 +574,13 @@ const isToolSubmitDisabled = computed(() => {
 watch(
   validParamNames,
   () => syncAccessPolicyWithParamRows(),
+)
+
+watch(
+  () => toolForm.value.toolType,
+  (toolType) => {
+    if (toolType === 'DB_QUERY') toolForm.value.sideEffectType = 'READ_ONLY'
+  },
 )
 
 const filteredTools = computed(() => {
@@ -610,7 +619,7 @@ async function generateToolDraft() {
 
   toolDrafting.value = true
   try {
-    const res = await draftAiTool({ endpointUrl, httpMethod: 'GET' })
+    const res = await draftAiTool({ endpointUrl, httpMethod: toolForm.value.httpMethod })
     toolForm.value.name = res.data.name
     toolForm.value.description = res.data.description
     toolForm.value.endpointUrl = res.data.endpointUrl
@@ -640,6 +649,7 @@ function resetToolForm() {
     toolType: 'HTTP_API',
     endpointUrl: '',
     httpMethod: 'GET',
+    sideEffectType: 'READ_ONLY',
     datasourceKey: '',
     queryTemplate: '',
     authType: 'NONE',
@@ -666,7 +676,8 @@ function openEditToolModal(tool: AiTool) {
     description: tool.description ?? '',
     toolType: tool.toolType,
     endpointUrl: tool.endpointUrl ?? '',
-    httpMethod: 'GET',
+    httpMethod: tool.httpMethod ?? 'GET',
+    sideEffectType: tool.sideEffectType,
     datasourceKey: tool.datasourceKey ?? '',
     queryTemplate: tool.queryTemplate ?? '',
     authType: (tool.authType ?? 'NONE') as AuthType,
@@ -866,6 +877,7 @@ async function saveTool() {
     const commonPayload = {
       description: toolForm.value.description.trim(),
       parametersSchema,
+      sideEffectType: toolForm.value.sideEffectType,
       ...accessPolicyPayload,
       timeoutMs: toolForm.value.timeoutMs,
       maxResultCount: toolForm.value.maxResultCount,
@@ -880,7 +892,7 @@ async function saveTool() {
             ...commonPayload,
             ...authPayload,
             endpointUrl,
-            httpMethod: 'GET',
+            httpMethod: toolForm.value.httpMethod,
           }
         : {
             ...commonPayload,
@@ -904,12 +916,13 @@ async function saveTool() {
           name: toolForm.value.name.trim(),
           toolType: 'HTTP_API',
           endpointUrl,
-          httpMethod: 'GET',
+          httpMethod: toolForm.value.httpMethod,
         }
       : {
           ...commonPayload,
           name: toolForm.value.name.trim(),
           toolType: 'DB_QUERY',
+          sideEffectType: 'READ_ONLY',
           datasourceKey,
           queryTemplate,
           authType: 'NONE',
@@ -1106,11 +1119,11 @@ onUnmounted(stopDeptPolling)
           </div>
         </template>
 
-        <!-- ── 매뉴얼 문서 관리 ── -->
+        <!-- ── 규정집 문서 관리 ── -->
         <template v-else-if="activeSection === 'manual'">
           <div class="workspace-title">
             <div>
-              <h2>매뉴얼 문서 관리</h2>
+              <h2>규정집 문서 관리</h2>
               <p>문서의 AI 적재(Vector Store 반영) 상태를 확인하고 실패한 문서를 재시도합니다.</p>
             </div>
           </div>
@@ -1199,7 +1212,7 @@ onUnmounted(stopDeptPolling)
           </div>
 
           <div class="inline-note routing-note">
-            제목·버전·부서 등 메타데이터 수정은 설정 관리 &gt; 매뉴얼 탭에서 수행합니다.
+            제목·버전·부서 등 메타데이터 수정은 설정 관리 &gt; 규정집 탭에서 수행합니다.
           </div>
         </template>
 
@@ -1406,9 +1419,22 @@ onUnmounted(stopDeptPolling)
               <option value="DB_QUERY">DB Query</option>
             </select>
           </label>
+          <label>작업 특성
+            <select v-model="toolForm.sideEffectType" :disabled="toolForm.toolType === 'DB_QUERY'">
+              <option value="READ_ONLY">조회 전용 (READ_ONLY)</option>
+              <option value="MUTATING">데이터 변경 (MUTATING)</option>
+            </select>
+            <small v-if="toolForm.toolType === 'DB_QUERY'" class="field-hint">DB Query Tool은 조회 전용만 지원합니다.</small>
+            <small v-else-if="toolForm.sideEffectType === 'MUTATING'" class="field-hint">데이터 변경 Tool은 AI 실행 대상에서 제외됩니다.</small>
+          </label>
           <label v-if="toolForm.toolType === 'HTTP_API'">HTTP Method
-            <input value="GET" disabled />
-            <small class="field-hint">현재 API Tool은 GET 요청만 지원합니다.</small>
+            <select v-model="toolForm.httpMethod">
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+              <option value="PUT">PUT</option>
+              <option value="PATCH">PATCH</option>
+              <option value="DELETE">DELETE</option>
+            </select>
           </label>
           <label v-else>Datasource Key
             <input v-model="toolForm.datasourceKey" placeholder="예: workipediaReadonly" />
@@ -1418,7 +1444,7 @@ onUnmounted(stopDeptPolling)
         <label v-if="toolForm.toolType === 'HTTP_API'">Endpoint URL
           <div class="endpoint-row">
             <input v-model="toolForm.endpointUrl" placeholder="https://weather.workipedia.wiki/api/weather/current?lat=37.5665&lon=126.9780" />
-            <button class="button button--secondary" type="button" @click="extractQueryParams">Query 추출</button>
+            <button v-if="toolForm.httpMethod === 'GET'" class="button button--secondary" type="button" @click="extractQueryParams">Query 추출</button>
             <button
               class="button button--secondary"
               type="button"
@@ -1428,7 +1454,8 @@ onUnmounted(stopDeptPolling)
               {{ toolDrafting ? '생성 중...' : 'AI 초안 생성' }}
             </button>
           </div>
-          <small class="field-hint">URL의 query string은 파라미터 표로 분리되고, 저장 시 Endpoint URL에는 경로만 저장됩니다.</small>
+          <small v-if="toolForm.httpMethod === 'GET'" class="field-hint">URL의 query string은 파라미터 표로 분리되고, 저장 시 Endpoint URL에는 경로만 저장됩니다.</small>
+          <small v-else class="field-hint">입력 파라미터는 요청 JSON body로 전달됩니다.</small>
         </label>
         <label v-else>Query Template
           <textarea
@@ -1441,8 +1468,10 @@ onUnmounted(stopDeptPolling)
         <section class="tool-section">
           <div class="tool-section-head">
             <div>
-              <h3>Query Parameters</h3>
-              <p>GET API는 대부분 query parameter만으로 호출합니다. 필요한 값만 표에 추가하세요.</p>
+              <h3>입력 Parameters</h3>
+              <p v-if="toolForm.toolType === 'HTTP_API' && toolForm.httpMethod === 'GET'">외부 API의 query parameter를 추가하세요.</p>
+              <p v-else-if="toolForm.toolType === 'HTTP_API'">외부 API의 JSON body에 전달할 필드를 추가하세요.</p>
+              <p v-else>Query Template에 바인딩할 파라미터를 추가하세요.</p>
             </div>
             <label class="checkbox-row checkbox-row--compact">
               <input v-model="toolNoParams" type="checkbox" />
@@ -1494,7 +1523,7 @@ onUnmounted(stopDeptPolling)
           </div>
           <div class="access-policy-status">
             <span>{{ toolForm.accessScope === 'SELF_ONLY' ? toolForm.selfIdentityParam : '제한 없음' }}</span>
-            <strong>{{ toolForm.accessScope === 'SELF_ONLY' ? 'Query Parameters에서 선택한 값이 호출자 사번으로 교체됩니다.' : 'Query Parameters 행에서 본인 제한 적용을 눌러 보호 정책을 켤 수 있습니다.' }}</strong>
+            <strong>{{ toolForm.accessScope === 'SELF_ONLY' ? '입력 Parameters에서 선택한 값이 호출자 사번으로 교체됩니다.' : '입력 Parameters 행에서 본인 제한 적용을 눌러 보호 정책을 켤 수 있습니다.' }}</strong>
           </div>
           <div class="access-policy-note">
             {{
@@ -1647,7 +1676,7 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
 .department-btn-retry { border: 1px solid #ef4444; color: #ef4444; background: #fff; font-size: 12px; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
 .department-btn-retry:hover { background: #fee2e2; }
 
-/* 매뉴얼 문서 관리 */
+/* 규정집 문서 관리 */
 .manual-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
 .manual-filter-select { min-height: 36px; padding: 0 10px; border: 1px solid #ccd3da; border-radius: 5px; background: #fff; color: #34404c; font: inherit; font-size: 12px; }
 .manual-title-cell { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #26323e; }

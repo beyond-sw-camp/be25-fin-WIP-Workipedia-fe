@@ -1,13 +1,13 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 // ── 페이지 개요 ──────────────────────────────────────────────
-// 통합 검색 뷰. 워키·매뉴얼·지식화·수기 지식 4개 도메인을 병렬로 검색해 섹션별로 표시한다.
+// 통합 검색 뷰. 워키·규정집·지식화·수기 지식 4개 도메인을 병렬로 검색해 섹션별로 표시한다.
 //
 // 핵심 구현 포인트
-//   1. 워키·매뉴얼: searchIntegrated 통합 API + allSettled(부분 실패 허용)
+//   1. 워키·규정집: searchIntegrated 통합 API + allSettled(부분 실패 허용)
 //   2. 지식화·수기 지식: BE keyword 미지원 → 스토어 캐시 클라이언트 필터링
 //   3. 띄어쓰기 정규화: 검색어·문서 모두 공백 제거 후 비교 ("법인카드" ↔ "법인 카드" 동일 취급)
 //   4. 검색 상태 유지: URL ?q= 쿼리로 동기화 — 상세 → 뒤로가기 시 결과 복원
-//   5. 워키·매뉴얼 seq 토큰으로 race condition 방지
+//   5. 워키·규정집 seq 토큰으로 race condition 방지
 import { ref, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Search, MessageCircle, BookOpen, Library, BookMarked } from '@lucide/vue'
@@ -90,7 +90,7 @@ function formatDate(iso: string) {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`
 }
 
-// 새 키워드 검색: 워키·매뉴얼은 BE API(원본 키워드), 지식화·수기 지식은 스토어 클라이언트 필터링.
+// 새 키워드 검색: 워키·규정집은 BE API(원본 키워드), 지식화·수기 지식은 스토어 클라이언트 필터링.
 // normalize()는 클라이언트 필터 비교에만 사용 — BE에는 원본 키워드를 전달해야 검색이 정상 작동한다.
 async function runSearch(keyword: string) {
   const trimmed = keyword.trim()
@@ -109,7 +109,7 @@ async function runSearch(keyword: string) {
   loading.value = true
   error.value = ''
 
-  // 워키·매뉴얼: 통합 API (원본 trimmed 키워드 전달 — BE가 직접 검색)
+  // 워키·규정집: 통합 API (원본 trimmed 키워드 전달 — BE가 직접 검색)
   const integratedResult = await Promise.allSettled([
     searchIntegrated(trimmed, PAGE_SIZE),
   ])
@@ -153,7 +153,7 @@ async function runSearch(keyword: string) {
   loading.value = false
 }
 
-// 워키·매뉴얼 페이지 이동: Spring Pageable은 0-based이므로 UI 1-based 페이지에서 -1 변환.
+// 워키·규정집 페이지 이동: Spring Pageable은 0-based이므로 UI 1-based 페이지에서 -1 변환.
 async function goWorkiPage(p: number) {
   const mySeq = ++workiSeq
   try {
@@ -273,7 +273,7 @@ onMounted(() => {
         <Search :size="28" color="#1f2430" />
         통합 검색
       </h1>
-      <p class="page-sub">워키·매뉴얼·지식화·수기 지식을 키워드로 검색해보세요. (2자 이상)</p>
+      <p class="page-sub">워키·규정집·지식화·수기 지식을 키워드로 검색해보세요. (2자 이상)</p>
     </div>
 
     <div class="search-bar" style="margin-bottom: 24px; position: relative;">
@@ -330,11 +330,11 @@ onMounted(() => {
         <BasePagination :page="workiPage" :total-pages="workiTotalPages" @change="goWorkiPage" />
       </section>
 
-      <!-- 매뉴얼 -->
+      <!-- 규정집 -->
       <section v-if="manualTotal" class="result-section">
         <div class="section-head" style="color: #10b981;">
           <BookOpen :size="16" />
-          매뉴얼 <span class="section-count">{{ manualTotal }}</span>
+          규정집 <span class="section-count">{{ manualTotal }}</span>
         </div>
         <div class="result-list">
           <div
@@ -394,6 +394,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.empty-ph {
+  background: var(--bg);
+}
+
 .result-section { margin-bottom: 28px; }
 .section-head {
   display: flex;

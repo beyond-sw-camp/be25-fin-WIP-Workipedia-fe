@@ -212,7 +212,7 @@ watch(
         </button>
       </div>
 
-      <div class="search-bar" style="flex: 1; max-width: 380px; position: relative;">
+      <div class="search-bar" style="flex: 1; position: relative;">
         <Search :size="16" />
         <input
           v-model="query"
@@ -286,6 +286,10 @@ watch(
 </template>
 
 <style scoped>
+.empty-ph {
+  background: var(--bg);
+}
+
 .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
 .wiki-list { display: flex; flex-direction: column; gap: 12px; }
 .wiki-item {
