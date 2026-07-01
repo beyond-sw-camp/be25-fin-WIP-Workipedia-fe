@@ -27,6 +27,7 @@ export interface EnvironmentImpact {
   electricitySavedKwh: number | null
   co2SavedKg: number | null
   smartphoneChargeEquivalentCount: number | null
+  minutesPerCitedAnswer: number | null
 }
 
 // BE: leaderboard.dto.LeaderboardResponse (상위 랭커 + 내 순위)

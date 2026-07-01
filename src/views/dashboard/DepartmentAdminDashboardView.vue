@@ -52,14 +52,14 @@ const activeView = ref<ActiveView>('all')
 const panelMeta = computed(() => {
   if (activeView.value === 'all') return { title: '전체 티켓', desc: '우리 부서에 배정된 모든 티켓입니다' }
   if (activeView.value === 'my') return { title: '내 답장 티켓', desc: '내가 답변 완료한 티켓입니다' }
-  return { title: '처리 완료 티켓', desc: '최근 1개월 내 처리 완료된 티켓입니다' }
+  return { title: '처리 완료 티켓', desc: '처리 완료된 전체 티켓입니다' }
 })
 
 // ── 티켓 목록 ────────────────────────────────────────────────
 // BE는 단일 status 필터만 지원하므로 ASSIGNED·COMPLETED를 각각 조회한 뒤 FE에서 4개 버킷으로 분리한다.
 //   deptTickets    : ASSIGNED 중 assigneeId === null (부서에 배정됐지만 담당자 미지정)
 //   myActiveTickets: ASSIGNED 중 assigneeId === 내 userId (내가 진행 중인 티켓)
-//   doneTickets    : COMPLETED 전체 (최근 1개월 — 전체 이력이 아닌 현황 파악 목적)
+//   doneTickets    : COMPLETED 전체
 //   myDoneTickets  : COMPLETED 중 assigneeId === 내 userId (내 답장 티켓)
 const deptTickets = ref<TicketResponse[]>([])
 const myActiveTickets = ref<TicketResponse[]>([])
@@ -162,17 +162,13 @@ async function loadTickets() {
   loading.value = true
   loadError.value = ''
   try {
-    const oneMonthAgo = new Date()
-    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1)
     // ASSIGNED·COMPLETED를 병렬 조회해 네트워크 왕복을 줄인다.
     const [assignedRes, doneRes] = await Promise.all([
       getTickets({ status: 'ASSIGNED', size: 100 }),
       getTickets({ status: 'COMPLETED', size: 100 }),
     ])
     const assigned = assignedRes.data.content
-    // 처리 완료는 최근 1개월만 표시한다. 전체 이력을 다 불러오면 목록이 너무 길어지고
-    // '처리 완료' 통계 카드가 현황 지표가 아닌 누적 수치가 되어버리기 때문이다.
-    const done = doneRes.data.content.filter(t => new Date(t.updatedAt) >= oneMonthAgo)
+    const done = doneRes.data.content
     deptTickets.value = assigned.filter(t => t.assigneeId === null)
     myActiveTickets.value = assigned.filter(t => t.assigneeId === auth.userId)
     doneTickets.value = done
@@ -635,7 +631,7 @@ function knowledgeTicketFiles(item: KnowledgeTicketCandidateResponse) {
           <div class="stat-icon"><CheckCircle2 :size="18" color="#7c3aed" /></div>
           <div class="stat-num">{{ doneTickets.length }}</div>
           <div class="stat-label">처리 완료</div>
-          <div class="stat-sub">최근 1개월 처리 건수</div>
+          <div class="stat-sub">전체 처리 완료 건수</div>
         </div>
       </div>
 
