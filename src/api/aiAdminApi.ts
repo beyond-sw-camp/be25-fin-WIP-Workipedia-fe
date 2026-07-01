@@ -184,3 +184,78 @@ export function getAiSyncCleanupLogs(limit = 10) {
     params: { limit },
   })
 }
+
+// ── 기타 지식 데이터 동기화 (ai_sync_jobs) ──────────────────────
+// 목록 응답이 담을 수 있는 전체 sourceType
+export type AiSyncSourceType =
+  | 'MANUAL' | 'WORKI' | 'KNOWLEDGE_DATA' | 'MANUAL_KNOWLEDGE' | 'DEPT_RR' | 'MANUAL_CHANGE_SUMMARY'
+// 이 탭에서 필터/버튼/요청에 쓰는 지식 2종
+export type KnowledgeSyncSourceType = Extract<AiSyncSourceType, 'KNOWLEDGE_DATA' | 'MANUAL_KNOWLEDGE'>
+
+export type AiSyncStatus = 'PENDING' | 'PROCESSING' | 'SYNCED' | 'FAILED'
+export type AiSyncOperation = 'UPSERT' | 'DELETE'
+
+export interface AiSyncJob {
+  aiSyncJobId: number
+  sourceType: AiSyncSourceType
+  sourceId: number
+  operation: AiSyncOperation
+  status: AiSyncStatus
+  retryCount: number
+  lastError: string | null
+  startedAt: string | null
+  completedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AiSyncJobStats {
+  pending: number
+  processing: number
+  synced: number
+  failed: number
+}
+
+export interface AiSyncJobListParams extends PageParams {
+  status?: AiSyncStatus
+  sourceType?: KnowledgeSyncSourceType
+  from?: string
+  to?: string
+}
+
+export interface AiSyncStatsParams {
+  sourceTypes?: KnowledgeSyncSourceType[]
+}
+
+export interface KnowledgeSyncRequest {
+  sourceTypes: KnowledgeSyncSourceType[]
+}
+
+export function getAiSyncJobs(params: AiSyncJobListParams = {}) {
+  return http.get<PageResponse<AiSyncJob>>('/admin/ai-sync-jobs', { params })
+}
+
+// 스코프 필수 — 이 탭 통계는 지식 2종만 집계한다.
+export function getAiSyncJobStats(params: AiSyncStatsParams = {}) {
+  return http.get<AiSyncJobStats>('/admin/ai-sync-jobs/stats', {
+    params: params.sourceTypes ? { sourceTypes: params.sourceTypes.join(',') } : {},
+  })
+}
+
+export function retryAiSyncJob(jobId: number) {
+  return http.post<void>(`/admin/ai-sync-jobs/${jobId}/retry`)
+}
+
+export function retryAllFailedAiSyncJobs() {
+  return http.post<{ retried: number }>('/admin/ai-sync-jobs/retry-all')
+}
+
+// 대기 작업 즉시 실행 (비동기 드레인)
+export function runNowKnowledgeSync(body: KnowledgeSyncRequest) {
+  return http.post<{ queued: number }>('/admin/ai-sync-jobs/run-now', body)
+}
+
+// 전체 재동기화 (활성 원본 UPSERT)
+export function resyncKnowledge(body: KnowledgeSyncRequest) {
+  return http.post<{ enqueued: number; skipped: number }>('/admin/ai-sync-jobs/resync-knowledge', body)
+}

@@ -34,23 +34,6 @@ const error = ref('')
 
 const CHART_MONTH_COUNT = 6
 
-function completedRecentMonths() {
-  const currentMonth = new Date()
-  currentMonth.setDate(1)
-  currentMonth.setHours(0, 0, 0, 0)
-
-  return Array.from({ length: CHART_MONTH_COUNT }, (_, index) => {
-    const d = new Date(currentMonth)
-    d.setMonth(currentMonth.getMonth() - CHART_MONTH_COUNT + index)
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-  })
-}
-
-function filterCompletedRecentMonths<T extends { month: string }>(points: T[]) {
-  const months = new Set(completedRecentMonths())
-  return points.filter(point => months.has(point.month))
-}
-
 // ── 요약 KPI ─────────────────────────────────────────────────
 const summary = ref<DashboardSummary | null>(null)
 
@@ -101,14 +84,14 @@ onMounted(async () => {
   try {
     const [sumRes, trendRes, rateRes, deptStatusRes, deptRateRes] = await Promise.all([
       getDashboardSummary(),
-      getMonthlyTicketTrend(CHART_MONTH_COUNT + 1),
-      getMonthlyAutoAssignRate(CHART_MONTH_COUNT + 1),
+      getMonthlyTicketTrend(CHART_MONTH_COUNT),
+      getMonthlyAutoAssignRate(CHART_MONTH_COUNT),
       getDeptTicketStatus(),
       getDeptAutoAssignRate(),
     ])
     summary.value = sumRes.data
-    ticketTrends.value = filterCompletedRecentMonths(trendRes.data.points)
-    autoAssignRates.value = filterCompletedRecentMonths(rateRes.data.points)
+    ticketTrends.value = trendRes.data.points
+    autoAssignRates.value = rateRes.data.points
     deptTicketStatuses.value = deptStatusRes.data.departments
     deptAutoAssignRates.value = deptRateRes.data.departments
   } catch {
