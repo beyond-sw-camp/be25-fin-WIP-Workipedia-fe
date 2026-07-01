@@ -29,10 +29,10 @@ type Section = 'prompt' | 'department' | 'manual' | 'sync' | 'knowledge' | 'tool
 const sections: { id: Section; label: string; group: string }[] = [
   { id: 'prompt', label: '프롬프트 관리', group: 'AI 설정' },
   { id: 'department', label: '부서 티켓 배정 관리', group: 'AI 설정' },
+  { id: 'tools', label: 'API Tool 관리', group: 'AI 설정' },
   { id: 'manual', label: '규정집 문서 관리', group: 'AI 설정' },
   { id: 'sync', label: '워키 게시판 관리', group: 'AI 설정' },
   { id: 'knowledge', label: '기타 지식 데이터', group: 'AI 설정' },
-  { id: 'tools', label: 'API Tool 관리', group: 'AI 설정' },
 ]
 
 const sectionNotices: Record<Section, { label: string; tone: 'optional' | 'required' | 'monitor'; title: string; description: string }> = {
@@ -1495,7 +1495,7 @@ onUnmounted(stopDeptPolling)
             </button>
           </div>
 
-          <div class="sync-result-row">
+          <div class="sync-result-row sync-result-row--4col">
             <div class="sync-result"><span>대기 중</span><strong>{{ knowledgeStats.pending }}</strong></div>
             <div class="sync-result"><span>처리 중</span><strong>{{ knowledgeStats.processing }}</strong></div>
             <div class="sync-result"><span>완료</span><strong>{{ knowledgeStats.synced }}</strong></div>
@@ -1607,9 +1607,14 @@ onUnmounted(stopDeptPolling)
             </table>
 
             <div v-if="knowledgeTotalPages > 1" class="manual-pagination">
-              <button class="manual-page-btn" :disabled="knowledgePage === 1" @click="changeKnowledgePage(knowledgePage - 1)">‹</button>
-              <span class="manual-page-btn manual-page-btn--active">{{ knowledgePage }} / {{ knowledgeTotalPages }}</span>
-              <button class="manual-page-btn" :disabled="knowledgePage === knowledgeTotalPages" @click="changeKnowledgePage(knowledgePage + 1)">›</button>
+              <button class="manual-page-btn" :disabled="knowledgePage === 1" @click="changeKnowledgePage(knowledgePage - 1)">&#8249;</button>
+              <button
+                v-for="p in knowledgeTotalPages"
+                :key="p"
+                :class="['manual-page-btn', { 'manual-page-btn--active': p === knowledgePage }]"
+                @click="changeKnowledgePage(p)"
+              >{{ p }}</button>
+              <button class="manual-page-btn" :disabled="knowledgePage === knowledgeTotalPages" @click="changeKnowledgePage(knowledgePage + 1)">&#8250;</button>
             </div>
           </div>
         </template>
@@ -2006,13 +2011,14 @@ code { padding: 2px 5px; border-radius: 3px; background: #f0f2f4; color: #485561
 .manual-page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .manual-page-btn--active { background: #1769c2; color: #fff; border-color: #1769c2; }
 
-.sync-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 22px; }
+.sync-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 22px; margin-bottom: 22px; }
 .sync-panel { min-height: 190px; }
 .sync-field { display: flex; flex-direction: column; gap: 7px; color: #53606d; font-size: 12px; font-weight: 700; }
 .sync-field select { width: min(260px, 100%); }
 .sync-help { margin-top: 12px; color: #6f7a85; font-size: 12px; line-height: 1.55; }
 .sync-help--warning { color: #b45309; }
 .sync-result-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.sync-result-row--4col { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .sync-result { min-height: 76px; padding: 13px; border: 1px solid #e1e6eb; border-radius: 7px; background: #f8fafc; }
 .sync-result span { display: block; color: #74808b; font-size: 11px; }
 .sync-result strong { display: block; margin-top: 8px; color: #25313d; font-size: 22px; }
