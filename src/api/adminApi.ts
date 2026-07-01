@@ -38,8 +38,8 @@ export interface AdminUserPage {
   content: AdminUser[]
   pageInfo: { page: number; size: number; totalElements: number; totalPages: number }
 }
-export function getAdminUsers() {
-  return http.get<AdminUserPage>('/admin/users')
+export function getAdminUsers(params?: { page?: number; size?: number }) {
+  return http.get<AdminUserPage>('/admin/users', { params })
 }
 export function updateUserStatus(userId: number, status: 'ACTIVE' | 'INACTIVE') {
   return http.patch<ApiResponse<null>>(`/admin/users/${userId}/status`, { status })
