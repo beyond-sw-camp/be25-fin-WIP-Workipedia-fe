@@ -167,8 +167,8 @@ export interface AdminPointPage {
   content: AdminPointUser[]
   pageInfo: { page: number; size: number; totalElements: number; totalPages: number }
 }
-export function getAdminPoints() {
-  return http.get<AdminPointPage>('/admin/points')
+export function getAdminPoints(params?: { page?: number; size?: number }) {
+  return http.get<AdminPointPage>('/admin/points', { params })
 }
 export function deductAdminPoints(employeeId: string, body: { amount: number; reason: string }) {
   return http.patch<ApiResponse<null>>(`/admin/points/${employeeId}/deduct`, body)

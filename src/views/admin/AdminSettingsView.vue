@@ -555,21 +555,35 @@ const pointUserSearch = ref('')
 const selectedUser = ref<AdminPointUser | null>(null)
 const pointsToDeduct = ref('')
 const deductReason = ref('')
-// 검색어가 없으면 빈 배열 반환 — 탭 진입 시 전체 목록이 펼쳐지는 것을 방지한다.
 const pointSearchResults = computed(() => {
   const q = pointUserSearch.value.toLowerCase()
-  return q
-    ? pointUsers.value.filter(u =>
-        u.employeeId.toLowerCase().includes(q) ||
-        u.nickname.toLowerCase().includes(q)
-      )
-    : []
+  if (!q) return pointUsers.value
+  return pointUsers.value.filter(u =>
+    u.employeeId.toLowerCase().includes(q) ||
+    u.nickname.toLowerCase().includes(q)
+  )
 })
+const POINT_PAGE_SIZE = 10
+const pointCurrentPage = ref(1)
+const pointTotalPages = computed(() => Math.max(1, Math.ceil(pointSearchResults.value.length / POINT_PAGE_SIZE)))
+const paginatedPointUsers = computed(() => {
+  const start = (pointCurrentPage.value - 1) * POINT_PAGE_SIZE
+  return pointSearchResults.value.slice(start, start + POINT_PAGE_SIZE)
+})
+watch(pointUserSearch, () => { pointCurrentPage.value = 1 })
 async function loadPoints() {
   pointsLoading.value = true
   try {
-    const res = await getAdminPoints()
-    pointUsers.value = res.data.content
+    const first = await getAdminPoints({ page: 1, size: 20 })
+    const all: typeof first.data.content = [...first.data.content]
+    const totalPages = first.data.pageInfo?.totalPages ?? 1
+    if (totalPages > 1) {
+      const rest = await Promise.all(
+        Array.from({ length: totalPages - 1 }, (_, i) => getAdminPoints({ page: i + 2, size: 20 }))
+      )
+      rest.forEach(r => all.push(...r.data.content))
+    }
+    pointUsers.value = all
   } catch { /* 초기 로딩 실패는 조용히 처리 */ } finally {
     pointsLoading.value = false
   }
@@ -1164,25 +1178,37 @@ onMounted(() => {
       </div>
 
       <!-- 검색 결과 -->
-      <div v-if="pointUserSearch" class="item-list" style="margin-top:12px;">
+      <div class="item-list" style="margin-top:12px;">
         <div v-if="pointsLoading" class="empty-ph" style="height:80px; font-size:13px;">
           <div class="loading-spinner" style="width:18px; height:18px; margin-bottom:6px;" />
           불러오는 중...
         </div>
-        <div v-else-if="pointSearchResults.length === 0" class="empty-ph" style="height:80px; font-size:13px;">검색 결과가 없습니다.</div>
-        <div v-for="u in pointSearchResults" :key="u.userId"
-          :class="['user-row', 'clickable', { selected: selectedUser?.userId === u.userId }]"
-          @click="selectUser(u)">
-          <div class="user-avatar">{{ u.employeeId?.slice(-2) ?? '?' }}</div>
-          <div class="user-info">
-            <div class="user-id">{{ u.employeeId }}</div>
-            <div class="user-meta">{{ u.nickname }}</div>
+        <div v-else-if="pointSearchResults.length === 0 && pointUserSearch" class="empty-ph" style="height:80px; font-size:13px;">검색 결과가 없습니다.</div>
+        <template v-else>
+          <div v-for="u in paginatedPointUsers" :key="u.userId"
+            :class="['user-row', 'clickable', { selected: selectedUser?.userId === u.userId }]"
+            @click="selectUser(u)">
+            <div class="user-avatar">{{ u.employeeId?.slice(-2) ?? '?' }}</div>
+            <div class="user-info">
+              <div class="user-id">{{ u.employeeId }}</div>
+              <div class="user-meta">{{ u.nickname }}</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-weight:700; color:#f97316;">{{ u.currentPoint }}P</div>
+              <div style="font-size:11px; color:#aeb2bb;">현재 포인트</div>
+            </div>
           </div>
-          <div style="text-align:right;">
-            <div style="font-weight:700; color:#f97316;">{{ u.currentPoint }}P</div>
-            <div style="font-size:11px; color:#aeb2bb;">현재 포인트</div>
+          <div v-if="pointTotalPages > 1" class="pagination">
+            <button class="page-btn" :disabled="pointCurrentPage === 1" @click="pointCurrentPage--">&#8249;</button>
+            <button
+              v-for="p in pointTotalPages" :key="p"
+              :class="['page-btn', { active: p === pointCurrentPage }]"
+              @click="pointCurrentPage = p">
+              {{ p }}
+            </button>
+            <button class="page-btn" :disabled="pointCurrentPage === pointTotalPages" @click="pointCurrentPage++">&#8250;</button>
           </div>
-        </div>
+        </template>
       </div>
 
       <!-- 차감 폼 -->
