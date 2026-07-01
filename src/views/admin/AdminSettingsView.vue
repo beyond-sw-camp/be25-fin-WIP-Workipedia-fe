@@ -78,12 +78,30 @@ const filteredUsers = computed(() => {
     )
     .sort((a, b) => new Date(b.lastLoginAt).getTime() - new Date(a.lastLoginAt).getTime())
 })
+
+const USER_PAGE_SIZE = 10
+const userCurrentPage = ref(1)
+const userTotalPages = computed(() => Math.ceil(filteredUsers.value.length / USER_PAGE_SIZE))
+const paginatedUsers = computed(() => {
+  const start = (userCurrentPage.value - 1) * USER_PAGE_SIZE
+  return filteredUsers.value.slice(start, start + USER_PAGE_SIZE)
+})
+watch(userSearchQuery, () => { userCurrentPage.value = 1 })
 // users 탭 최초 진입 시 watch에서 한 번만 호출한다 (loadedTabs 참고).
+// 전체 사용자를 불러오기 위해 첫 페이지로 totalPages를 확인한 뒤 나머지 페이지를 병렬 조회한다.
 async function loadUsers() {
   usersLoading.value = true
   try {
-    const res = await getAdminUsers()
-    adminUsers.value = res.data.content
+    const first = await getAdminUsers({ page: 1, size: 20 })
+    const all: typeof first.data.content = [...first.data.content]
+    const totalPages = first.data.pageInfo?.totalPages ?? 1
+    if (totalPages > 1) {
+      const rest = await Promise.all(
+        Array.from({ length: totalPages - 1 }, (_, i) => getAdminUsers({ page: i + 2, size: 20 }))
+      )
+      rest.forEach(r => all.push(...r.data.content))
+    }
+    adminUsers.value = all
   } catch (err) {
     console.error('[loadUsers]', err)
   } finally {
@@ -1090,7 +1108,7 @@ onMounted(() => {
         {{ userSearchQuery ? '검색 결과가 없습니다' : '등록된 사용자가 없습니다' }}
       </div>
       <div v-else class="item-list">
-        <div v-for="u in filteredUsers" :key="u.userId"
+        <div v-for="u in paginatedUsers" :key="u.userId"
           :class="['user-row', { inactive: u.status === 'INACTIVE' }]">
           <div class="user-avatar">{{ u.employeeId?.slice(-2) ?? '?' }}</div>
           <div class="user-info">
@@ -1119,6 +1137,16 @@ onMounted(() => {
             </button>
           </div>
         </div>
+      </div>
+      <div v-if="userTotalPages > 1" class="pagination">
+        <button class="page-btn" :disabled="userCurrentPage === 1" @click="userCurrentPage--">&#8249;</button>
+        <button
+          v-for="p in userTotalPages" :key="p"
+          :class="['page-btn', { active: p === userCurrentPage }]"
+          @click="userCurrentPage = p">
+          {{ p }}
+        </button>
+        <button class="page-btn" :disabled="userCurrentPage === userTotalPages" @click="userCurrentPage++">&#8250;</button>
       </div>
     </div>
 
@@ -1575,4 +1603,27 @@ onMounted(() => {
 .modal-title { font-size: 16px; font-weight: 700; color: #1f2430; margin: 0 0 8px; }
 .modal-desc { font-size: 13.5px; color: #717182; margin: 0 0 20px; }
 
+/* ── Pagination ── */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  margin-top: 16px;
+}
+.page-btn {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  color: #475569;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.page-btn:hover:not(:disabled) { background: #f1f5f9; }
+.page-btn.active { background: #2b7fff; color: #fff; border-color: #2b7fff; font-weight: 600; }
+.page-btn:disabled { color: #cbd5e1; cursor: default; }
 </style>
