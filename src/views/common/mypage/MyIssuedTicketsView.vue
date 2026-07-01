@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ChevronLeft, Building2, Info } from '@lucide/vue'
 import { useMyIssuedTickets, type MyIssuedTicketTab } from '@/composables/useMyIssuedTickets'
@@ -15,6 +15,15 @@ const {
   setActiveTab,
   loadTickets,
 } = useMyIssuedTickets()
+
+const PAGE_SIZE = 10
+const currentPage = ref(1)
+const totalPages = computed(() => Math.max(1, Math.ceil(currentList.value.length / PAGE_SIZE)))
+const pagedList = computed(() => {
+  const start = (currentPage.value - 1) * PAGE_SIZE
+  return currentList.value.slice(start, start + PAGE_SIZE)
+})
+watch(activeTab, () => { currentPage.value = 1 })
 
 function switchTab(tab: MyIssuedTicketTab) {
   setActiveTab(tab)
@@ -67,7 +76,7 @@ onMounted(loadTickets)
       <div class="ticket-list">
         <template v-if="currentList.length > 0">
           <div
-            v-for="t in currentList"
+            v-for="t in pagedList"
             :key="t.ticketId"
             class="card ticket-row"
             @click="router.push(`/my/tickets/${t.ticketId}`)"
@@ -79,6 +88,16 @@ onMounted(loadTickets)
                 <span>{{ t.assignedDepartmentName ?? '배정 대기' }}</span>
               </div>
             </div>
+          </div>
+          <div v-if="totalPages > 1" class="pagination">
+            <button class="page-btn" :disabled="currentPage === 1" @click="currentPage--">&#8249;</button>
+            <button
+              v-for="p in totalPages"
+              :key="p"
+              :class="['page-btn', { active: p === currentPage }]"
+              @click="currentPage = p"
+            >{{ p }}</button>
+            <button class="page-btn" :disabled="currentPage === totalPages" @click="currentPage++">&#8250;</button>
           </div>
         </template>
         <div v-else class="card empty-state">
@@ -124,4 +143,10 @@ onMounted(loadTickets)
 .empty-emoji { font-size: 48px; margin-bottom: 12px; }
 .empty-title { font-size: 15px; font-weight: 600; color: #1f2430; margin: 0 0 6px; }
 .empty-desc { font-size: 13px; color: #aeb2bb; margin: 0; }
+
+.pagination { display: flex; justify-content: center; align-items: center; gap: 6px; padding: 16px 0 4px; }
+.page-btn { width: 32px; height: 32px; border-radius: 6px; border: 1px solid #e5e7eb; background: #fff; font-size: 13px; cursor: pointer; color: #374151; }
+.page-btn:hover:not(:disabled) { background: #f1f5f9; }
+.page-btn.active { background: #2b7fff; color: #fff; border-color: #2b7fff; font-weight: 600; }
+.page-btn:disabled { color: #cbd5e1; cursor: default; }
 </style>
