@@ -10,21 +10,28 @@ import {
   editRoutingPromptInstruction,
   getAiSyncSetting, updateAiSyncSetting,
   cleanupWorkiAiSyncJobs, getAiSyncCleanupLogs,
+  getAiSyncJobs, getAiSyncJobStats, retryAiSyncJob,
+  runNowKnowledgeSync, resyncKnowledge,
   type AiTool, type ToolType, type HttpMethod, type AuthType, type AccessScope, type SideEffectType,
   type AiSyncCleanupLog, type AiSyncCleanupResult,
+  type AiSyncJob, type AiSyncJobStats, type AiSyncStatus, type KnowledgeSyncSourceType,
 } from '@/api/aiAdminApi'
 import {
   getAdminDepartments, updateDepartmentRoutingPrompt, type AdminDepartment,
   getAdminManuals, updateAdminManualMeta, deleteAdminManual, type AdminManual, type ManualAiSyncStatus,
 } from '@/api/adminApi'
+import {
+  KNOWLEDGE_SYNC_SOURCE_TYPES, AI_SYNC_STATUS_LABELS, AI_SYNC_OPERATION_LABELS,
+} from '@/constants/aiSync'
 
-type Section = 'prompt' | 'department' | 'manual' | 'sync' | 'tools'
+type Section = 'prompt' | 'department' | 'manual' | 'sync' | 'knowledge' | 'tools'
 
 const sections: { id: Section; label: string; group: string }[] = [
   { id: 'prompt', label: '프롬프트 관리', group: 'AI 설정' },
   { id: 'department', label: '부서 티켓 배정 관리', group: 'AI 설정' },
   { id: 'manual', label: '규정집 문서 관리', group: 'AI 설정' },
-  { id: 'sync', label: 'AI 동기화 관리', group: 'AI 설정' },
+  { id: 'sync', label: '워키 게시판 관리', group: 'AI 설정' },
+  { id: 'knowledge', label: '기타 지식 데이터', group: 'AI 설정' },
   { id: 'tools', label: 'API Tool 관리', group: 'AI 설정' },
 ]
 
@@ -53,6 +60,12 @@ const sectionNotices: Record<Section, { label: string; tone: 'optional' | 'requi
     title: 'WORKI 청킹 데이터의 보존 기간과 정리 이력을 관리합니다.',
     description: '오래된 WORKI AI 적재 데이터를 정리해 저장소 용량과 검색 품질을 관리합니다.',
   },
+  knowledge: {
+    label: '운영 설정',
+    tone: 'monitor',
+    title: '팀 승인 지식과 시스템 수기 지식의 Vector DB 동기화 상태를 관리합니다.',
+    description: '각 지식 데이터의 최신 동기화 상태를 확인하고, cron 주기를 기다리지 않고 즉시 실행하거나 전체 재동기화할 수 있습니다.',
+  },
   tools: {
     label: '선택 설정',
     tone: 'optional',
@@ -63,7 +76,7 @@ const sectionNotices: Record<Section, { label: string; tone: 'optional' | 'requi
 
 // localStorage에 마지막 활성 탭을 저장해 새로고침 후에도 탭을 유지한다.
 // 저장된 값이 유효한 Section이 아닌 경우(직접 조작 등) 기본값 'prompt'로 폴백한다.
-const VALID_SECTIONS: Section[] = ['prompt', 'department', 'manual', 'sync', 'tools']
+const VALID_SECTIONS: Section[] = ['prompt', 'department', 'manual', 'sync', 'knowledge', 'tools']
 const TAB_LS_KEY = 'workipedia_ai_admin_tab'
 const storedTab = localStorage.getItem(TAB_LS_KEY) as Section | null
 const activeSection = ref<Section>(storedTab && VALID_SECTIONS.includes(storedTab) ? storedTab : 'prompt')
@@ -71,6 +84,7 @@ watch(activeSection, (s) => {
   localStorage.setItem(TAB_LS_KEY, s)
   if (s === 'manual') loadManuals()
   if (s === 'sync') loadAiSyncCleanup()
+  if (s === 'knowledge') loadKnowledge()
 })
 
 // ── 토스트 (BaseToast 공통 컴포넌트 사용) ──────────────────────
@@ -938,12 +952,160 @@ async function saveTool() {
   }
 }
 
+// ── 기타 지식 데이터 동기화 ────────────────────────────────────
+const KNOWLEDGE_SCOPE: KnowledgeSyncSourceType[] = ['KNOWLEDGE_DATA', 'MANUAL_KNOWLEDGE']
+
+const knowledgeJobs = ref<AiSyncJob[]>([])
+const knowledgeStats = ref<AiSyncJobStats>({ pending: 0, processing: 0, synced: 0, failed: 0 })
+const knowledgeLoading = ref(false)
+const knowledgePage = ref(1)
+const knowledgeTotalPages = ref(1)
+const knowledgeSourceFilter = ref<KnowledgeSyncSourceType | ''>('')
+const knowledgeStatusFilter = ref<AiSyncStatus | ''>('')
+const KNOWLEDGE_PAGE_SIZE = 20
+
+// 즉시 실행 / 재동기화 대상 스코프 선택 (전체 = '' → 지식 2종)
+const runNowScope = ref<KnowledgeSyncSourceType | ''>('')
+const resyncScope = ref<KnowledgeSyncSourceType | ''>('')
+const runNowRunning = ref(false)
+const resyncRunning = ref(false)
+const retryingJobId = ref<number | null>(null)
+const resyncModalOpen = ref(false)
+
+const knowledgeSourceTypeOptions = KNOWLEDGE_SYNC_SOURCE_TYPES
+const knowledgeStatusOptions: { label: string; value: AiSyncStatus }[] = [
+  { label: AI_SYNC_STATUS_LABELS.PENDING, value: 'PENDING' },
+  { label: AI_SYNC_STATUS_LABELS.PROCESSING, value: 'PROCESSING' },
+  { label: AI_SYNC_STATUS_LABELS.SYNCED, value: 'SYNCED' },
+  { label: AI_SYNC_STATUS_LABELS.FAILED, value: 'FAILED' },
+]
+
+const knowledgeHasProcessing = computed(() =>
+  knowledgeJobs.value.some((j) => j.status === 'PROCESSING' || j.status === 'PENDING'),
+)
+
+function scopeToSourceTypes(scope: KnowledgeSyncSourceType | ''): KnowledgeSyncSourceType[] {
+  return scope ? [scope] : [...KNOWLEDGE_SCOPE]
+}
+
+function sourceTypeLabel(value: string): string {
+  return KNOWLEDGE_SYNC_SOURCE_TYPES.find((t) => t.value === value)?.label ?? value
+}
+
+function statusLabel(status: string): string {
+  return (AI_SYNC_STATUS_LABELS as Record<string, string>)[status] ?? status
+}
+
+function operationLabel(op: string): string {
+  return (AI_SYNC_OPERATION_LABELS as Record<string, string>)[op] ?? op
+}
+
+function statusBadgeClass(status: string): string {
+  switch (status) {
+    case 'SYNCED': return 'badge--ai-synced'
+    case 'FAILED': return 'badge--ai-failed'
+    case 'PROCESSING': return 'badge--ai-processing'
+    default: return 'badge--ai-pending'
+  }
+}
+
+function formatKnowledgeTime(value: string | null): string {
+  if (!value) return '-'
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return '-'
+  return d.toLocaleString('ko-KR', { hour12: false })
+}
+
+async function loadKnowledgeStats() {
+  try {
+    const res = await getAiSyncJobStats({ sourceTypes: KNOWLEDGE_SCOPE })
+    knowledgeStats.value = res.data
+  } catch { }
+}
+
+async function loadKnowledgeJobs() {
+  knowledgeLoading.value = true
+  try {
+    const res = await getAiSyncJobs({
+      page: knowledgePage.value,
+      size: KNOWLEDGE_PAGE_SIZE,
+      sourceType: knowledgeSourceFilter.value || undefined,
+      status: knowledgeStatusFilter.value || undefined,
+    })
+    knowledgeJobs.value = res.data.content
+    knowledgeTotalPages.value = res.data.pageInfo.totalPages
+  } catch (error) {
+    showSaved('동기화 목록을 불러오지 못했습니다.', 'error', getErrorMessage(error))
+  } finally {
+    knowledgeLoading.value = false
+  }
+}
+
+async function loadKnowledge() {
+  await Promise.all([loadKnowledgeJobs(), loadKnowledgeStats()])
+}
+
+function applyKnowledgeFilter() {
+  knowledgePage.value = 1
+  loadKnowledgeJobs()
+}
+
+function changeKnowledgePage(page: number) {
+  if (page < 1 || page > knowledgeTotalPages.value) return
+  knowledgePage.value = page
+  loadKnowledgeJobs()
+}
+
+async function retryKnowledgeJob(jobId: number) {
+  if (retryingJobId.value !== null) return
+  retryingJobId.value = jobId
+  try {
+    await retryAiSyncJob(jobId)
+    showSaved('재시도를 요청했습니다.')
+    await loadKnowledge()
+  } catch (error) {
+    showSaved('재시도에 실패했습니다.', 'error', getErrorMessage(error))
+  } finally {
+    retryingJobId.value = null
+  }
+}
+
+async function runNowKnowledge() {
+  if (runNowRunning.value) return
+  runNowRunning.value = true
+  try {
+    const res = await runNowKnowledgeSync({ sourceTypes: scopeToSourceTypes(runNowScope.value) })
+    showSaved(`대기 작업 ${res.data.queued}건 처리를 시작했습니다.`, 'success', '진행 상황은 새로고침으로 확인하세요.')
+    await loadKnowledge()
+  } catch (error) {
+    showSaved('즉시 실행에 실패했습니다.', 'error', getErrorMessage(error))
+  } finally {
+    runNowRunning.value = false
+  }
+}
+
+async function confirmResyncKnowledge() {
+  if (resyncRunning.value) return
+  resyncRunning.value = true
+  try {
+    const res = await resyncKnowledge({ sourceTypes: scopeToSourceTypes(resyncScope.value) })
+    showSaved(`재동기화 작업 ${res.data.enqueued}건 생성 (중복 ${res.data.skipped}건 제외)`, 'success')
+    resyncModalOpen.value = false
+    await loadKnowledge()
+  } catch (error) {
+    showSaved('전체 재동기화에 실패했습니다.', 'error', getErrorMessage(error))
+  } finally {
+    resyncRunning.value = false
+  }
+}
+
 // ── 초기 로드 ─────────────────────────────────────────────────
 onMounted(() => {
   loadPromptSettings()
   loadDepts()
   if (activeSection.value === 'manual') loadManuals()
   if (activeSection.value === 'sync') loadAiSyncCleanup()
+  if (activeSection.value === 'knowledge') loadKnowledge()
   loadTools()
 })
 
@@ -1220,7 +1382,7 @@ onUnmounted(stopDeptPolling)
         <template v-else-if="activeSection === 'sync'">
           <div class="workspace-title">
             <div>
-              <h2>AI 동기화 관리</h2>
+              <h2>워키 게시판 관리</h2>
               <p>WORKI 청킹 데이터의 보존 기간을 설정하고 오래된 적재 데이터를 정리합니다.</p>
             </div>
           </div>
@@ -1321,6 +1483,137 @@ onUnmounted(stopDeptPolling)
           </div>
         </template>
 
+        <!-- ── 기타 지식 데이터 ── -->
+        <template v-else-if="activeSection === 'knowledge'">
+          <div class="workspace-title">
+            <div>
+              <h2>기타 지식 데이터</h2>
+              <p>팀 승인 지식과 시스템 수기 지식의 Vector DB 동기화 상태입니다. 각 지식의 최신 상태 1건을 표시합니다.</p>
+            </div>
+            <button class="button button--secondary" :disabled="knowledgeLoading" @click="loadKnowledge">
+              {{ knowledgeLoading ? '불러오는 중...' : '새로고침' }}
+            </button>
+          </div>
+
+          <div class="sync-result-row">
+            <div class="sync-result"><span>대기 중</span><strong>{{ knowledgeStats.pending }}</strong></div>
+            <div class="sync-result"><span>처리 중</span><strong>{{ knowledgeStats.processing }}</strong></div>
+            <div class="sync-result"><span>완료</span><strong>{{ knowledgeStats.synced }}</strong></div>
+            <div class="sync-result"><span>실패</span><strong :class="{ 'sync-result--danger': knowledgeStats.failed > 0 }">{{ knowledgeStats.failed }}</strong></div>
+          </div>
+
+          <div class="sync-grid">
+            <section class="setting-block sync-panel">
+              <div class="setting-heading">
+                <div>
+                  <h3>대기 작업 즉시 실행</h3>
+                  <p>이미 쌓인 대기 작업을 cron 주기를 기다리지 않고 지금 처리합니다. (등록·삭제 모두)</p>
+                </div>
+                <button class="button button--primary" :disabled="runNowRunning" @click="runNowKnowledge">
+                  {{ runNowRunning ? '실행 중...' : '즉시 실행' }}
+                </button>
+              </div>
+              <label class="sync-field">
+                <span>대상</span>
+                <select v-model="runNowScope" class="manual-filter-select">
+                  <option value="">전체</option>
+                  <option v-for="opt in knowledgeSourceTypeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                </select>
+              </label>
+            </section>
+
+            <section class="setting-block sync-panel">
+              <div class="setting-heading">
+                <div>
+                  <h3>전체 재동기화</h3>
+                  <p>활성 지식 전체를 Vector DB에 다시 색인합니다. 작업량이 많을 수 있습니다.</p>
+                </div>
+                <button class="button button--danger" :disabled="resyncRunning" @click="resyncModalOpen = true">
+                  전체 재동기화
+                </button>
+              </div>
+              <label class="sync-field">
+                <span>대상</span>
+                <select v-model="resyncScope" class="manual-filter-select">
+                  <option value="">전체</option>
+                  <option v-for="opt in knowledgeSourceTypeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                </select>
+              </label>
+              <p class="sync-help sync-help--warning">Qdrant 초기화·임베딩 변경·전체 재색인이 필요할 때만 사용하세요.</p>
+            </section>
+          </div>
+
+          <div class="workspace-title sync-history-title">
+            <div>
+              <h3>동기화 상태</h3>
+              <p v-if="knowledgeHasProcessing">처리 중인 작업이 있습니다. 새로고침으로 진행 상황을 확인하세요.</p>
+              <p v-else>각 지식 데이터의 최신 동기화 상태입니다.</p>
+            </div>
+            <div class="knowledge-filter">
+              <select v-model="knowledgeSourceFilter" class="manual-filter-select" @change="applyKnowledgeFilter">
+                <option value="">전체 구분</option>
+                <option v-for="opt in knowledgeSourceTypeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+              <select v-model="knowledgeStatusFilter" class="manual-filter-select" @change="applyKnowledgeFilter">
+                <option value="">전체 상태</option>
+                <option v-for="opt in knowledgeStatusOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="editable-table">
+              <thead>
+                <tr>
+                  <th>구분</th>
+                  <th>Source ID</th>
+                  <th>작업</th>
+                  <th>상태</th>
+                  <th>재시도</th>
+                  <th>실패 사유</th>
+                  <th>생성일</th>
+                  <th>수정일</th>
+                  <th>액션</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="job in knowledgeJobs" :key="job.aiSyncJobId">
+                  <td>{{ sourceTypeLabel(job.sourceType) }}</td>
+                  <td>{{ job.sourceId }}</td>
+                  <td>{{ operationLabel(job.operation) }}</td>
+                  <td><span :class="['manual-ai-badge', statusBadgeClass(job.status)]">{{ statusLabel(job.status) }}</span></td>
+                  <td>{{ job.retryCount }}</td>
+                  <td class="knowledge-error" :title="job.lastError ?? ''">{{ job.lastError ?? '-' }}</td>
+                  <td>{{ formatKnowledgeTime(job.createdAt) }}</td>
+                  <td>{{ formatKnowledgeTime(job.updatedAt) }}</td>
+                  <td>
+                    <button
+                      v-if="job.status === 'FAILED'"
+                      class="button button--secondary"
+                      :disabled="retryingJobId === job.aiSyncJobId"
+                      @click="retryKnowledgeJob(job.aiSyncJobId)"
+                    >
+                      {{ retryingJobId === job.aiSyncJobId ? '재시도 중...' : '재시도' }}
+                    </button>
+                    <span v-else>-</span>
+                  </td>
+                </tr>
+                <tr v-if="knowledgeJobs.length === 0">
+                  <td colspan="9" style="text-align: center; color: #b0b8c1; padding: 28px;">
+                    {{ knowledgeLoading ? '불러오는 중...' : '표시할 동기화 데이터가 없습니다.' }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div v-if="knowledgeTotalPages > 1" class="manual-pagination">
+              <button class="manual-page-btn" :disabled="knowledgePage === 1" @click="changeKnowledgePage(knowledgePage - 1)">‹</button>
+              <span class="manual-page-btn manual-page-btn--active">{{ knowledgePage }} / {{ knowledgeTotalPages }}</span>
+              <button class="manual-page-btn" :disabled="knowledgePage === knowledgeTotalPages" @click="changeKnowledgePage(knowledgePage + 1)">›</button>
+            </div>
+          </div>
+        </template>
+
         <!-- ── API Tool 관리 ── -->
         <template v-else-if="activeSection === 'tools'">
           <div class="workspace-title">
@@ -1395,6 +1688,17 @@ onUnmounted(stopDeptPolling)
           :danger="true"
           @update:model-value="(v) => { if (!v) deleteManualId = null }"
           @confirm="confirmDeleteManual"
+        />
+
+        <!-- 지식 데이터 전체 재동기화 확인 -->
+        <BaseModal
+          :model-value="resyncModalOpen"
+          title="전체 재동기화"
+          message="활성 지식 데이터 전체에 대해 재색인 작업을 생성합니다. 작업량이 많을 수 있으며 진행 중에는 부하가 발생할 수 있습니다."
+          confirm-label="재동기화 실행"
+          :danger="true"
+          @update:model-value="(v) => { if (!v) resyncModalOpen = false }"
+          @confirm="confirmResyncKnowledge"
         />
     </div>
 
@@ -1601,6 +1905,10 @@ onUnmounted(stopDeptPolling)
 .button--primary:hover { background: #105daF; }
 .button:disabled { background: #b9c2cb; color: #fff; cursor: not-allowed; }
 .button--secondary { border-color: #cfd6dd; background: #fff; color: #33404d; }
+.button--danger { background: #d64545; color: #fff; border-color: #d64545; }
+.button--danger:hover { background: #bd3838; }
+.knowledge-filter { display: flex; gap: 8px; }
+.knowledge-error { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #b91c1c; }
 .setting-block { padding: 20px; border: 1px solid #dfe4e8; border-radius: 7px; background: #fff; }
 .setting-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 16px; }
 .setting-block h3, .setting-heading h3 { font-size: 14px; }
