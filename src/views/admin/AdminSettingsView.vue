@@ -408,6 +408,7 @@ async function saveManual() {
       } else {
         const updateRes = await updateAdminManualMeta(editingManual.value.id, {
           title: editingManual.value.title,
+          description: editingManual.value.description,
           version: nextVer,
           departmentId: editingManual.value.departmentId,
         })
