@@ -197,6 +197,52 @@ export interface DeptAutoAssignRate {
   departmentName: string
   autoAssignmentRate: number
 }
+export interface LlmUsageSourceBreakdown {
+  type: string
+  count: number
+}
+export interface LlmUsageSummary {
+  sampleCount: number
+  fullFileTokens: number
+  ragTokens: number
+  savedTokens: number
+  reductionRate: number
+  fullFileCredits: number
+  ragCredits: number
+  savedCredits: number
+  fullFileCalls: number
+  ragCalls: number
+  savedCalls: number
+  sourceCount: number
+  citedChunkCount: number
+  averageFullFileTokens: number
+  averageRagTokens: number
+}
+export interface LlmUsageRecentSample {
+  id: number
+  chatbotMessageId: number
+  createdAt: string
+  question: string | null
+  answerable: boolean
+  sourceCount: number
+  citedChunkCount: number
+  fullFileTokens: number
+  ragTokens: number
+  savedTokens: number
+  reductionRate: number
+  fullFileCredits: number
+  ragCredits: number
+  savedCredits: number
+  fullFileCalls: number
+  ragCalls: number
+  savedCalls: number
+  sourceBreakdown: LlmUsageSourceBreakdown[]
+}
+export interface LlmUsageSavingsResponse {
+  summary: LlmUsageSummary
+  recentSamples: LlmUsageRecentSample[]
+  sourceBreakdown: LlmUsageSourceBreakdown[]
+}
 
 // BE 래퍼: { months: number, points: T[] }
 export interface MonthlyChartResponse<T> {
@@ -219,6 +265,9 @@ export function getDeptTicketStatus() {
 }
 export function getDeptAutoAssignRate() {
   return http.get<DeptChartResponse<DeptAutoAssignRate>>('/admin/dashboard/department-auto-assignment-rate')
+}
+export function getLlmUsageSavings() {
+  return http.get<LlmUsageSavingsResponse>('/admin/dashboard/llm-usage-savings')
 }
 
 // ── 공통 접수 큐 (SYSTEM_ADMIN) ────────────────────────────────

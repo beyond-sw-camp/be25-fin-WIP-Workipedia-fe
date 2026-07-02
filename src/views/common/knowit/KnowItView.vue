@@ -276,7 +276,8 @@ async function send() {
         answered = true
         // 참조 문서는 nextAction과 무관하게 출처가 1개 이상이면 항상 표시한다.
         // (AI SUCCESS 응답은 action=null로 내려와 nextAction이 SHOW_SOURCES가 아니기 때문)
-        const sources = mapReferences(parseReferences(saved.referencesJson))
+        const references = parseReferences(saved.referencesJson)
+        const sources = mapReferences(references)
         if (sources.length > 0) {
           msgs.value.push({ kind: 'sources', sources })
         }

@@ -12,6 +12,7 @@ import { ShieldCheck, Users, Ticket, FileText } from '@lucide/vue'
 import LineChart from '@/components/common/LineChart.vue'
 import BarChart from '@/components/common/BarChart.vue'
 import InfraEsgPanel from '@/components/admin/InfraEsgPanel.vue'
+import LlmUsageSavingsPanel from '@/components/admin/LlmUsageSavingsPanel.vue'
 import {
   getDashboardSummary,
   getMonthlyTicketTrend,
@@ -226,6 +227,9 @@ onMounted(async () => {
 
       <!-- ── 인프라 ESG (CloudWatch 기반) ── -->
       <InfraEsgPanel />
+
+      <!-- ── 노잇 RAG 인용 근거 기록 ── -->
+      <LlmUsageSavingsPanel />
     </template>
   </div>
 </template>
