@@ -122,8 +122,8 @@ const SOURCE_TYPE_CONFIG: Record<string, { label: string; cls: Source['cls']; ro
 }
 
 // AI 서버가 내려준 SourceItem[](snake_case) 을 SourceCard 표시용 Source[] 로 변환한다.
-// 규정집은 파일/페이지 단위로 근거가 다를 수 있으므로 파일명·페이지까지 포함해 중복 제거한다.
-// (페이지 정보가 없는 출처는 source_type+source_id 기준으로 기존처럼 문서 단위 중복 제거된다.)
+// 규정집은 페이지가 달라도 같은 문서(주체)면 1개로 합친다. → source_type+source_id+file_name 기준 중복 제거.
+// (페이지가 포함되면 같은 매뉴얼이 페이지마다 여러 근거로 쪼개져 보이므로 페이지는 키에서 제외한다.)
 // link가 null이면 source_type 기반 내부 상세 경로로 대체한다.
 const SOURCE_TYPE_ORDER: Record<string, number> = {
   MANUAL: 0,
@@ -141,7 +141,7 @@ function mapReferences(refs: SourceItem[]): Source[] {
     (a, b) => (SOURCE_TYPE_ORDER[a.source_type] ?? 99) - (SOURCE_TYPE_ORDER[b.source_type] ?? 99),
   )
   for (const r of sorted) {
-    const key = `${r.source_type}:${r.source_id}:${r.file_name ?? ''}:${r.page_start ?? ''}:${r.page_end ?? ''}`
+    const key = `${r.source_type}:${r.source_id}:${r.file_name ?? ''}`
     if (seen.has(key)) continue
     seen.add(key)
     const cfg = SOURCE_TYPE_CONFIG[r.source_type] ?? { label: r.source_type, cls: 'gray' as const }
