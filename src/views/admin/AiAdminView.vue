@@ -594,6 +594,7 @@ watch(
   () => toolForm.value.toolType,
   (toolType) => {
     if (toolType === 'DB_QUERY') toolForm.value.sideEffectType = 'READ_ONLY'
+    if (toolType === 'HTTP_API') toolForm.value.httpMethod = 'GET'
   },
 )
 
@@ -636,7 +637,8 @@ async function generateToolDraft() {
     const res = await draftAiTool({ endpointUrl, httpMethod: toolForm.value.httpMethod })
     toolForm.value.name = res.data.name
     toolForm.value.description = res.data.description
-    toolForm.value.endpointUrl = res.data.endpointUrl
+    const draftedEndpoint = cleanEndpointUrl(res.data.endpointUrl) ?? res.data.endpointUrl
+    toolForm.value.endpointUrl = draftedEndpoint
     toolParamRows.value = []
     toolNoParams.value = res.data.parameters.length === 0
     res.data.parameters.forEach(param => {
@@ -646,7 +648,12 @@ async function generateToolDraft() {
         description: param.description,
       })
     })
-    showSaved('AI 초안을 생성했습니다. 내용을 확인한 뒤 저장하세요.')
+    const extractedCount = mergeQueryParamsFromUrls(endpointUrl, res.data.endpointUrl)
+    const cleanedCurrentEndpoint = cleanEndpointUrl(toolForm.value.endpointUrl)
+    if (cleanedCurrentEndpoint) toolForm.value.endpointUrl = cleanedCurrentEndpoint
+    showSaved(extractedCount > 0
+      ? 'AI 초안과 Query parameter를 함께 적용했습니다. 내용을 확인한 뒤 저장하세요.'
+      : 'AI 초안을 생성했습니다. 내용을 확인한 뒤 저장하세요.')
   } catch (error) {
     showSaved(readApiErrorMessage(error) ?? 'AI 초안 생성에 실패했습니다.')
   } finally {
@@ -736,6 +743,17 @@ function inferParamType(value: string): ParamType {
   return 'string'
 }
 
+function cleanEndpointUrl(endpointUrl: string) {
+  try {
+    const url = new URL(endpointUrl)
+    url.search = ''
+    url.hash = ''
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
 function addParamRow(row?: Partial<Omit<ToolParamRow, 'id'>>) {
   toolNoParams.value = false
   toolParamRows.value.push({
@@ -775,39 +793,28 @@ function syncAccessPolicyWithParamRows() {
   clearSelfOnlyAccess()
 }
 
-function extractQueryParams() {
-  const endpointUrl = toolForm.value.endpointUrl.trim()
-  if (!endpointUrl) {
-    showSaved('Endpoint URL을 먼저 입력하세요.')
-    return
-  }
-  let url: URL
-  try {
-    url = new URL(endpointUrl)
-  } catch {
-    showSaved('Endpoint URL 형식이 올바르지 않습니다.')
-    return
-  }
-  const params = Array.from(url.searchParams.entries())
-  if (params.length === 0) {
-    showSaved('추출할 query parameter가 없습니다.')
-    return
-  }
-
+function mergeQueryParamsFromUrls(...endpointUrls: string[]) {
   const existingNames = new Set(toolParamRows.value.map(row => row.name).filter(Boolean))
-  params.forEach(([name, value]) => {
-    if (existingNames.has(name)) return
-    existingNames.add(name)
-    addParamRow({
-      name,
-      type: inferParamType(value),
-      description: name,
+  let addedCount = 0
+  for (const endpointUrl of endpointUrls) {
+    let url: URL
+    try {
+      url = new URL(endpointUrl)
+    } catch {
+      continue
+    }
+    Array.from(url.searchParams.entries()).forEach(([name, value]) => {
+      if (existingNames.has(name)) return
+      existingNames.add(name)
+      addedCount += 1
+      addParamRow({
+        name,
+        type: inferParamType(value),
+        description: name,
+      })
     })
-  })
-  url.search = ''
-  url.hash = ''
-  toolForm.value.endpointUrl = url.toString()
-  showSaved('Query parameter를 추출했습니다.')
+  }
+  return addedCount
 }
 
 function buildParamsSchemaText() {
@@ -906,7 +913,7 @@ async function saveTool() {
             ...commonPayload,
             ...authPayload,
             endpointUrl,
-            httpMethod: toolForm.value.httpMethod,
+            httpMethod: 'GET',
           }
         : {
             ...commonPayload,
@@ -930,7 +937,7 @@ async function saveTool() {
           name: toolForm.value.name.trim(),
           toolType: 'HTTP_API',
           endpointUrl,
-          httpMethod: toolForm.value.httpMethod,
+          httpMethod: 'GET',
         }
       : {
           ...commonPayload,
@@ -1737,13 +1744,8 @@ onUnmounted(stopDeptPolling)
             <small v-else-if="toolForm.sideEffectType === 'MUTATING'" class="field-hint">데이터 변경 Tool은 AI 실행 대상에서 제외됩니다.</small>
           </label>
           <label v-if="toolForm.toolType === 'HTTP_API'">HTTP Method
-            <select v-model="toolForm.httpMethod">
-              <option value="GET">GET</option>
-              <option value="POST">POST</option>
-              <option value="PUT">PUT</option>
-              <option value="PATCH">PATCH</option>
-              <option value="DELETE">DELETE</option>
-            </select>
+            <input value="GET" disabled />
+            <small class="field-hint">현재 AI 실행용 HTTP API Tool은 GET 요청만 등록할 수 있습니다.</small>
           </label>
           <label v-else>Datasource Key
             <input v-model="toolForm.datasourceKey" placeholder="예: workipediaReadonly" />
@@ -1753,18 +1755,16 @@ onUnmounted(stopDeptPolling)
         <label v-if="toolForm.toolType === 'HTTP_API'">Endpoint URL
           <div class="endpoint-row">
             <input v-model="toolForm.endpointUrl" placeholder="https://weather.workipedia.wiki/api/weather/current?lat=37.5665&lon=126.9780" />
-            <button v-if="toolForm.httpMethod === 'GET'" class="button button--secondary" type="button" @click="extractQueryParams">Query 추출</button>
             <button
               class="button button--secondary"
               type="button"
               :disabled="toolDrafting || toolModalMode === 'edit'"
               @click="generateToolDraft"
             >
-              {{ toolDrafting ? '생성 중...' : 'AI 초안 생성' }}
+              {{ toolDrafting ? '생성 중...' : 'AI 초안 + Query 추출' }}
             </button>
           </div>
-          <small v-if="toolForm.httpMethod === 'GET'" class="field-hint">URL의 query string은 파라미터 표로 분리되고, 저장 시 Endpoint URL에는 경로만 저장됩니다.</small>
-          <small v-else class="field-hint">입력 파라미터는 요청 JSON body로 전달됩니다.</small>
+          <small class="field-hint">HTTP API Tool은 GET 요청만 지원합니다. URL의 query string은 파라미터 표로 분리되고, 저장 시 Endpoint URL에는 경로만 저장됩니다.</small>
         </label>
         <label v-else>Query Template
           <textarea
@@ -1778,8 +1778,7 @@ onUnmounted(stopDeptPolling)
           <div class="tool-section-head">
             <div>
               <h3>입력 Parameters</h3>
-              <p v-if="toolForm.toolType === 'HTTP_API' && toolForm.httpMethod === 'GET'">외부 API의 query parameter를 추가하세요.</p>
-              <p v-else-if="toolForm.toolType === 'HTTP_API'">외부 API의 JSON body에 전달할 필드를 추가하세요.</p>
+              <p v-if="toolForm.toolType === 'HTTP_API'">외부 API의 query parameter를 추가하세요.</p>
               <p v-else>Query Template에 바인딩할 파라미터를 추가하세요.</p>
             </div>
             <label class="checkbox-row checkbox-row--compact">
