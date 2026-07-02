@@ -113,7 +113,7 @@ function formatAnswerText(text = ''): TextSegment[] {
 
 // source_type → 표시 라벨/색상 + 내부 상세 경로 prefix
 const SOURCE_TYPE_CONFIG: Record<string, { label: string; cls: Source['cls']; route?: string }> = {
-  MANUAL:            { label: '매뉴얼',    cls: 'green',  route: '/manuals' },
+  MANUAL:            { label: '규정집',    cls: 'green',  route: '/manuals' },
   MANUAL_KNOWLEDGE:  { label: '수기 지식', cls: 'orange', route: '/direct-data' },
   WORKI:             { label: '워키 답변', cls: 'blue',   route: '/worki' },
   TICKET:            { label: '티켓 답변', cls: 'blue',   route: '/tickets' },
@@ -125,10 +125,22 @@ const SOURCE_TYPE_CONFIG: Record<string, { label: string; cls: Source['cls']; ro
 // 규정집은 파일/페이지 단위로 근거가 다를 수 있으므로 파일명·페이지까지 포함해 중복 제거한다.
 // (페이지 정보가 없는 출처는 source_type+source_id 기준으로 기존처럼 문서 단위 중복 제거된다.)
 // link가 null이면 source_type 기반 내부 상세 경로로 대체한다.
+const SOURCE_TYPE_ORDER: Record<string, number> = {
+  MANUAL: 0,
+  MANUAL_KNOWLEDGE: 1,
+  KNOWLEDGE_DATA: 2,
+  WORKI: 3,
+  TICKET: 4,
+  CHAT: 5,
+}
+
 function mapReferences(refs: SourceItem[]): Source[] {
   const seen = new Set<string>()
   const result: Source[] = []
-  for (const r of refs) {
+  const sorted = [...refs].sort(
+    (a, b) => (SOURCE_TYPE_ORDER[a.source_type] ?? 99) - (SOURCE_TYPE_ORDER[b.source_type] ?? 99),
+  )
+  for (const r of sorted) {
     const key = `${r.source_type}:${r.source_id}:${r.file_name ?? ''}:${r.page_start ?? ''}:${r.page_end ?? ''}`
     if (seen.has(key)) continue
     seen.add(key)
@@ -138,6 +150,7 @@ function mapReferences(refs: SourceItem[]): Source[] {
   }
   return result
 }
+
 
 // 질문/요청 모드를 선택하는 즉시 챗봇 세션을 생성한다.
 // 세션은 UI에 노출하지 않고 sessionId만 보관해 이후 메시지 전송에 재사용한다.

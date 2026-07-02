@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { AlertCircle, Clock, Paperclip } from '@lucide/vue'
+import { Clock, Paperclip } from '@lucide/vue'
 import BaseToast from '@/components/common/BaseToast.vue'
 import {
   assignCommonQueueTicket,
@@ -13,9 +13,9 @@ import type { TicketResponse } from '@/types/ticket'
 const queueTickets = ref<TicketResponse[]>([])
 const queueLoading = ref(false)
 const queueError = ref(false)
-const queueHasNext = ref(false)
 const queuePage = ref(1)
-const queueLoadingMore = ref(false)
+const queueTotalPages = ref(1)
+const queueTotalElements = ref(0)
 const selectedDept = ref<Record<number, number>>({})
 const assigning = ref<Set<number>>(new Set())
 const departments = ref<AdminDepartment[]>([])
@@ -67,27 +67,25 @@ function queueExpiryClass(updatedAt: string): string {
   return 'expiry-ok'
 }
 
-async function loadQueue(page: number, append: boolean) {
-  if (append) queueLoadingMore.value = true
-  else {
-    queueLoading.value = true
-    queueError.value = false
-  }
-
+async function loadQueue(page: number) {
+  queueLoading.value = true
+  queueError.value = false
   try {
     const res = await getCommonQueueTickets({ page, size: 10 })
-    queueTickets.value = append
-      ? [...queueTickets.value, ...res.data.content]
-      : res.data.content
-    queueHasNext.value = res.data.pageInfo.hasNext
+    queueTickets.value = res.data.content
     queuePage.value = page
+    queueTotalPages.value = res.data.pageInfo.totalPages
+    queueTotalElements.value = res.data.pageInfo.totalElements
   } catch {
-    if (append) showToast('더 보기 로딩에 실패했습니다. 다시 시도해주세요.', '', 'error')
-    else queueError.value = true
+    queueError.value = true
   } finally {
-    if (append) queueLoadingMore.value = false
-    else queueLoading.value = false
+    queueLoading.value = false
   }
+}
+
+function changeQueuePage(page: number) {
+  if (page < 1 || page > queueTotalPages.value) return
+  loadQueue(page)
 }
 
 async function handleAssign(ticket: TicketResponse) {
@@ -100,10 +98,12 @@ async function handleAssign(ticket: TicketResponse) {
   assigning.value = new Set([...assigning.value, ticket.ticketId])
   try {
     await assignCommonQueueTicket(ticket.ticketId, { departmentId: deptId })
-    queueTickets.value = queueTickets.value.filter(t => t.ticketId !== ticket.ticketId)
     delete selectedDept.value[ticket.ticketId]
     const deptName = departments.value.find(d => d.departmentId === deptId)?.departmentName ?? '담당 부서'
     showToast(`${deptName}에 티켓을 배정했습니다.`)
+    const prevPage = queuePage.value
+    await loadQueue(prevPage)
+    if (queueTickets.value.length === 0 && prevPage > 1) loadQueue(prevPage - 1)
   } catch {
     showToast('배정에 실패했습니다. 다시 시도해주세요.', '', 'error')
   } finally {
@@ -140,32 +140,21 @@ async function loadDepartments() {
 
 onMounted(() => {
   loadDepartments()
-  loadQueue(1, false)
+  loadQueue(1)
 })
 </script>
 
 <template>
   <div class="card common-queue-card">
-    <div class="queue-header">
-      <div>
-        <h3 class="chart-title">
-          <AlertCircle :size="18" color="#f97316" /> 공통 접수 티켓
-        </h3>
-        <p class="queue-desc">자동 배정에 실패했거나 팀 관리자가 이관한 티켓을 담당 부서에 배정하세요.</p>
-      </div>
-      <span class="badge gray queue-count">
-        {{ queueLoading ? '...' : `${queueTickets.length}건` }}
-      </span>
-    </div>
-
     <div v-if="queueLoading" class="empty-ph queue-state">불러오는 중...</div>
     <div v-else-if="queueError" class="empty-ph queue-state queue-state-error">
       공통 접수 티켓을 불러오지 못했습니다.
-      <button class="btn retry-btn" @click="loadQueue(1, false)">다시 시도</button>
+      <button class="btn retry-btn" @click="loadQueue(1)">다시 시도</button>
     </div>
     <div v-else-if="queueTickets.length === 0" class="empty-ph queue-state">공통 접수 티켓이 없습니다</div>
 
     <div v-else class="queue-list">
+      <p class="queue-total">총 {{ queueTotalElements }}건</p>
       <div v-for="ticket in queueTickets" :key="ticket.ticketId" class="queue-item">
         <div class="queue-item-top">
           <div class="queue-item-title-row">
@@ -234,10 +223,15 @@ onMounted(() => {
         </div>
       </div>
 
-      <div v-if="queueHasNext" class="more-row">
-        <button class="btn" :disabled="queueLoadingMore" @click="loadQueue(queuePage + 1, true)">
-          {{ queueLoadingMore ? '불러오는 중...' : '더 보기' }}
-        </button>
+      <div v-if="queueTotalPages > 1" class="pagination">
+        <button class="page-btn" :disabled="queuePage === 1" @click="changeQueuePage(queuePage - 1)">&#8249;</button>
+        <button
+          v-for="p in queueTotalPages"
+          :key="p"
+          :class="['page-btn', { active: p === queuePage }]"
+          @click="changeQueuePage(p)"
+        >{{ p }}</button>
+        <button class="page-btn" :disabled="queuePage === queueTotalPages" @click="changeQueuePage(queuePage + 1)">&#8250;</button>
       </div>
     </div>
   </div>
@@ -248,25 +242,7 @@ onMounted(() => {
 <style scoped>
 .common-queue-card { padding: 24px 28px; }
 
-.chart-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 14.5px;
-  font-weight: 700;
-  color: #1f2430;
-  margin: 0 0 4px;
-}
-
-.queue-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-
-.queue-desc { font-size: 13px; color: #aeb2bb; margin: 4px 0 0; }
-.queue-count { font-size: 14px; font-weight: 700; padding: 4px 12px; }
+.queue-total { font-size: 13px; font-weight: 600; color: #64748b; margin: 0 0 12px; }
 .queue-state { height: 120px; }
 .queue-state-error { color: #e03131; }
 .retry-btn { margin-top: 8px; }
@@ -390,7 +366,12 @@ onMounted(() => {
 }
 
 .badge.red { background: #fff0f0; color: #e03131; border-color: #ffc0c0; }
-.more-row { text-align: center; padding: 8px 0; }
+
+.pagination { display: flex; justify-content: center; align-items: center; gap: 6px; padding: 12px 0 4px; }
+.page-btn { width: 32px; height: 32px; border-radius: 6px; border: 1px solid #e5e7eb; background: #fff; font-size: 13px; cursor: pointer; color: #374151; }
+.page-btn:hover:not(:disabled) { background: #f1f5f9; }
+.page-btn.active { background: #2b7fff; color: #fff; border-color: #2b7fff; font-weight: 600; }
+.page-btn:disabled { color: #cbd5e1; cursor: default; }
 
 @media (max-width: 760px) {
   .common-queue-card { padding: 18px; }
